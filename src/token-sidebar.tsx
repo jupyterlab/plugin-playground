@@ -85,7 +85,7 @@ export class TokenSidebar extends ReactWidget {
                   <code className="jp-PluginPlayground-entryLabel jp-PluginPlayground-tokenString">
                     {token.name}
                   </code>
-                  <div className="jp-PluginPlayground-tokenActions">
+                  <div className="jp-PluginPlayground-actions">
                     <button
                       className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-importButton"
                       type="button"

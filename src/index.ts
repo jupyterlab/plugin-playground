@@ -204,7 +204,8 @@ class PluginPlayground {
 
       const exampleSidebar = new ExampleSidebar({
         fetchExamples: this._discoverExtensionExamples.bind(this),
-        onOpenExample: this._openExtensionExample.bind(this)
+        onOpenExample: this._openExtensionExample.bind(this),
+        onOpenReadme: this._openExtensionExampleReadme.bind(this)
       });
       exampleSidebar.id = 'jp-plugin-example-sidebar';
       exampleSidebar.title.label = 'Extension Examples';
@@ -476,8 +477,23 @@ class PluginPlayground {
   }
 
   private async _openExtensionExample(examplePath: string): Promise<void> {
+    await this._openExampleFile(examplePath);
+  }
+
+  private async _openExtensionExampleReadme(readmePath: string): Promise<void> {
+    if (this.app.commands.hasCommand('markdownviewer:open')) {
+      await this.app.commands.execute('markdownviewer:open', {
+        path: readmePath
+      });
+      return;
+    }
+
+    await this._openExampleFile(readmePath);
+  }
+
+  private async _openExampleFile(path: string): Promise<void> {
     await this.app.commands.execute('docmanager:open', {
-      path: normalizeContentsPath(examplePath),
+      path: normalizeContentsPath(path),
       factory: 'Editor'
     });
   }
@@ -509,6 +525,9 @@ class PluginPlayground {
       discovered.push({
         name: item.name,
         path: entrypoint,
+        readmePath: normalizeContentsPath(
+          this._joinPath(exampleDirectory, 'README.md')
+        ),
         description
       });
     }
