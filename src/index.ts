@@ -481,15 +481,14 @@ class PluginPlayground {
   }
 
   private async _openExtensionExampleReadme(readmePath: string): Promise<void> {
-    const normalizedPath = normalizeContentsPath(readmePath);
     if (this.app.commands.hasCommand('markdownviewer:open')) {
       await this.app.commands.execute('markdownviewer:open', {
-        path: normalizedPath
+        path: readmePath
       });
       return;
     }
 
-    await this._openExampleFile(normalizedPath);
+    await this._openExampleFile(readmePath);
   }
 
   private async _openExampleFile(path: string): Promise<void> {
