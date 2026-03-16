@@ -357,8 +357,8 @@ test('command completer suggests command ids inside execute calls', async ({
   await page.contents.uploadContent(
     `import { JupyterFrontEnd } from '@jupyterlab/application';
 
-const run = (app: JupyterFrontEnd) => {
-  app.commands.execute();
+const run = (application: JupyterFrontEnd) => {
+  application.commands.execute();
 };
 `,
     'text',
@@ -404,6 +404,6 @@ const run = (app: JupyterFrontEnd) => {
   await page.waitForFunction((expected: string) => {
     const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
     const source = current.content.model.sharedModel.getSource();
-    return source.includes(`app.commands.execute('${expected}')`);
+    return source.includes(`application.commands.execute('${expected}')`);
   }, LOAD_COMMAND);
 });

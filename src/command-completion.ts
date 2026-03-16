@@ -103,6 +103,7 @@ export function formatCommandDescription(record: ICommandRecord): string {
 }
 
 namespace Private {
+  const IDENTIFIER_PATTERN = '[A-Za-z_$][A-Za-z0-9_$]*';
   const COMMAND_METHODS = [
     'execute',
     'isEnabled',
@@ -120,14 +121,15 @@ namespace Private {
     'mnemonic',
     'notifyCommandChanged'
   ].join('|');
+  const COMMAND_TARGET = `(?:${IDENTIFIER_PATTERN}\\.)*commands`;
 
   const QUOTED_EXECUTE_PATTERN = new RegExp(
-    `(?:^|[^\\w$.])(?:app\\.)?commands\\.(?:${COMMAND_METHODS})\\(\\s*(['"])([^'"\\\\]*)$`,
+    `(?:^|[^\\w$.])${COMMAND_TARGET}\\.(?:${COMMAND_METHODS})\\(\\s*(['"])([^'"\\\\]*)$`,
     's'
   );
 
   const BARE_EXECUTE_PATTERN = new RegExp(
-    `(?:^|[^\\w$.])(?:app\\.)?commands\\.(?:${COMMAND_METHODS})\\(\\s*([A-Za-z0-9:._-]*)$`,
+    `(?:^|[^\\w$.])${COMMAND_TARGET}\\.(?:${COMMAND_METHODS})\\(\\s*([A-Za-z0-9:._-]*)$`,
     's'
   );
 
