@@ -110,6 +110,7 @@ test('opens a dummy extension example from the sidebar', async ({ page }) => {
   const integrationExampleName = 'integration-example';
   const integrationExampleRoot = `extension-examples/${integrationExampleName}`;
   const expectedPath = `${integrationExampleRoot}/src/index.ts`;
+  const expectedReadmePath = `${integrationExampleRoot}/README.md`;
 
   await page.contents.uploadContent(
     JSON.stringify(
@@ -127,6 +128,11 @@ test('opens a dummy extension example from the sidebar', async ({ page }) => {
     "const plugin = { id: 'integration-example:plugin', autoStart: true, activate: () => undefined }; export default plugin;\n",
     'text',
     expectedPath
+  );
+  await page.contents.uploadContent(
+    '# Integration Example\n\nThis README explains the example.\n',
+    'text',
+    expectedReadmePath
   );
 
   await page.goto();
@@ -150,6 +156,19 @@ test('opens a dummy extension example from the sidebar', async ({ page }) => {
     const path = current?.context?.path;
     return path === pathToOpen;
   }, expectedPath);
+
+  const readmeButton = exampleItems
+    .first()
+    .locator('.jp-PluginPlayground-exampleReadmeButton');
+  await expect(readmeButton).toBeVisible();
+  await readmeButton.click();
+
+  await page.waitForFunction((pathToOpen: string) => {
+    const current = window.jupyterapp.shell
+      .currentWidget as FileEditorWidget | null;
+    const path = current?.context?.path;
+    return path === pathToOpen;
+  }, expectedReadmePath);
 });
 
 test('loads current editor file as a plugin extension', async ({
