@@ -10,6 +10,7 @@ dependencies:
 - myst-parser
 - ipywidgets>=8.0,<9
 - jupyterlab>=4.0.0,<5
+- jupyterlab-js-logs>=1,<2
 - jupyterlab-language-pack-fr-FR
 - jupyterlab-language-pack-zh-CN
 - jupyterlite-core>=0.7.0,<0.8
@@ -18,5 +19,3 @@ dependencies:
 - nodejs=18
 - pip:
   - build
-  # JupyterLab 4-compatible JS logs extension
-  - jupyterlab-js-logs==1.0.0

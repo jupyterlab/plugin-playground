@@ -20,6 +20,4 @@ dependencies:
   # additional packages for demos
   # - ipywidgets
   - jupyterlab-lsp
-  - pip:
-      # JupyterLab 4-compatible JS logs extension
-      - jupyterlab-js-logs==1.0.0
+  - jupyterlab-js-logs>=1,<2
