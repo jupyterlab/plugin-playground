@@ -19,4 +19,4 @@ dependencies:
 - pip:
   - build
   # JupyterLab 4-compatible JS logs extension
-  - git+https://github.com/jupyterlab-contrib/jupyterlab-js-logs.git@a2c64b476cbd83cda86e1d2c1f627fc627a99698
+  - jupyterlab-js-logs==1.0.0
