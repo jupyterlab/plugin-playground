@@ -20,6 +20,10 @@
   padding: var(--jp-code-padding);
 }
 
+.jp-PluginPlayground-exampleSidebarInner {
+  container-type: inline-size;
+}
+
 .jp-PluginPlayground-viewToggle {
   display: grid;
   gap: 6px;
@@ -102,7 +106,7 @@
   overflow-wrap: anywhere;
 }
 
-.jp-PluginPlayground-tokenActions {
+.jp-PluginPlayground-actions {
   display: inline-flex;
   gap: 4px;
 }
@@ -148,6 +152,20 @@
   width: 14px;
 }
 
+.jp-PluginPlayground-actionLabel {
+  white-space: nowrap;
+}
+
+.jp-PluginPlayground-exampleActionIcon {
+  height: 16px;
+  width: 16px;
+}
+
+.jp-PluginPlayground-exampleActionIcon svg {
+  height: 16px;
+  width: 16px;
+}
+
 .jp-PluginPlayground-description {
   color: var(--jp-ui-font-color2);
   font-size: var(--jp-ui-font-size0);
@@ -161,4 +179,18 @@
 
 .jp-PluginPlayground-exampleError {
   color: var(--jp-error-color1);
+}
+
+@container (max-width: 360px) {
+  .jp-PluginPlayground-exampleActions {
+    gap: 2px;
+  }
+
+  .jp-PluginPlayground-exampleActions .jp-PluginPlayground-actionButton {
+    padding: 2px 4px;
+  }
+
+  .jp-PluginPlayground-exampleActions .jp-PluginPlayground-actionLabel {
+    display: none;
+  }
 }

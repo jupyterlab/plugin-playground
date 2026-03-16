@@ -63,25 +63,34 @@ export class TokenSidebar extends ReactWidget {
     const query = this._query.trim().toLowerCase();
     const isTokenView = this._activeView === 'tokens';
     const activeTabId = `jp-PluginPlayground-extensionPointTab-${this._activeView}`;
-    const tokens = this._getTokens();
-    const commands = this._getCommands();
-    const filteredTokens =
-      query.length > 0
-        ? tokens.filter(
-            token =>
-              token.name.toLowerCase().includes(query) ||
-              token.description.toLowerCase().includes(query)
-          )
-        : tokens;
-    const filteredCommands =
-      query.length > 0
-        ? commands.filter(
-            command =>
-              command.id.toLowerCase().includes(query) ||
-              command.label.toLowerCase().includes(query) ||
-              command.caption.toLowerCase().includes(query)
-          )
-        : commands;
+    let tokens: ReadonlyArray<TokenSidebar.ITokenRecord> = [];
+    let commands: ReadonlyArray<ICommandRecord> = [];
+    let filteredTokens: ReadonlyArray<TokenSidebar.ITokenRecord> = [];
+    let filteredCommands: ReadonlyArray<ICommandRecord> = [];
+
+    if (isTokenView) {
+      tokens = this._getTokens();
+      filteredTokens =
+        query.length > 0
+          ? tokens.filter(
+              token =>
+                token.name.toLowerCase().includes(query) ||
+                token.description.toLowerCase().includes(query)
+            )
+          : tokens;
+    } else {
+      commands = this._getCommands();
+      filteredCommands =
+        query.length > 0
+          ? commands.filter(
+              command =>
+                command.id.toLowerCase().includes(query) ||
+                command.label.toLowerCase().includes(query) ||
+                command.caption.toLowerCase().includes(query)
+            )
+          : commands;
+    }
+
     const itemCount = isTokenView
       ? filteredTokens.length
       : filteredCommands.length;
