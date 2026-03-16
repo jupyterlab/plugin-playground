@@ -304,12 +304,16 @@ test('commands tab lists and filters available commands', async ({ page }) => {
   await page.goto();
   const panel = await openSidebarPanel(page, TOKEN_SECTION_ID);
 
-  const commandsButton = panel.getByRole('button', {
+  await expect(
+    panel.getByRole('tablist', { name: 'Extension points' })
+  ).toBeVisible();
+
+  const commandsButton = panel.getByRole('tab', {
     name: 'Commands',
     exact: true
   });
   await commandsButton.click();
-  await expect(commandsButton).toHaveAttribute('aria-pressed', 'true');
+  await expect(commandsButton).toHaveAttribute('aria-selected', 'true');
 
   const filterInput = panel.getByPlaceholder('Filter command ids');
   await filterInput.fill(LOAD_COMMAND);
