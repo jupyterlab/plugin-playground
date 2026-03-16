@@ -103,10 +103,33 @@ export function formatCommandDescription(record: ICommandRecord): string {
 }
 
 namespace Private {
-  const QUOTED_EXECUTE_PATTERN =
-    /(?:^|[^\w$.])(?:app\.)?commands\.execute\(\s*(['"])([^'"\\]*)$/s;
-  const BARE_EXECUTE_PATTERN =
-    /(?:^|[^\w$.])(?:app\.)?commands\.execute\(\s*([A-Za-z0-9:._-]*)$/s;
+  const COMMAND_METHODS = [
+    'execute',
+    'isEnabled',
+    'isVisible',
+    'isToggled',
+    'hasCommand',
+    'label',
+    'caption',
+    'usage',
+    'className',
+    'dataset',
+    'describedBy',
+    'iconClass',
+    'iconLabel',
+    'mnemonic',
+    'notifyCommandChanged'
+  ].join('|');
+
+  const QUOTED_EXECUTE_PATTERN = new RegExp(
+    `(?:^|[^\\w$.])(?:app\\.)?commands\\.(?:${COMMAND_METHODS})\\(\\s*(['"])([^'"\\\\]*)$`,
+    's'
+  );
+
+  const BARE_EXECUTE_PATTERN = new RegExp(
+    `(?:^|[^\\w$.])(?:app\\.)?commands\\.(?:${COMMAND_METHODS})\\(\\s*([A-Za-z0-9:._-]*)$`,
+    's'
+  );
 
   export function extractCommandQuery(
     source: string,
