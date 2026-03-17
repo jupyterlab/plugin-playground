@@ -27,6 +27,7 @@ import { extensionIcon, SidePanel } from '@jupyterlab/ui-components';
 import { IDocumentManager } from '@jupyterlab/docmanager';
 
 import { Contents } from '@jupyterlab/services';
+import { ICompletionProviderManager } from '@jupyterlab/completer';
 
 import { PluginLoader, PluginLoadingError } from './loader';
 
@@ -45,6 +46,11 @@ import { TokenSidebar } from './token-sidebar';
 import { ExampleSidebar } from './example-sidebar';
 
 import { tokenSidebarIcon } from './icons';
+
+import {
+  CommandCompletionProvider,
+  getCommandRecords
+} from './command-completion';
 
 import {
   fileModelToText,
@@ -177,29 +183,23 @@ class PluginPlayground {
     app.restored.then(async () => {
       const settings = this.settings;
       this._updateSettings(requirejs, settings);
-      try {
-        this._populateTokenMap();
-      } catch (error) {
-        console.warn(
-          'Failed to discover token names for the playground sidebar',
-          error
-        );
-      }
-      const tokenNames = Array.from(this._tokenMap.keys()).sort((a, b) =>
-        a.localeCompare(b)
-      );
-      const tokens = tokenNames.map(name => ({
-        name,
-        description: this._tokenDescriptionMap.get(name) ?? ''
-      }));
+      this._refreshExtensionPoints();
       const tokenSidebar = new TokenSidebar({
-        tokens,
+        getTokens: () =>
+          Array.from(this._tokenMap.keys())
+            .sort((left, right) => left.localeCompare(right))
+            .map(name => ({
+              name,
+              description: this._tokenDescriptionMap.get(name) ?? ''
+            })),
+        getCommands: () => getCommandRecords(this.app),
         onInsertImport: this._insertTokenImport.bind(this),
         isImportEnabled: this._canInsertImport.bind(this)
       });
+      this._tokenSidebar = tokenSidebar;
       tokenSidebar.id = 'jp-plugin-token-sidebar';
-      tokenSidebar.title.label = 'Service Tokens';
-      tokenSidebar.title.caption = 'Available service token strings for plugin';
+      tokenSidebar.title.label = 'Extension Points';
+      tokenSidebar.title.caption = 'Available extension points for plugin';
       tokenSidebar.title.icon = tokenSidebarIcon;
 
       const exampleSidebar = new ExampleSidebar({
@@ -227,6 +227,11 @@ class PluginPlayground {
       });
       editorTracker.currentChanged.connect(() => {
         tokenSidebar.update();
+      });
+      app.commands.commandChanged.connect((_, args) => {
+        if (args.type === 'added' || args.type === 'removed') {
+          tokenSidebar.update();
+        }
       });
       // add to the launcher
       if (launcher && (settings.composite.showIconInLauncher as boolean)) {
@@ -343,6 +348,7 @@ class PluginPlayground {
       await this._deactivateAndDeregisterPlugin(plugin.id);
       this.app.registerPlugin(plugin);
     }
+    this._refreshExtensionPoints();
 
     for (const plugin of plugins) {
       if (!plugin.autoStart) {
@@ -359,6 +365,7 @@ class PluginPlayground {
       }
       try {
         await this.app.activatePlugin(plugin.id);
+        this._refreshExtensionPoints();
       } catch (e) {
         showDialog({
           title: `Plugin autostart failed: ${(e as Error).message}`,
@@ -367,6 +374,19 @@ class PluginPlayground {
         return;
       }
     }
+  }
+
+  private _refreshExtensionPoints(): void {
+    try {
+      this._populateTokenMap();
+    } catch (error) {
+      console.warn(
+        'Failed to discover token names for the playground sidebar',
+        error
+      );
+    }
+
+    this._tokenSidebar?.update();
   }
 
   private _missingRequiredTokens(
@@ -777,7 +797,11 @@ class PluginPlayground {
     return `import { ${tokenSymbol} } from '${packageName}';`;
   }
 
-  private _canInsertImport(): boolean {
+  private _canInsertImport(tokenName: string): boolean {
+    if (!this._importStatement(tokenName)) {
+      return false;
+    }
+
     const editorWidget = this.editorTracker.currentWidget;
     if (!editorWidget) {
       return false;
@@ -791,6 +815,7 @@ class PluginPlayground {
     'No description provided by this example.';
   private readonly _tokenMap = new Map<string, Token<string>>();
   private readonly _tokenDescriptionMap = new Map<string, string>();
+  private _tokenSidebar: TokenSidebar | null = null;
 }
 
 /**
@@ -802,15 +827,20 @@ const plugin: JupyterFrontEndPlugin<void> = {
     'Provide a playground for developing and testing JupyterLab plugins.',
   autoStart: true,
   requires: [ISettingRegistry, ICommandPalette, IEditorTracker],
-  optional: [ILauncher, IDocumentManager],
+  optional: [ICompletionProviderManager, ILauncher, IDocumentManager],
   activate: (
     app: JupyterFrontEnd,
     settingRegistry: ISettingRegistry,
     commandPalette: ICommandPalette,
     editorTracker: IEditorTracker,
+    completionManager: ICompletionProviderManager | null,
     launcher: ILauncher | null,
     documentManager: IDocumentManager | null
   ) => {
+    if (completionManager) {
+      completionManager.registerProvider(new CommandCompletionProvider(app));
+    }
+
     // In order to accommodate loading ipywidgets and other AMD modules, we
     // load RequireJS before loading any custom extensions.
 

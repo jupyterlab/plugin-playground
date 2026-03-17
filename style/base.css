@@ -24,6 +24,44 @@
   container-type: inline-size;
 }
 
+.jp-PluginPlayground-viewToggle {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 5px;
+}
+
+.jp-PluginPlayground-viewButton {
+  background: var(--jp-shortcuts-button-background);
+  border: var(--jp-border-width) solid var(--jp-shortcuts-button-background);
+  color: var(--jp-ui-font-color1);
+  justify-content: center;
+  width: 100%;
+}
+
+.jp-PluginPlayground-viewButton:hover {
+  background: var(--jp-shortcuts-button-hover-background);
+  border-color: var(--jp-shortcuts-button-hover-background);
+}
+
+.jp-PluginPlayground-viewButton.jp-mod-active {
+  background: var(--jp-brand-color1);
+  border-color: var(--jp-brand-color1);
+  color: var(--jp-ui-inverse-font-color1);
+}
+
+.jp-PluginPlayground-viewButton.jp-mod-active:hover {
+  background: var(--jp-brand-color1);
+  border-color: var(--jp-brand-color1);
+  color: var(--jp-ui-inverse-font-color1);
+}
+
+.jp-PluginPlayground-viewPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jp-layout-spacing-standard);
+}
+
 .jp-PluginPlayground-count {
   color: var(--jp-ui-font-color2);
   font-size: var(--jp-ui-font-size0);
@@ -93,10 +131,11 @@
   background: var(--jp-layout-color3);
 }
 
+.jp-PluginPlayground-viewButton:focus-visible,
 .jp-PluginPlayground-actionButton:focus-visible,
 .jp-PluginPlayground-filter:focus-visible {
   outline: var(--jp-border-width) solid var(--jp-brand-color1);
-  outline-offset: 1px;
+  outline-offset: 2px;
 }
 
 .jp-PluginPlayground-actionIcon {
