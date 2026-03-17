@@ -296,3 +296,54 @@ test('token sidebar inserts import statement into active editor', async ({
     return source.split(expected).length - 1 === 1;
   }, expectedImport);
 });
+test('auto-loads plugin when loadOnSave setting is enabled and file is saved', async ({
+  page,
+  tmpPath
+}) => {
+  const pluginPath = `${tmpPath}/${TEST_FILE}`;
+  const PLUGIN_ID = '@jupyterlab/plugin-playground:plugin';
+
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', pluginPath);
+  await page.goto();
+
+  await page.filebrowser.open(pluginPath);
+  expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
+
+  // Enable loadOnSave via the settings service
+  await page.evaluate(async (id: string) => {
+    const current = await window.jupyterapp.serviceManager.settings.fetch(id);
+    const raw = JSON.parse(current.raw);
+    raw.loadOnSave = true;
+    await window.jupyterapp.serviceManager.settings.save(id, raw);
+  }, PLUGIN_ID);
+
+  // Confirm the setting is persisted before proceeding
+  await page.waitForCondition(() =>
+    page.evaluate(async (id: string) => {
+      const current = await window.jupyterapp.serviceManager.settings.fetch(id);
+      return JSON.parse(current.raw).loadOnSave === true;
+    }, PLUGIN_ID)
+  );
+
+  // Save the file to trigger auto-load
+  await page.keyboard.press('Control+s');
+
+  // Wait for the plugin to be loaded automatically
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.hasPlugin(id);
+    }, TEST_PLUGIN_ID)
+  );
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, TEST_TOGGLE_COMMAND)
+  );
+
+  // Verify the test plugin activated correctly
+  const initiallyToggled = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.isToggled(id);
+  }, TEST_TOGGLE_COMMAND);
+  expect(initiallyToggled).toBe(false);
+});

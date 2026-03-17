@@ -16,7 +16,7 @@ import {
 
 import { Signal } from '@lumino/signaling';
 
-import { IDocumentWidget } from '@jupyterlab/docregistry';
+import { DocumentRegistry, IDocumentWidget } from '@jupyterlab/docregistry';
 
 import { FileEditor, IEditorTracker } from '@jupyterlab/fileeditor';
 
@@ -144,10 +144,10 @@ class PluginPlayground {
     });
 
     editorTracker.widgetAdded.connect(
-      (_sender: unknown, widget: IDocumentWidget<FileEditor>) => {
+      (_sender: IEditorTracker, widget: IDocumentWidget<FileEditor>) => {
         const onSaveState = (
-          _context: unknown,
-          state: string
+          _context: DocumentRegistry.Context,
+          state: DocumentRegistry.SaveState
         ) => {
           if (
             state === 'completed' &&
