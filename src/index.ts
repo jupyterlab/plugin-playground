@@ -815,7 +815,7 @@ class PluginPlayground {
 
   /**
    * Set up a collapsed bottom bar that appears when console logs arrive.
-   * Shows an unread count with color-coded severity.  Clicking the bar
+   * Shows an unread count with color-coded severity. Clicking the bar
    * opens the full js-logs panel and resets the badge.
    */
   private _setupLogsBadge(): void {
