@@ -254,6 +254,8 @@ class PluginPlayground {
       settings.changed.connect(updatedSettings => {
         this._updateSettings(requirejs, updatedSettings);
       });
+
+      this._setupLogsBadge();
     });
   }
 
@@ -809,6 +811,153 @@ class PluginPlayground {
 
     const sourceModel = editorWidget.content.model;
     return !!(sourceModel && sourceModel.sharedModel);
+  }
+
+  /**
+   * Set up a collapsed bottom bar that appears when console logs arrive.
+   * Shows an unread count with color-coded severity.  Clicking the bar
+   * opens the full js-logs panel and resets the badge.
+   */
+  private _setupLogsBadge(): void {
+    const { commands } = this.app;
+    const JS_LOGS_OPEN = 'js-logs:open';
+    const MAX_BUFFER = 1000;
+
+    let unreadCount = 0;
+    let hasError = false;
+    let hasWarning = false;
+    let replaying = false;
+    const logBuffer: Array<{
+      method: (...a: any[]) => void;
+      args: any[];
+    }> = [];
+
+    // Create badge bar as a compact floating chip.
+    const badgeBar = document.createElement('div');
+    badgeBar.id = 'jp-plugin-playground-log-badge';
+    badgeBar.className = 'jp-PluginPlayground-logBadgeBar';
+    badgeBar.style.display = 'none';
+
+    const labelSpan = document.createElement('span');
+    labelSpan.className = 'jp-PluginPlayground-logBadgeBar-label';
+
+    const closeBtn = document.createElement('span');
+    closeBtn.className = 'jp-PluginPlayground-logBadgeBar-close';
+    closeBtn.textContent = '\u00d7';
+    closeBtn.title = 'Dismiss';
+
+    badgeBar.appendChild(labelSpan);
+    badgeBar.appendChild(closeBtn);
+
+    const resetBadge = (): void => {
+      unreadCount = 0;
+      hasError = false;
+      hasWarning = false;
+      logBuffer.length = 0;
+      updateBadge();
+    };
+
+    const updateBadge = (): void => {
+      if (unreadCount === 0) {
+        badgeBar.style.display = 'none';
+        return;
+      }
+      badgeBar.style.display = '';
+      labelSpan.textContent = `JS Logs (${unreadCount})`;
+      badgeBar.classList.toggle(
+        'jp-PluginPlayground-logBadgeBar-error',
+        hasError
+      );
+      badgeBar.classList.toggle(
+        'jp-PluginPlayground-logBadgeBar-warning',
+        !hasError && hasWarning
+      );
+    };
+
+    // Click label → open logs panel, replay buffer, clear badge.
+    labelSpan.addEventListener('click', () => {
+      if (commands.hasCommand(JS_LOGS_OPEN)) {
+        commands.execute(JS_LOGS_OPEN);
+        // Wait for the panel to initialize, then replay buffered logs.
+        const entries = logBuffer.slice();
+        resetBadge();
+        setTimeout(() => {
+          replaying = true;
+          for (const entry of entries) {
+            entry.method.apply(console, entry.args);
+          }
+          replaying = false;
+        }, 200);
+      } else {
+        resetBadge();
+      }
+    });
+
+    // Click × → just dismiss without opening.
+    closeBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      resetBadge();
+    });
+
+    document.body.appendChild(badgeBar);
+
+    const onLog = (
+      level: 'error' | 'warning' | 'info',
+      method: (...a: any[]) => void,
+      args: any[]
+    ): void => {
+      if (replaying) {
+        return;
+      }
+      unreadCount++;
+      if (level === 'error') {
+        hasError = true;
+      } else if (level === 'warning') {
+        hasWarning = true;
+      }
+      if (logBuffer.length < MAX_BUFFER) {
+        logBuffer.push({ method, args: [...args] });
+      }
+      updateBadge();
+    };
+
+    // Intercepts — count, buffer, then forward to the previous handler.
+    const wrap = (
+      method: (...args: any[]) => void,
+      level: 'error' | 'warning' | 'info'
+    ): ((...args: any[]) => void) => {
+      return (...args: any[]): void => {
+        onLog(level, method, args);
+        method.apply(console, args);
+      };
+    };
+
+    window.console.debug = wrap(console.debug, 'info');
+    window.console.log = wrap(console.log, 'info');
+    window.console.info = wrap(console.info, 'info');
+    window.console.warn = wrap(console.warn, 'warning');
+    window.console.error = wrap(console.error, 'error');
+
+    window.onerror = ((): (typeof window)['onerror'] => {
+      const prev = window.onerror;
+      return (msg, url, line, col, error): boolean => {
+        if (!replaying) {
+          unreadCount++;
+          hasError = true;
+          if (logBuffer.length < MAX_BUFFER) {
+            logBuffer.push({
+              method: console.error,
+              args: [`${url}:${line}:${col} ${msg}\n${error}`]
+            });
+          }
+          updateBadge();
+        }
+        if (prev) {
+          return prev(msg, url, line, col, error) as boolean;
+        }
+        return false;
+      };
+    })();
   }
 
   private readonly _fallbackExampleDescription =
