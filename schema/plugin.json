@@ -62,6 +62,10 @@
         "name": "insert",
         "command": "plugin-playground:load-as-extension",
         "rank": 20
+      },
+      {
+        "name": "plugin-playground-load-on-save",
+        "rank": 21
       }
     ]
   },

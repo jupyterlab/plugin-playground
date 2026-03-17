@@ -15,6 +15,7 @@ const INVOKE_FILE_COMPLETER_COMMAND = 'completer:invoke-file';
 const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
 const TOKEN_SECTION_ID = 'jp-plugin-token-sidebar';
 const EXAMPLE_SECTION_ID = 'jp-plugin-example-sidebar';
+const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
 
 test.use({ autoGoto: false });
 
@@ -77,6 +78,23 @@ async function findImportableToken(panel: Locator): Promise<string> {
     }
   }
   throw new Error('No importable token found in token sidebar');
+}
+
+async function findLoadOnSaveCheckbox(
+  page: IJupyterLabPageFixture
+): Promise<Locator> {
+  const checkbox = page.getByRole('checkbox', {
+    name: LOAD_ON_SAVE_CHECKBOX_LABEL
+  });
+  await expect(checkbox).toBeVisible();
+  return checkbox;
+}
+
+async function focusActiveEditor(page: IJupyterLabPageFixture): Promise<void> {
+  await page.evaluate(() => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    current.content.editor.focus();
+  });
 }
 
 test('registers plugin playground commands', async ({ page }) => {
@@ -409,6 +427,47 @@ const run = (application: JupyterFrontEnd) => {
   }, LOAD_COMMAND);
 });
 
+test('per-file load-on-save checkbox is unchecked by default and enables auto-load', async ({
+  page,
+  tmpPath
+}) => {
+  const pluginPath = `${tmpPath}/${TEST_FILE}`;
+
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', pluginPath);
+  await page.goto();
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+
+  await page.filebrowser.open(pluginPath);
+  expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
+
+  const loadOnSaveCheckbox = await findLoadOnSaveCheckbox(page);
+  await expect(loadOnSaveCheckbox).not.toBeChecked();
+  await loadOnSaveCheckbox.check();
+  await expect(loadOnSaveCheckbox).toBeChecked();
+
+  await focusActiveEditor(page);
+  await page.keyboard.press('Space');
+  await page.keyboard.press('Backspace');
+  await page.evaluate(() => {
+    return window.jupyterapp.commands.execute('docmanager:save');
+  });
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.hasPlugin(id);
+    }, TEST_PLUGIN_ID)
+  );
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, TEST_TOGGLE_COMMAND)
+  );
+});
+
 test.describe('load-on-save setting', () => {
   test.use({
     mockSettings: {
@@ -436,8 +495,13 @@ test.describe('load-on-save setting', () => {
 
     await page.filebrowser.open(pluginPath);
     expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
+    const loadOnSaveCheckbox = page.getByRole('checkbox', {
+      name: LOAD_ON_SAVE_CHECKBOX_LABEL
+    });
+    await expect(loadOnSaveCheckbox).toBeHidden();
 
     // Make the editor dirty so save reliably emits a completed saveState.
+    await focusActiveEditor(page);
     await page.keyboard.press('Space');
     await page.keyboard.press('Backspace');
 
@@ -461,5 +525,28 @@ test.describe('load-on-save setting', () => {
       return window.jupyterapp.commands.isToggled(id);
     }, TEST_TOGGLE_COMMAND);
     expect(initiallyToggled).toBe(false);
+  });
+
+  test('hides file-level load-on-save checkbox when setting is enabled', async ({
+    page,
+    tmpPath
+  }) => {
+    const pluginPath = `${tmpPath}/${TEST_FILE}`;
+
+    await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', pluginPath);
+    await page.goto();
+    await page.waitForCondition(() =>
+      page.evaluate((id: string) => {
+        return window.jupyterapp.commands.hasCommand(id);
+      }, LOAD_COMMAND)
+    );
+
+    await page.filebrowser.open(pluginPath);
+    expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
+
+    const loadOnSaveCheckbox = page.getByRole('checkbox', {
+      name: LOAD_ON_SAVE_CHECKBOX_LABEL
+    });
+    await expect(loadOnSaveCheckbox).toBeHidden();
   });
 });

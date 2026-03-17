@@ -11,7 +11,8 @@ import {
   Dialog,
   showDialog,
   showErrorMessage,
-  ICommandPalette
+  ICommandPalette,
+  IToolbarWidgetRegistry
 } from '@jupyterlab/apputils';
 
 import { Signal } from '@lumino/signaling';
@@ -62,7 +63,7 @@ import {
 
 import { Token } from '@lumino/coreutils';
 
-import { AccordionPanel } from '@lumino/widgets';
+import { AccordionPanel, Widget } from '@lumino/widgets';
 
 import { IPlugin } from '@lumino/application';
 
@@ -116,6 +117,13 @@ interface IPrivatePluginData {
 }
 
 const EXTENSION_EXAMPLES_ROOT = 'extension-examples';
+const LOAD_ON_SAVE_TOGGLE_TOOLBAR_ITEM = 'plugin-playground-load-on-save';
+const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
+const LOAD_ON_SAVE_SETTING = 'loadOnSave';
+const LOAD_ON_SAVE_ENABLED_DESCRIPTION =
+  'Toggle auto-loading this file as an extension on save';
+const LOAD_ON_SAVE_DISABLED_DESCRIPTION =
+  'Auto load on save is available for JavaScript and TypeScript files';
 
 class PluginPlayground {
   constructor(
@@ -126,7 +134,8 @@ class PluginPlayground {
     launcher: ILauncher | null,
     protected documentManager: IDocumentManager | null,
     protected settings: ISettingRegistry.ISettings,
-    protected requirejs: IRequireJS
+    protected requirejs: IRequireJS,
+    toolbarWidgetRegistry: IToolbarWidgetRegistry
   ) {
     loadKnownModule('@jupyter-widgets/base').then((module: any) => {
       // Define the widgets base module for RequireJS (left for compatibility only)
@@ -149,16 +158,20 @@ class PluginPlayground {
       }
     });
 
+    toolbarWidgetRegistry.addFactory<IDocumentWidget<FileEditor>>(
+      'Editor',
+      LOAD_ON_SAVE_TOGGLE_TOOLBAR_ITEM,
+      widget => this._createLoadOnSaveToggleWidget(widget)
+    );
+
     editorTracker.widgetAdded.connect(
       (_sender: IEditorTracker, widget: IDocumentWidget<FileEditor>) => {
         const onSaveState = (
           _context: DocumentRegistry.Context,
           state: DocumentRegistry.SaveState
         ) => {
-          if (
-            state === 'completed' &&
-            (this.settings.composite.loadOnSave as boolean)
-          ) {
+          const normalizedPath = normalizeContentsPath(widget.context.path);
+          if (state === 'completed' && this._shouldLoadOnSave(normalizedPath)) {
             const currentText = widget.context.model.toString();
             this._loadPlugin(currentText, widget.context.path);
           }
@@ -273,11 +286,128 @@ class PluginPlayground {
       }
 
       settings.changed.connect(updatedSettings => {
+        this.settings = updatedSettings;
         this._updateSettings(requirejs, updatedSettings);
+        for (const refresh of this._loadOnSaveToggleRefreshers) {
+          refresh();
+        }
       });
 
       this._setupLogsBadge();
     });
+  }
+
+  private _isGlobalLoadOnSaveEnabled(): boolean {
+    return this.settings.get(LOAD_ON_SAVE_SETTING).composite === true;
+  }
+
+  private _isSupportedLoadOnSaveFile(path: string): boolean {
+    return /\.(?:[cm]?js|jsx|ts|tsx)$/i.test(path);
+  }
+
+  private _shouldLoadOnSave(normalizedPath: string): boolean {
+    if (!this._isSupportedLoadOnSaveFile(normalizedPath)) {
+      return false;
+    }
+    if (this._isGlobalLoadOnSaveEnabled()) {
+      return true;
+    }
+    return this._loadOnSaveByFile.has(normalizedPath);
+  }
+
+  private _createLoadOnSaveToggleWidget(
+    widget: IDocumentWidget<FileEditor>
+  ): Widget {
+    const toggleNode = document.createElement('label');
+    toggleNode.className = 'jp-PluginPlayground-loadOnSaveToggle';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'jp-PluginPlayground-loadOnSaveCheckbox';
+    checkbox.setAttribute('aria-label', LOAD_ON_SAVE_CHECKBOX_LABEL);
+    const label = document.createElement('span');
+    label.className = 'jp-PluginPlayground-loadOnSaveText';
+    label.textContent = LOAD_ON_SAVE_CHECKBOX_LABEL;
+    toggleNode.append(checkbox, label);
+
+    const toggleWidget = new Widget({ node: toggleNode });
+    toggleWidget.addClass('jp-PluginPlayground-loadOnSaveWidget');
+
+    let currentPath = normalizeContentsPath(widget.context.path);
+    const refresh = () => {
+      if (this._isGlobalLoadOnSaveEnabled()) {
+        checkbox.disabled = true;
+        checkbox.setAttribute('aria-hidden', 'true');
+        checkbox.setAttribute('aria-disabled', 'true');
+        toggleWidget.hide();
+        return;
+      }
+      toggleWidget.show();
+      checkbox.removeAttribute('aria-hidden');
+      currentPath = normalizeContentsPath(widget.context.path);
+      const enabled = this._isSupportedLoadOnSaveFile(currentPath);
+      checkbox.disabled = !enabled;
+      checkbox.setAttribute('aria-disabled', String(!enabled));
+      checkbox.checked = enabled && this._shouldLoadOnSave(currentPath);
+      const description = enabled
+        ? LOAD_ON_SAVE_ENABLED_DESCRIPTION
+        : LOAD_ON_SAVE_DISABLED_DESCRIPTION;
+      toggleNode.title = description;
+      checkbox.setAttribute('aria-description', description);
+    };
+
+    const onCheckboxChanged = () => {
+      if (
+        this._isSupportedLoadOnSaveFile(currentPath) &&
+        !this._isGlobalLoadOnSaveEnabled() &&
+        checkbox.checked
+      ) {
+        this._loadOnSaveByFile.add(currentPath);
+      } else {
+        this._loadOnSaveByFile.delete(currentPath);
+      }
+      for (const refreshState of this._loadOnSaveToggleRefreshers) {
+        refreshState();
+      }
+    };
+
+    const onPathChanged = (
+      _context: DocumentRegistry.Context,
+      newPath: string
+    ) => {
+      const newNormalizedPath = normalizeContentsPath(newPath);
+      if (newNormalizedPath !== currentPath) {
+        if (
+          this._loadOnSaveByFile.has(currentPath) &&
+          !this._loadOnSaveByFile.has(newNormalizedPath)
+        ) {
+          this._loadOnSaveByFile.add(newNormalizedPath);
+        }
+        this._loadOnSaveByFile.delete(currentPath);
+      }
+      currentPath = newNormalizedPath;
+      refresh();
+    };
+
+    checkbox.addEventListener('change', onCheckboxChanged);
+    widget.context.pathChanged.connect(onPathChanged);
+    this._loadOnSaveToggleRefreshers.add(refresh);
+    refresh();
+
+    let isDisposed = false;
+    const dispose = () => {
+      if (isDisposed) {
+        return;
+      }
+      isDisposed = true;
+      checkbox.removeEventListener('change', onCheckboxChanged);
+      widget.context.pathChanged.disconnect(onPathChanged);
+      this._loadOnSaveToggleRefreshers.delete(refresh);
+    };
+
+    toggleWidget.disposed.connect(dispose);
+    widget.disposed.connect(dispose);
+
+    return toggleWidget;
   }
 
   private _updateSettings(
@@ -1016,6 +1146,8 @@ class PluginPlayground {
 
   private readonly _fallbackExampleDescription =
     'No description provided by this example.';
+  private readonly _loadOnSaveByFile = new Set<string>();
+  private readonly _loadOnSaveToggleRefreshers = new Set<() => void>();
   private readonly _tokenMap = new Map<string, Token<string>>();
   private readonly _tokenDescriptionMap = new Map<string, string>();
   private _tokenSidebar: TokenSidebar | null = null;
@@ -1029,13 +1161,19 @@ const plugin: JupyterFrontEndPlugin<void> = {
   description:
     'Provide a playground for developing and testing JupyterLab plugins.',
   autoStart: true,
-  requires: [ISettingRegistry, ICommandPalette, IEditorTracker],
+  requires: [
+    ISettingRegistry,
+    ICommandPalette,
+    IEditorTracker,
+    IToolbarWidgetRegistry
+  ],
   optional: [ICompletionProviderManager, ILauncher, IDocumentManager],
   activate: (
     app: JupyterFrontEnd,
     settingRegistry: ISettingRegistry,
     commandPalette: ICommandPalette,
     editorTracker: IEditorTracker,
+    toolbarWidgetRegistry: IToolbarWidgetRegistry,
     completionManager: ICompletionProviderManager | null,
     launcher: ILauncher | null,
     documentManager: IDocumentManager | null
@@ -1061,7 +1199,8 @@ const plugin: JupyterFrontEndPlugin<void> = {
           launcher,
           documentManager,
           settings,
-          requirejs
+          requirejs,
+          toolbarWidgetRegistry
         );
       }
     );

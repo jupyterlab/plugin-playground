@@ -181,20 +181,6 @@
   color: var(--jp-error-color1);
 }
 
-@container (max-width: 360px) {
-  .jp-PluginPlayground-exampleActions {
-    gap: 2px;
-  }
-
-  .jp-PluginPlayground-exampleActions .jp-PluginPlayground-actionButton {
-    padding: 2px 4px;
-  }
-
-  .jp-PluginPlayground-exampleActions .jp-PluginPlayground-actionLabel {
-    display: none;
-  }
-}
-
 .jp-PluginPlayground-logBadgeBar {
   align-items: center;
   background: var(--jp-layout-color2);
@@ -243,4 +229,47 @@
   background: var(--jp-error-color3, #f8d7da);
   border-color: var(--jp-error-color1);
   color: var(--jp-error-color0, #721c24);
+}
+
+.jp-PluginPlayground-loadOnSaveWidget {
+  align-items: center;
+  display: inline-flex;
+}
+
+.jp-PluginPlayground-loadOnSaveToggle {
+  align-items: center;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 6px;
+  margin: 0;
+  user-select: none;
+}
+
+.jp-PluginPlayground-loadOnSaveCheckbox {
+  margin: 0;
+}
+
+.jp-PluginPlayground-loadOnSaveText {
+  color: var(--jp-ui-font-color1);
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.jp-PluginPlayground-loadOnSaveCheckbox:disabled + .jp-PluginPlayground-loadOnSaveText {
+  color: var(--jp-ui-font-color2);
+}
+
+@container (max-width: 360px) {
+  .jp-PluginPlayground-exampleActions {
+    gap: 2px;
+  }
+
+  .jp-PluginPlayground-exampleActions .jp-PluginPlayground-actionButton {
+    padding: 2px 4px;
+  }
+
+  .jp-PluginPlayground-exampleActions .jp-PluginPlayground-actionLabel {
+    display: none;
+  }
 }
