@@ -1,4 +1,4 @@
-import { expect, test } from '@jupyterlab/galata';
+import { expect, galata, test } from '@jupyterlab/galata';
 import type { FileEditorWidget } from '@jupyterlab/fileeditor';
 import type { IJupyterLabPageFixture } from '@jupyterlab/galata';
 import type { Locator } from '@playwright/test';
@@ -6,6 +6,7 @@ import type { Locator } from '@playwright/test';
 const LOAD_COMMAND = 'plugin-playground:load-as-extension';
 const INTERNAL_CONTEXT_INFO_COMMAND = '__internal:context-menu-info';
 const CREATE_FILE_COMMAND = 'plugin-playground:create-new-plugin';
+const PLAYGROUND_PLUGIN_ID = '@jupyterlab/plugin-playground:plugin';
 const TEST_PLUGIN_ID = 'playground-integration-test:plugin';
 const TEST_TOGGLE_COMMAND = 'playground-integration-test:toggle';
 const TEST_FILE = 'playground-integration-test.ts';
@@ -408,54 +409,57 @@ const run = (application: JupyterFrontEnd) => {
   }, LOAD_COMMAND);
 });
 
-test('auto-loads plugin when loadOnSave setting is enabled and file is saved', async ({
-  page,
-  tmpPath
-}) => {
-  const pluginPath = `${tmpPath}/${TEST_FILE}`;
-  const PLUGIN_ID = '@jupyterlab/plugin-playground:plugin';
+test.describe('load-on-save setting', () => {
+  test.use({
+    mockSettings: {
+      ...galata.DEFAULT_SETTINGS,
+      [PLAYGROUND_PLUGIN_ID]: {
+        loadOnSave: true
+      }
+    }
+  });
 
-  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', pluginPath);
-  await page.goto();
+  test('auto-loads plugin when loadOnSave setting is enabled and file is saved', async ({
+    page,
+    tmpPath
+  }) => {
+    const pluginPath = `${tmpPath}/${TEST_FILE}`;
 
-  await page.filebrowser.open(pluginPath);
-  expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
+    await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', pluginPath);
+    await page.goto();
 
-  // Enable loadOnSave via the settings service
-  await page.evaluate(async (id: string) => {
-    const current = await window.jupyterapp.serviceManager.settings.fetch(id);
-    const raw = JSON.parse(current.raw);
-    raw.loadOnSave = true;
-    await window.jupyterapp.serviceManager.settings.save(id, raw);
-  }, PLUGIN_ID);
+    await page.waitForCondition(() =>
+      page.evaluate((id: string) => {
+        return window.jupyterapp.commands.hasCommand(id);
+      }, LOAD_COMMAND)
+    );
 
-  // Confirm the setting is persisted before proceeding
-  await page.waitForCondition(() =>
-    page.evaluate(async (id: string) => {
-      const current = await window.jupyterapp.serviceManager.settings.fetch(id);
-      return JSON.parse(current.raw).loadOnSave === true;
-    }, PLUGIN_ID)
-  );
+    await page.filebrowser.open(pluginPath);
+    expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
 
-  // Save the file to trigger auto-load
-  await page.keyboard.press('Control+s');
+    // Make the editor dirty so save reliably emits a completed saveState.
+    await page.keyboard.press('Space');
+    await page.keyboard.press('Backspace');
 
-  // Wait for the plugin to be loaded automatically
-  await page.waitForCondition(() =>
-    page.evaluate((id: string) => {
-      return window.jupyterapp.hasPlugin(id);
-    }, TEST_PLUGIN_ID)
-  );
+    await page.evaluate(() => {
+      return window.jupyterapp.commands.execute('docmanager:save');
+    });
 
-  await page.waitForCondition(() =>
-    page.evaluate((id: string) => {
-      return window.jupyterapp.commands.hasCommand(id);
-    }, TEST_TOGGLE_COMMAND)
-  );
+    await page.waitForCondition(() =>
+      page.evaluate((id: string) => {
+        return window.jupyterapp.hasPlugin(id);
+      }, TEST_PLUGIN_ID)
+    );
 
-  // Verify the test plugin activated correctly
-  const initiallyToggled = await page.evaluate((id: string) => {
-    return window.jupyterapp.commands.isToggled(id);
-  }, TEST_TOGGLE_COMMAND);
-  expect(initiallyToggled).toBe(false);
+    await page.waitForCondition(() =>
+      page.evaluate((id: string) => {
+        return window.jupyterapp.commands.hasCommand(id);
+      }, TEST_TOGGLE_COMMAND)
+    );
+
+    const initiallyToggled = await page.evaluate((id: string) => {
+      return window.jupyterapp.commands.isToggled(id);
+    }, TEST_TOGGLE_COMMAND);
+    expect(initiallyToggled).toBe(false);
+  });
 });
