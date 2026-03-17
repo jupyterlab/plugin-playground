@@ -214,3 +214,53 @@
     display: none;
   }
 }
+
+.jp-PluginPlayground-logBadgeBar {
+  align-items: center;
+  background: var(--jp-layout-color2);
+  border: var(--jp-border-width) solid var(--jp-border-color1);
+  border-radius: 4px;
+  bottom: 30px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  color: var(--jp-ui-font-color1);
+  display: flex;
+  font-size: var(--jp-ui-font-size1);
+  gap: 8px;
+  position: fixed;
+  right: 12px;
+  user-select: none;
+  z-index: 10000;
+}
+
+.jp-PluginPlayground-logBadgeBar-label {
+  cursor: pointer;
+  padding: 6px 4px 6px 12px;
+}
+
+.jp-PluginPlayground-logBadgeBar-label:hover {
+  text-decoration: underline;
+}
+
+.jp-PluginPlayground-logBadgeBar-close {
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0.6;
+  padding: 6px 10px 6px 0;
+}
+
+.jp-PluginPlayground-logBadgeBar-close:hover {
+  opacity: 1;
+}
+
+.jp-PluginPlayground-logBadgeBar-warning {
+  background: var(--jp-warn-color2, #fff3cd);
+  border-color: var(--jp-warn-color1);
+  color: var(--jp-warn-color0, #f1bd21);
+}
+
+.jp-PluginPlayground-logBadgeBar-error {
+  background: var(--jp-error-color3, #f8d7da);
+  border-color: var(--jp-error-color1);
+  color: var(--jp-error-color0, #721c24);
+}
