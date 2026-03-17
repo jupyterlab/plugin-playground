@@ -143,6 +143,27 @@ class PluginPlayground {
       }
     });
 
+    editorTracker.widgetAdded.connect(
+      (_sender: unknown, widget: IDocumentWidget<FileEditor>) => {
+        const onSaveState = (
+          _context: unknown,
+          state: string
+        ) => {
+          if (
+            state === 'completed' &&
+            (this.settings.composite.loadOnSave as boolean)
+          ) {
+            const currentText = widget.context.model.toString();
+            this._loadPlugin(currentText, widget.context.path);
+          }
+        };
+        widget.context.saveState.connect(onSaveState);
+        widget.disposed.connect(() => {
+          widget.context.saveState.disconnect(onSaveState);
+        });
+      }
+    );
+
     commandPalette.addItem({
       command: CommandIDs.loadCurrentAsExtension,
       category: 'Plugin Playground',
