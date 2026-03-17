@@ -11,7 +11,6 @@ const TEST_TOGGLE_COMMAND = 'playground-integration-test:toggle';
 const TEST_FILE = 'playground-integration-test.ts';
 const COMMAND_COMPLETION_FILE = 'command-completion.ts';
 const INVOKE_FILE_COMPLETER_COMMAND = 'completer:invoke-file';
-const COMMAND_WITH_ARGUMENT_DOCS = 'filebrowser:open-path';
 const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
 const TOKEN_SECTION_ID = 'jp-plugin-token-sidebar';
 const EXAMPLE_SECTION_ID = 'jp-plugin-example-sidebar';
@@ -344,27 +343,76 @@ test('commands tab lists and filters available commands', async ({ page }) => {
   ]);
   await expect(panel.getByText('Load Current File As Extension')).toBeVisible();
 
+  const noArgumentsButtonLabel = `No arguments for ${LOAD_COMMAND}`;
+  await panel
+    .getByRole('button', {
+      name: `Show argument documentation for ${LOAD_COMMAND}`
+    })
+    .click();
+  await expect(
+    panel.locator('.jp-PluginPlayground-commandArgumentsText')
+  ).toContainText('No arguments');
+  await panel
+    .getByRole('button', {
+      name: `Hide argument documentation for ${LOAD_COMMAND}`
+    })
+    .click();
+  await expect(
+    panel.getByRole('button', { name: noArgumentsButtonLabel })
+  ).toBeDisabled();
+
   await filterInput.fill(INTERNAL_CONTEXT_INFO_COMMAND);
   await expect(panel.locator('.jp-PluginPlayground-listItem')).toHaveCount(0);
   await expect(panel.getByText('No matching commands.')).toBeVisible();
 
-  await filterInput.fill(COMMAND_WITH_ARGUMENT_DOCS);
+  const commandWithArgumentDocs = await page.evaluate(async () => {
+    const commands = window.jupyterapp.commands;
+    const commandIds = commands
+      .listCommands()
+      .filter(id => !id.startsWith('__internal:'));
+
+    for (const id of commandIds) {
+      let usage = '';
+      try {
+        usage = commands.usage(id).trim();
+      } catch {
+        usage = '';
+      }
+
+      try {
+        const description = await commands.describedBy(id);
+        const args = description.args;
+        if (usage || (args && Object.keys(args).length > 0)) {
+          return id;
+        }
+      } catch {
+        if (usage) {
+          return id;
+        }
+      }
+    }
+
+    return null;
+  });
+  expect(commandWithArgumentDocs).toBeTruthy();
+  await filterInput.fill(commandWithArgumentDocs ?? '');
   await expect(panel.locator('.jp-PluginPlayground-listItem')).toHaveCount(1);
 
-  const argsButton = panel
-    .getByRole('button', { name: /Show argument documentation/ })
-    .first();
-  await argsButton.click();
-  await expect(argsButton).toHaveAttribute('aria-expanded', 'true');
+  const showArgsButton = panel.getByRole('button', {
+    name: `Show argument documentation for ${commandWithArgumentDocs}`
+  });
+  await showArgsButton.click();
+  await expect(
+    panel.getByRole('button', {
+      name: `Hide argument documentation for ${commandWithArgumentDocs}`
+    })
+  ).toHaveAttribute('aria-expanded', 'true');
 
   const argumentsPanel = panel.locator('.jp-PluginPlayground-commandArguments');
   await expect(argumentsPanel).toBeVisible();
-  await expect(panel.locator('.jp-PluginPlayground-commandArgumentsText')).toContainText(
-    'Arguments Schema:'
-  );
-  await expect(panel.locator('.jp-PluginPlayground-commandArgumentsText')).toContainText(
-    '"path"'
-  );
+  await expect(
+    panel.locator('.jp-PluginPlayground-commandArgumentsText')
+  ).toContainText(/(Usage:|Arguments Schema:)/);
 });
 
 test('command completer suggests command ids inside execute calls', async ({

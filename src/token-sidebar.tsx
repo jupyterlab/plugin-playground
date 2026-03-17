@@ -226,6 +226,11 @@ export class TokenSidebar extends ReactWidget {
                   command.id
                 );
                 const commandArguments = this._commandArguments.get(command.id);
+                const hasNoArguments =
+                  commandArguments === null &&
+                  this._commandArguments.has(command.id);
+                const isArgumentsButtonDisabled =
+                  isLoadingArguments || (hasNoArguments && !isExpanded);
                 const commandArgumentsPanelId = this._commandArgumentsPanelId(
                   command.id
                 );
@@ -246,15 +251,22 @@ export class TokenSidebar extends ReactWidget {
                           onClick={() => {
                             void this._toggleCommandArguments(command.id);
                           }}
+                          disabled={isArgumentsButtonDisabled}
                           aria-expanded={isExpanded}
                           aria-controls={commandArgumentsPanelId}
                           aria-label={
-                            isExpanded
+                            isArgumentsButtonDisabled
+                              ? `No arguments for ${command.id}`
+                              : isExpanded
                               ? `Hide argument documentation for ${command.id}`
                               : `Show argument documentation for ${command.id}`
                           }
                           title={
-                            isExpanded ? 'Hide argument documentation' : 'Show argument documentation'
+                            isArgumentsButtonDisabled
+                              ? 'No arguments'
+                              : isExpanded
+                              ? 'Hide argument documentation'
+                              : 'Show argument documentation'
                           }
                         >
                           {React.createElement(infoIcon.react, {
@@ -307,7 +319,7 @@ export class TokenSidebar extends ReactWidget {
                       >
                         {isLoadingArguments ? (
                           <p className="jp-PluginPlayground-count jp-PluginPlayground-tokenCount">
-                            Loading argument documentation...
+                            Loading argument documentation…
                           </p>
                         ) : (
                           <pre className="jp-PluginPlayground-commandArgumentsText">
@@ -383,8 +395,7 @@ export class TokenSidebar extends ReactWidget {
     this.update();
 
     try {
-      const argumentsDocumentation =
-        await this._getCommandArguments(commandId);
+      const argumentsDocumentation = await this._getCommandArguments(commandId);
       this._commandArguments.set(commandId, argumentsDocumentation);
     } catch {
       this._commandArguments.set(commandId, null);
@@ -398,7 +409,7 @@ export class TokenSidebar extends ReactWidget {
     commandArguments: ICommandArgumentDocumentation | null | undefined
   ): string {
     if (!commandArguments) {
-      return 'No argument documentation available.';
+      return 'No arguments';
     }
 
     const sections: string[] = [];
@@ -413,7 +424,7 @@ export class TokenSidebar extends ReactWidget {
       );
     }
 
-    return sections.join('\n\n') || 'No argument documentation available.';
+    return sections.join('\n\n') || 'No arguments';
   }
 
   private _commandArgumentsPanelId(commandId: string): string {
