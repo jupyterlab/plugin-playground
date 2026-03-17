@@ -256,7 +256,8 @@
   white-space: nowrap;
 }
 
-.jp-PluginPlayground-loadOnSaveCheckbox:disabled + .jp-PluginPlayground-loadOnSaveText {
+.jp-PluginPlayground-loadOnSaveCheckbox:disabled
+  + .jp-PluginPlayground-loadOnSaveText {
   color: var(--jp-ui-font-color2);
 }
 
