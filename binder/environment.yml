@@ -20,3 +20,4 @@ dependencies:
   # additional packages for demos
   # - ipywidgets
   - jupyterlab-lsp
+  - jupyterlab-js-logs>=1,<2
