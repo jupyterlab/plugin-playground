@@ -857,6 +857,32 @@ class PluginPlayground {
       updateBadge();
     };
 
+    // Check if the js-logs panel is currently open and visible.
+    const isPanelVisible = (): boolean => {
+      if (
+        !commands.hasCommand(JS_LOGS_OPEN) ||
+        !commands.isToggled(JS_LOGS_OPEN)
+      ) {
+        return false;
+      }
+      const el = document.querySelector('.jp-LogConsole');
+      return el !== null && (el as HTMLElement).offsetParent !== null;
+    };
+
+    // Focus the existing log console panel instead of toggling it closed.
+    const focusLogPanel = (): void => {
+      const el = document.querySelector('.jp-LogConsole');
+      if (el) {
+        const widget = el.closest('.lm-Widget[id]');
+        if (widget && widget.id) {
+          this.app.shell.activateById(widget.id);
+          return;
+        }
+      }
+      // Fallback: toggle open - create a new panel.
+      commands.execute(JS_LOGS_OPEN);
+    };
+
     const updateBadge = (): void => {
       if (unreadCount === 0) {
         badgeBar.style.display = 'none';
@@ -874,11 +900,20 @@ class PluginPlayground {
       );
     };
 
-    // Click label → open logs panel, replay buffer, clear badge.
+    // Click label → open or focus logs panel, replay buffer, clear badge.
     labelSpan.addEventListener('click', () => {
-      if (commands.hasCommand(JS_LOGS_OPEN)) {
+      if (!commands.hasCommand(JS_LOGS_OPEN)) {
+        resetBadge();
+        return;
+      }
+      const panelExists = commands.isToggled(JS_LOGS_OPEN);
+      if (panelExists) {
+        // Panel already open.
+        focusLogPanel();
+        resetBadge();
+      } else {
+        // Panel doesn't exist.
         commands.execute(JS_LOGS_OPEN);
-        // Wait for the panel to initialize, then replay buffered logs.
         const entries = logBuffer.slice();
         resetBadge();
         setTimeout(() => {
@@ -888,8 +923,6 @@ class PluginPlayground {
           }
           replaying = false;
         }, 200);
-      } else {
-        resetBadge();
       }
     });
 
@@ -906,7 +939,7 @@ class PluginPlayground {
       method: (...a: any[]) => void,
       args: any[]
     ): void => {
-      if (replaying) {
+      if (replaying || isPanelVisible()) {
         return;
       }
       unreadCount++;
