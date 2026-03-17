@@ -20,7 +20,7 @@ This extension provides a new command, `Load Current File As Extension`, availab
 
 It also adds a single right sidebar panel with two collapsible sections:
 
-- **Service Tokens**: token string IDs you can use in plugin `requires` and `optional` arrays, with search, copy, and import actions.
+- **Extension Points**: token string IDs and command IDs, with a `Tokens` / `Commands` switch. Tokens support search, copy, and import actions. Commands support search and copy actions.
 - **Extension Examples**: discovered examples from a local checkout of [`jupyterlab/extension-examples`](https://github.com/jupyterlab/extension-examples), so you can open them directly from the panel.
 
 If examples are missing:
@@ -29,6 +29,8 @@ If examples are missing:
 - For PyPI installs: clone `https://github.com/jupyterlab/extension-examples` into an `extension-examples/` folder in your working directory.
 
 When reloading a plugin with the same `id`, the playground attempts to deactivate the previously loaded plugin first. Defining `deactivate()` in examples is recommended for clean reruns.
+
+When typing inside `commands.execute(` or `app.commands.execute(` in JavaScript and TypeScript editors, the completer will also suggest available command IDs.
 
 As an example, open the text editor by creating a new text file and paste this small JupyterLab plugin into it. This plugin will create a simple command `My Super Cool Toggle` in the command palette that can be toggled on and off.
 

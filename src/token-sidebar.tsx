@@ -9,6 +9,11 @@ import { addIcon, checkIcon, copyIcon } from '@jupyterlab/ui-components';
 
 import * as React from 'react';
 
+import {
+  formatCommandDescription,
+  type ICommandRecord
+} from './command-completion';
+
 export namespace TokenSidebar {
   export interface ITokenRecord {
     name: string;
@@ -16,23 +21,30 @@ export namespace TokenSidebar {
   }
 
   export interface IOptions {
-    tokens: ReadonlyArray<ITokenRecord>;
+    getTokens: () => ReadonlyArray<ITokenRecord>;
+    getCommands: () => ReadonlyArray<ICommandRecord>;
     onInsertImport: (tokenName: string) => Promise<void> | void;
-    isImportEnabled: () => boolean;
+    isImportEnabled: (tokenName: string) => boolean;
   }
 }
 
+type ExtensionPointView = 'tokens' | 'commands';
+const EXTENSION_POINT_PANEL_ID = 'jp-PluginPlayground-extensionPointPanel';
+
 export class TokenSidebar extends ReactWidget {
-  private readonly _tokens: ReadonlyArray<TokenSidebar.ITokenRecord>;
+  private readonly _getTokens: () => ReadonlyArray<TokenSidebar.ITokenRecord>;
+  private readonly _getCommands: () => ReadonlyArray<ICommandRecord>;
   private readonly _onInsertImport: (tokenName: string) => Promise<void> | void;
-  private readonly _isImportEnabled: () => boolean;
+  private readonly _isImportEnabled: (tokenName: string) => boolean;
   private _query = '';
-  private _copiedTokenName: string | null = null;
+  private _activeView: ExtensionPointView = 'tokens';
+  private _copiedValue: string | null = null;
   private _copiedTimer: number | null = null;
 
   constructor(options: TokenSidebar.IOptions) {
     super();
-    this._tokens = options.tokens;
+    this._getTokens = options.getTokens;
+    this._getCommands = options.getCommands;
     this._onInsertImport = options.onInsertImport;
     this._isImportEnabled = options.isImportEnabled;
     this.addClass('jp-PluginPlayground-sidebar');
@@ -49,98 +61,199 @@ export class TokenSidebar extends ReactWidget {
 
   render(): JSX.Element {
     const query = this._query.trim().toLowerCase();
-    const filteredTokens =
-      query.length > 0
-        ? this._tokens.filter(
-            token =>
-              token.name.toLowerCase().includes(query) ||
-              token.description.toLowerCase().includes(query)
-          )
-        : this._tokens;
+    const isTokenView = this._activeView === 'tokens';
+    const activeTabId = `jp-PluginPlayground-extensionPointTab-${this._activeView}`;
+    let tokens: ReadonlyArray<TokenSidebar.ITokenRecord> = [];
+    let commands: ReadonlyArray<ICommandRecord> = [];
+    let filteredTokens: ReadonlyArray<TokenSidebar.ITokenRecord> = [];
+    let filteredCommands: ReadonlyArray<ICommandRecord> = [];
+
+    if (isTokenView) {
+      tokens = this._getTokens();
+      filteredTokens =
+        query.length > 0
+          ? tokens.filter(
+              token =>
+                token.name.toLowerCase().includes(query) ||
+                token.description.toLowerCase().includes(query)
+            )
+          : tokens;
+    } else {
+      commands = this._getCommands();
+      filteredCommands =
+        query.length > 0
+          ? commands.filter(
+              command =>
+                command.id.toLowerCase().includes(query) ||
+                command.label.toLowerCase().includes(query) ||
+                command.caption.toLowerCase().includes(query)
+            )
+          : commands;
+    }
+
+    const itemCount = isTokenView
+      ? filteredTokens.length
+      : filteredCommands.length;
+    const totalCount = isTokenView ? tokens.length : commands.length;
 
     return (
       <div className="jp-PluginPlayground-sidebarInner jp-PluginPlayground-tokenSidebarInner">
-        <input
-          className="jp-PluginPlayground-filter jp-PluginPlayground-tokenFilter"
-          type="search"
-          placeholder="Filter token strings"
-          value={this._query}
-          onChange={this._onQueryChange}
-        />
-        <p className="jp-PluginPlayground-count jp-PluginPlayground-tokenCount">
-          {filteredTokens.length} of {this._tokens.length} token strings
-        </p>
-        {filteredTokens.length === 0 ? (
+        <div
+          className="jp-PluginPlayground-viewToggle"
+          role="tablist"
+          aria-label="Extension points"
+          aria-orientation="horizontal"
+        >
+          {this._renderViewButton('tokens', 'Tokens')}
+          {this._renderViewButton('commands', 'Commands')}
+        </div>
+        <div
+          id={EXTENSION_POINT_PANEL_ID}
+          className="jp-PluginPlayground-viewPanel"
+          role="tabpanel"
+          aria-labelledby={activeTabId}
+        >
+          <input
+            className="jp-PluginPlayground-filter jp-PluginPlayground-tokenFilter"
+            type="search"
+            placeholder={
+              isTokenView ? 'Filter token strings' : 'Filter command ids'
+            }
+            value={this._query}
+            onChange={this._onQueryChange}
+          />
           <p className="jp-PluginPlayground-count jp-PluginPlayground-tokenCount">
-            No matching token strings.
+            {itemCount} of {totalCount}{' '}
+            {isTokenView ? 'token strings' : 'commands'}
           </p>
-        ) : (
-          <ul className="jp-PluginPlayground-list jp-PluginPlayground-tokenList">
-            {filteredTokens.map(token => (
-              <li
-                key={token.name}
-                className="jp-PluginPlayground-listItem jp-PluginPlayground-tokenListItem"
-              >
-                <div className="jp-PluginPlayground-row jp-PluginPlayground-tokenRow">
-                  <code className="jp-PluginPlayground-entryLabel jp-PluginPlayground-tokenString">
-                    {token.name}
-                  </code>
-                  <div className="jp-PluginPlayground-tokenActions">
-                    <button
-                      className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-importButton"
-                      type="button"
-                      onClick={() => {
-                        void this._insertImport(token.name);
-                      }}
-                      disabled={!this._canInsertImport(token.name)}
-                      aria-label={`Insert import statement for ${token.name}`}
-                      title="Insert import statement"
-                    >
-                      {React.createElement(addIcon.react, {
-                        tag: 'span',
-                        elementSize: 'normal',
-                        className: 'jp-PluginPlayground-actionIcon'
-                      })}
-                    </button>
-                    <button
-                      className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-copyButton"
-                      type="button"
-                      onClick={() => {
-                        void this._copyTokenName(token.name);
-                      }}
-                      aria-label={
-                        this._copiedTokenName === token.name
-                          ? `Copied token string ${token.name}`
-                          : `Copy token string ${token.name}`
-                      }
-                      title={
-                        this._copiedTokenName === token.name
-                          ? 'Copied'
-                          : 'Copy token string'
-                      }
-                    >
-                      {React.createElement(
-                        this._copiedTokenName === token.name
-                          ? checkIcon.react
-                          : copyIcon.react,
-                        {
+          {itemCount === 0 ? (
+            <p className="jp-PluginPlayground-count jp-PluginPlayground-tokenCount">
+              {isTokenView
+                ? 'No matching token strings.'
+                : 'No matching commands.'}
+            </p>
+          ) : isTokenView ? (
+            <ul className="jp-PluginPlayground-list jp-PluginPlayground-tokenList">
+              {filteredTokens.map(token => (
+                <li
+                  key={token.name}
+                  className="jp-PluginPlayground-listItem jp-PluginPlayground-tokenListItem"
+                >
+                  <div className="jp-PluginPlayground-row jp-PluginPlayground-tokenRow">
+                    <code className="jp-PluginPlayground-entryLabel jp-PluginPlayground-tokenString">
+                      {token.name}
+                    </code>
+                    <div className="jp-PluginPlayground-tokenActions">
+                      <button
+                        className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-importButton"
+                        type="button"
+                        onClick={() => {
+                          void this._insertImport(token.name);
+                        }}
+                        disabled={!this._isImportEnabled(token.name)}
+                        aria-label={`Insert import statement for ${token.name}`}
+                        title="Insert import statement"
+                      >
+                        {React.createElement(addIcon.react, {
                           tag: 'span',
                           elementSize: 'normal',
                           className: 'jp-PluginPlayground-actionIcon'
+                        })}
+                      </button>
+                      <button
+                        className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-copyButton"
+                        type="button"
+                        onClick={() => {
+                          void this._copyValue(token.name, 'token string');
+                        }}
+                        aria-label={
+                          this._copiedValue === token.name
+                            ? `Copied token string ${token.name}`
+                            : `Copy token string ${token.name}`
                         }
-                      )}
-                    </button>
+                        title={
+                          this._copiedValue === token.name
+                            ? 'Copied'
+                            : 'Copy token string'
+                        }
+                      >
+                        {React.createElement(
+                          this._copiedValue === token.name
+                            ? checkIcon.react
+                            : copyIcon.react,
+                          {
+                            tag: 'span',
+                            elementSize: 'normal',
+                            className: 'jp-PluginPlayground-actionIcon'
+                          }
+                        )}
+                      </button>
+                    </div>
                   </div>
-                </div>
-                {token.description ? (
-                  <p className="jp-PluginPlayground-description jp-PluginPlayground-tokenDescription">
-                    {token.description}
-                  </p>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
+                  {token.description ? (
+                    <p className="jp-PluginPlayground-description jp-PluginPlayground-tokenDescription">
+                      {token.description}
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <ul className="jp-PluginPlayground-list jp-PluginPlayground-tokenList">
+              {filteredCommands.map(command => {
+                const description = formatCommandDescription(command);
+
+                return (
+                  <li
+                    key={command.id}
+                    className="jp-PluginPlayground-listItem jp-PluginPlayground-tokenListItem"
+                  >
+                    <div className="jp-PluginPlayground-row jp-PluginPlayground-tokenRow">
+                      <code className="jp-PluginPlayground-entryLabel jp-PluginPlayground-tokenString">
+                        {command.id}
+                      </code>
+                      <div className="jp-PluginPlayground-tokenActions">
+                        <button
+                          className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-copyButton"
+                          type="button"
+                          onClick={() => {
+                            void this._copyValue(command.id, 'command id');
+                          }}
+                          aria-label={
+                            this._copiedValue === command.id
+                              ? `Copied command id ${command.id}`
+                              : `Copy command id ${command.id}`
+                          }
+                          title={
+                            this._copiedValue === command.id
+                              ? 'Copied'
+                              : 'Copy command id'
+                          }
+                        >
+                          {React.createElement(
+                            this._copiedValue === command.id
+                              ? checkIcon.react
+                              : copyIcon.react,
+                            {
+                              tag: 'span',
+                              elementSize: 'normal',
+                              className: 'jp-PluginPlayground-actionIcon'
+                            }
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                    {description ? (
+                      <p className="jp-PluginPlayground-description jp-PluginPlayground-tokenDescription">
+                        {description}
+                      </p>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
       </div>
     );
   }
@@ -149,6 +262,41 @@ export class TokenSidebar extends ReactWidget {
     this._query = event.currentTarget.value;
     this.update();
   };
+
+  private _renderViewButton(
+    view: ExtensionPointView,
+    label: string
+  ): JSX.Element {
+    const isActive = this._activeView === view;
+
+    return (
+      <button
+        className={`jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-viewButton${
+          isActive ? ' jp-mod-active' : ''
+        }`}
+        id={`jp-PluginPlayground-extensionPointTab-${view}`}
+        type="button"
+        onClick={() => {
+          this._setActiveView(view);
+        }}
+        role="tab"
+        aria-selected={isActive}
+        aria-controls={EXTENSION_POINT_PANEL_ID}
+      >
+        {label}
+      </button>
+    );
+  }
+
+  private _setActiveView(view: ExtensionPointView): void {
+    if (this._activeView === view) {
+      return;
+    }
+
+    this._activeView = view;
+    this._query = '';
+    this.update();
+  }
 
   private async _insertImport(tokenName: string): Promise<void> {
     try {
@@ -164,32 +312,18 @@ export class TokenSidebar extends ReactWidget {
     }
   }
 
-  private _canInsertImport(tokenName: string): boolean {
-    const separatorIndex = tokenName.indexOf(':');
-    if (separatorIndex <= 0) {
-      return false;
-    }
-    const packageName = tokenName.slice(0, separatorIndex).trim();
-    const tokenSymbol = tokenName.slice(separatorIndex + 1).trim();
-    return (
-      packageName.length > 0 &&
-      /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(tokenSymbol) &&
-      this._isImportEnabled()
-    );
-  }
-
-  private async _copyTokenName(tokenName: string): Promise<void> {
+  private async _copyValue(value: string, valueKind: string): Promise<void> {
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(tokenName);
+        await navigator.clipboard.writeText(value);
       } else {
-        Clipboard.copyToSystem(tokenName);
+        Clipboard.copyToSystem(value);
       }
-      this._setCopiedState(tokenName);
+      this._setCopiedState(value);
     } catch (error) {
       try {
-        Clipboard.copyToSystem(tokenName);
-        this._setCopiedState(tokenName);
+        Clipboard.copyToSystem(value);
+        this._setCopiedState(value);
       } catch (fallbackError) {
         const message =
           fallbackError instanceof Error
@@ -198,23 +332,23 @@ export class TokenSidebar extends ReactWidget {
             ? error.message
             : 'Unknown clipboard error';
         await showDialog({
-          title: 'Failed to copy token string',
-          body: `Could not copy "${tokenName}". ${message}`,
+          title: `Failed to copy ${valueKind}`,
+          body: `Could not copy "${value}". ${message}`,
           buttons: [Dialog.okButton()]
         });
       }
     }
   }
 
-  private _setCopiedState(tokenName: string): void {
-    this._copiedTokenName = tokenName;
+  private _setCopiedState(value: string): void {
+    this._copiedValue = value;
     this.update();
 
     if (this._copiedTimer !== null) {
       window.clearTimeout(this._copiedTimer);
     }
     this._copiedTimer = window.setTimeout(() => {
-      this._copiedTokenName = null;
+      this._copiedValue = null;
       this._copiedTimer = null;
       this.update();
     }, 1200);
