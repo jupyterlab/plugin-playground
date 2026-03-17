@@ -49,6 +49,7 @@ import { tokenSidebarIcon } from './icons';
 
 import {
   CommandCompletionProvider,
+  getCommandArgumentDocumentation,
   getCommandRecords
 } from './command-completion';
 
@@ -193,6 +194,8 @@ class PluginPlayground {
               description: this._tokenDescriptionMap.get(name) ?? ''
             })),
         getCommands: () => getCommandRecords(this.app),
+        getCommandArguments: commandId =>
+          getCommandArgumentDocumentation(this.app, commandId),
         onInsertImport: this._insertTokenImport.bind(this),
         isImportEnabled: this._canInsertImport.bind(this)
       });

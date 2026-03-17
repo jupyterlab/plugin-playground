@@ -6,10 +6,17 @@ import {
   ICompletionProvider
 } from '@jupyterlab/completer';
 
+import type { ReadonlyJSONObject } from '@lumino/coreutils';
+
 export interface ICommandRecord {
   id: string;
   label: string;
   caption: string;
+}
+
+export interface ICommandArgumentDocumentation {
+  usage: string;
+  args: ReadonlyJSONObject | null;
 }
 
 interface ICommandQuery {
@@ -100,6 +107,27 @@ export function formatCommandDescription(record: ICommandRecord): string {
     .filter(Boolean)
     .filter((value, index, values) => values.indexOf(value) === index)
     .join(' | ');
+}
+
+export async function getCommandArgumentDocumentation(
+  app: Pick<JupyterFrontEnd, 'commands'>,
+  commandId: string
+): Promise<ICommandArgumentDocumentation | null> {
+  const usage = Private.safeCommandText(() => app.commands.usage(commandId));
+  let args: ReadonlyJSONObject | null = null;
+
+  try {
+    const description = await app.commands.describedBy(commandId);
+    args = description.args ?? null;
+  } catch {
+    args = null;
+  }
+
+  if (!usage && !(args && Object.keys(args).length > 0)) {
+    return null;
+  }
+
+  return { usage, args };
 }
 
 namespace Private {

@@ -11,6 +11,7 @@ const TEST_TOGGLE_COMMAND = 'playground-integration-test:toggle';
 const TEST_FILE = 'playground-integration-test.ts';
 const COMMAND_COMPLETION_FILE = 'command-completion.ts';
 const INVOKE_FILE_COMPLETER_COMMAND = 'completer:invoke-file';
+const COMMAND_WITH_ARGUMENT_DOCS = 'filebrowser:open-path';
 const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
 const TOKEN_SECTION_ID = 'jp-plugin-token-sidebar';
 const EXAMPLE_SECTION_ID = 'jp-plugin-example-sidebar';
@@ -346,6 +347,24 @@ test('commands tab lists and filters available commands', async ({ page }) => {
   await filterInput.fill(INTERNAL_CONTEXT_INFO_COMMAND);
   await expect(panel.locator('.jp-PluginPlayground-listItem')).toHaveCount(0);
   await expect(panel.getByText('No matching commands.')).toBeVisible();
+
+  await filterInput.fill(COMMAND_WITH_ARGUMENT_DOCS);
+  await expect(panel.locator('.jp-PluginPlayground-listItem')).toHaveCount(1);
+
+  const argsButton = panel
+    .getByRole('button', { name: /Show argument documentation/ })
+    .first();
+  await argsButton.click();
+  await expect(argsButton).toHaveAttribute('aria-expanded', 'true');
+
+  const argumentsPanel = panel.locator('.jp-PluginPlayground-commandArguments');
+  await expect(argumentsPanel).toBeVisible();
+  await expect(panel.locator('.jp-PluginPlayground-commandArgumentsText')).toContainText(
+    'Arguments Schema:'
+  );
+  await expect(panel.locator('.jp-PluginPlayground-commandArgumentsText')).toContainText(
+    '"path"'
+  );
 });
 
 test('command completer suggests command ids inside execute calls', async ({
