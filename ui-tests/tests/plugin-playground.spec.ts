@@ -362,28 +362,19 @@ test('commands tab lists and filters available commands', async ({ page }) => {
   ]);
   await expect(panel.getByText('Load Current File As Extension')).toBeVisible();
 
-  const loadCommandArgumentsButton = panel.getByRole('button', {
-    name: `Show argument documentation for ${LOAD_COMMAND}`
-  });
+  const loadCommandArgumentsButton = panel.locator(
+    '.jp-PluginPlayground-argumentBadgeButton'
+  );
   await expect(
     loadCommandArgumentsButton.locator(
       '.jp-PluginPlayground-argumentCountBadge'
     )
   ).toHaveText('?');
-
-  const noArgumentsButtonLabel = `No arguments for ${LOAD_COMMAND}`;
-  await loadCommandArgumentsButton.click();
-  await expect(
-    panel.locator('.jp-PluginPlayground-commandArgumentsText')
-  ).toContainText('No arguments');
-  await panel
-    .getByRole('button', {
-      name: `Hide argument documentation for ${LOAD_COMMAND}`
-    })
-    .click();
-  await expect(
-    panel.getByRole('button', { name: noArgumentsButtonLabel })
-  ).toBeDisabled();
+  await expect(loadCommandArgumentsButton).toBeDisabled();
+  await expect(loadCommandArgumentsButton).toHaveAttribute(
+    'title',
+    'Argument documentation unavailable'
+  );
 
   await filterInput.fill(INTERNAL_CONTEXT_INFO_COMMAND);
   await expect(panel.locator('.jp-PluginPlayground-listItem')).toHaveCount(0);
@@ -425,6 +416,7 @@ test('commands tab lists and filters available commands', async ({ page }) => {
   const showArgsButton = panel.getByRole('button', {
     name: `Show argument documentation for ${commandWithArgumentDocs}`
   });
+  await expect(showArgsButton).toBeEnabled();
   await showArgsButton.click();
   await expect(
     panel.getByRole('button', {

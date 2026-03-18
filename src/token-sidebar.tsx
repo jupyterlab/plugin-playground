@@ -5,12 +5,7 @@ import {
   showDialog
 } from '@jupyterlab/apputils';
 
-import {
-  addIcon,
-  infoIcon,
-  checkIcon,
-  copyIcon
-} from '@jupyterlab/ui-components';
+import { addIcon, checkIcon, copyIcon } from '@jupyterlab/ui-components';
 
 import * as React from 'react';
 
@@ -240,11 +235,9 @@ export class TokenSidebar extends ReactWidget {
                     ? commandArgumentCount.toString()
                     : '?';
                 const commandArguments = this._commandArguments.get(command.id);
-                const hasNoArguments =
-                  commandArguments === null &&
-                  this._commandArguments.has(command.id);
+                const isUnknownArgumentCount = commandArgumentCount === null;
                 const isArgumentsButtonDisabled =
-                  isLoadingArguments || (hasNoArguments && !isExpanded);
+                  !isExpanded && (isLoadingArguments || isUnknownArgumentCount);
                 const commandArgumentsPanelId = this._commandArgumentsPanelId(
                   command.id
                 );
@@ -270,24 +263,25 @@ export class TokenSidebar extends ReactWidget {
                           aria-controls={commandArgumentsPanelId}
                           aria-label={
                             isArgumentsButtonDisabled
-                              ? `No arguments for ${command.id}`
+                              ? `Argument documentation unavailable for ${command.id}`
                               : isExpanded
                               ? `Hide argument documentation for ${command.id}`
                               : `Show argument documentation for ${command.id}`
                           }
                           title={
                             isArgumentsButtonDisabled
-                              ? 'No arguments'
+                              ? 'Argument documentation unavailable'
                               : isExpanded
                               ? 'Hide argument documentation'
                               : 'Show argument documentation'
                           }
                         >
-                          {React.createElement(infoIcon.react, {
-                            tag: 'span',
-                            elementSize: 'normal',
-                            className: 'jp-PluginPlayground-actionIcon'
-                          })}
+                          <span
+                            className="jp-PluginPlayground-argumentFunctionLabel"
+                            aria-hidden="true"
+                          >
+                            f()
+                          </span>
                           <span
                             className="jp-PluginPlayground-argumentCountBadge"
                             aria-hidden="true"

@@ -132,6 +132,12 @@
   position: relative;
 }
 
+.jp-PluginPlayground-argumentFunctionLabel {
+  font-family: var(--jp-code-font-family);
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1;
+}
+
 .jp-PluginPlayground-actionButton:hover {
   background: var(--jp-layout-color3);
 }
