@@ -173,7 +173,6 @@ Useful commands:
 - `pre-commit run --files <path ...>`: run hooks for specific files only.
 - `pre-commit autoupdate`: update pinned hook versions.
 
-
 You can watch the source directory and run JupyterLab at the same time in different terminals to watch for changes in the extension's source and automatically rebuild the extension.
 
 ```bash
