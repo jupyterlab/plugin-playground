@@ -347,7 +347,9 @@ test('commands tab lists and filters available commands', async ({ page }) => {
     name: `Show argument documentation for ${LOAD_COMMAND}`
   });
   await expect(
-    loadCommandArgumentsButton.locator('.jp-PluginPlayground-argumentCountBadge')
+    loadCommandArgumentsButton.locator(
+      '.jp-PluginPlayground-argumentCountBadge'
+    )
   ).toHaveText('?');
 
   const noArgumentsButtonLabel = `No arguments for ${LOAD_COMMAND}`;

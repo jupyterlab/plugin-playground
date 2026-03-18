@@ -153,7 +153,8 @@
   top: -2px;
 }
 
-.jp-PluginPlayground-argumentBadgeButton:disabled .jp-PluginPlayground-argumentCountBadge {
+.jp-PluginPlayground-argumentBadgeButton:disabled
+  .jp-PluginPlayground-argumentCountBadge {
   background: var(--jp-layout-color4);
   color: var(--jp-ui-font-color2);
 }

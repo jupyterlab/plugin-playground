@@ -143,7 +143,11 @@ export async function getCommandArgumentCount(
 
     const schema = args as ReadonlyJSONObject & { properties?: unknown };
     const properties = schema.properties;
-    if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
+    if (
+      !properties ||
+      typeof properties !== 'object' ||
+      Array.isArray(properties)
+    ) {
       return 0;
     }
 
