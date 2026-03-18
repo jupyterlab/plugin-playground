@@ -128,8 +128,34 @@
   justify-content: center;
 }
 
+.jp-PluginPlayground-argumentBadgeButton {
+  position: relative;
+}
+
 .jp-PluginPlayground-actionButton:hover {
   background: var(--jp-layout-color3);
+}
+
+.jp-PluginPlayground-argumentCountBadge {
+  background: var(--jp-brand-color1);
+  border-radius: 999px;
+  color: var(--jp-ui-inverse-font-color1);
+  font-family: var(--jp-code-font-family);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 13px;
+  min-width: 13px;
+  padding: 2px;
+  pointer-events: none;
+  position: absolute;
+  right: 3px;
+  text-align: center;
+  top: -2px;
+}
+
+.jp-PluginPlayground-argumentBadgeButton:disabled .jp-PluginPlayground-argumentCountBadge {
+  background: var(--jp-layout-color4);
+  color: var(--jp-ui-font-color2);
 }
 
 .jp-PluginPlayground-viewButton:focus-visible,

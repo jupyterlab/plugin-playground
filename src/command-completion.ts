@@ -130,6 +130,29 @@ export async function getCommandArgumentDocumentation(
   return { usage, args };
 }
 
+export async function getCommandArgumentCount(
+  app: Pick<JupyterFrontEnd, 'commands'>,
+  commandId: string
+): Promise<number | null> {
+  try {
+    const description = await app.commands.describedBy(commandId);
+    const args = description.args;
+    if (!args) {
+      return null;
+    }
+
+    const schema = args as ReadonlyJSONObject & { properties?: unknown };
+    const properties = schema.properties;
+    if (!properties || typeof properties !== 'object' || Array.isArray(properties)) {
+      return 0;
+    }
+
+    return Object.keys(properties).length;
+  } catch {
+    return null;
+  }
+}
+
 namespace Private {
   const IDENTIFIER_PATTERN = '[A-Za-z_$][A-Za-z0-9_$]*';
   const COMMAND_METHODS = [

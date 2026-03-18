@@ -343,12 +343,15 @@ test('commands tab lists and filters available commands', async ({ page }) => {
   ]);
   await expect(panel.getByText('Load Current File As Extension')).toBeVisible();
 
+  const loadCommandArgumentsButton = panel.getByRole('button', {
+    name: `Show argument documentation for ${LOAD_COMMAND}`
+  });
+  await expect(
+    loadCommandArgumentsButton.locator('.jp-PluginPlayground-argumentCountBadge')
+  ).toHaveText('?');
+
   const noArgumentsButtonLabel = `No arguments for ${LOAD_COMMAND}`;
-  await panel
-    .getByRole('button', {
-      name: `Show argument documentation for ${LOAD_COMMAND}`
-    })
-    .click();
+  await loadCommandArgumentsButton.click();
   await expect(
     panel.locator('.jp-PluginPlayground-commandArgumentsText')
   ).toContainText('No arguments');
