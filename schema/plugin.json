@@ -31,6 +31,12 @@
       "default": true,
       "type": "boolean"
     },
+    "loadOnSave": {
+      "title": "Load as extension on save",
+      "description": "Whether to automatically load the current editor file as an extension every time it is saved.",
+      "default": false,
+      "type": "boolean"
+    },
     "plugins": {
       "title": "Plugins",
       "description": "List of strings of plugin text to load automatically. Line breaks are encoded as '\\n'",
@@ -56,6 +62,10 @@
         "name": "insert",
         "command": "plugin-playground:load-as-extension",
         "rank": 20
+      },
+      {
+        "name": "plugin-playground-load-on-save",
+        "rank": 21
       }
     ]
   },
