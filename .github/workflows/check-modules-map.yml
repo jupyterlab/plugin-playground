@@ -2,9 +2,9 @@ name: Check Known Modules Map
 
 on:
   push:
-    branches: main
+    branches: [main]
   pull_request:
-    branches: '*'
+    branches: ["*"]
 
 jobs:
   check_modules_map:
