@@ -34,14 +34,15 @@ import { PluginLoader, PluginLoadingError } from './loader';
 
 import { PluginTranspiler } from './transpiler';
 
+import { loadKnownModule } from './modules';
+
 import {
   discoverFederatedKnownModules,
   type IKnownModule,
   listKnownModules,
-  loadKnownModule,
   registerCoreKnownModules,
   registerKnownModule
-} from './modules';
+} from './known-modules';
 
 import { JSImportExplorer } from './js-explorer';
 

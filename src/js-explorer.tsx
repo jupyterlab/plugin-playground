@@ -11,7 +11,7 @@ import {
   openExternalLink,
   setCopiedStateWithTimeout
 } from './contents';
-import type { IKnownModule } from './modules';
+import type { IKnownModule } from './known-modules';
 
 export namespace JSImportExplorer {
   export interface IOptions {

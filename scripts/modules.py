@@ -34,6 +34,11 @@ TEMPLATE = """\
 import type {{ IModule }} from './types';
 
 
+export const KNOWN_MODULE_NAMES: ReadonlyArray<string> = [
+  {module_names_string}
+];
+
+
 export function loadKnownModule(name: string): Promise<IModule | null> {{
   switch (name) {{
     {key_map_string}
@@ -54,8 +59,13 @@ def create_modules_map(core_modules, extra_modules, ignored_modules):
         f"case '{module}':\n      return import('{module}') as any;"
         for module in modules_to_export
     ]
+    module_names = [
+        f"'{module}'"
+        for module in modules_to_export
+    ]
 
     modules_dot_ts = TEMPLATE.format(
+        module_names_string=',\n  '.join(module_names),
         key_map_string='\n    '.join(key_map)
     )
     return modules_dot_ts
