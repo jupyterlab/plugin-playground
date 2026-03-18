@@ -153,7 +153,7 @@ class PluginPlayground {
         const currentWidget = editorTracker.currentWidget;
         if (currentWidget) {
           const currentText = currentWidget.context.model.toString();
-          this._loadPlugin(currentText, currentWidget.context.path);
+          this._queuePluginLoad(currentText, currentWidget.context.path);
         }
       }
     });
@@ -173,7 +173,7 @@ class PluginPlayground {
           const normalizedPath = normalizeContentsPath(widget.context.path);
           if (state === 'completed' && this._shouldLoadOnSave(normalizedPath)) {
             const currentText = widget.context.model.toString();
-            this._loadPlugin(currentText, widget.context.path);
+            this._queuePluginLoad(currentText, widget.context.path);
           }
         };
         widget.context.saveState.connect(onSaveState);
@@ -326,6 +326,8 @@ class PluginPlayground {
     checkbox.setAttribute('aria-label', LOAD_ON_SAVE_CHECKBOX_LABEL);
     const label = document.createElement('span');
     label.className = 'jp-PluginPlayground-loadOnSaveText';
+    label.id = `${widget.id}-load-on-save-label`;
+    checkbox.setAttribute('aria-describedby', label.id);
     label.textContent = LOAD_ON_SAVE_CHECKBOX_LABEL;
     toggleNode.append(checkbox, label);
 
@@ -352,7 +354,6 @@ class PluginPlayground {
         ? LOAD_ON_SAVE_ENABLED_DESCRIPTION
         : LOAD_ON_SAVE_DISABLED_DESCRIPTION;
       toggleNode.title = description;
-      checkbox.setAttribute('aria-description', description);
     };
 
     const onCheckboxChanged = () => {
@@ -408,6 +409,24 @@ class PluginPlayground {
     widget.disposed.connect(dispose);
 
     return toggleWidget;
+  }
+
+  private _queuePluginLoad(pluginSource: string, path: string): void {
+    const normalizedPath = normalizeContentsPath(path);
+    const previous = this._inFlightLoads.get(normalizedPath) ?? Promise.resolve();
+    const next = previous
+      .catch(() => {
+        /* swallow previous load error to continue queue */
+      })
+      .then(async () => {
+        await this._loadPlugin(pluginSource, path);
+      })
+      .finally(() => {
+        if (this._inFlightLoads.get(normalizedPath) === next) {
+          this._inFlightLoads.delete(normalizedPath);
+        }
+      });
+    this._inFlightLoads.set(normalizedPath, next);
   }
 
   private _updateSettings(
@@ -1146,6 +1165,7 @@ class PluginPlayground {
 
   private readonly _fallbackExampleDescription =
     'No description provided by this example.';
+  private readonly _inFlightLoads = new Map<string, Promise<void>>();
   private readonly _loadOnSaveByFile = new Set<string>();
   private readonly _loadOnSaveToggleRefreshers = new Set<() => void>();
   private readonly _tokenMap = new Map<string, Token<string>>();
