@@ -56,6 +56,12 @@
         "name": "insert",
         "command": "plugin-playground:load-as-extension",
         "rank": 20
+      },
+      {
+        "name": "js-explorer",
+        "command": "plugin-playground:open-js-explorer",
+        "label": "Open JS Explorer",
+        "rank": 21
       }
     ]
   },

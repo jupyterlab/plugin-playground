@@ -1,3 +1,4 @@
+import { Clipboard } from '@jupyterlab/apputils';
 import { Contents, ServiceManager } from '@jupyterlab/services';
 
 export type IDirectoryModel = Contents.IModel & {
@@ -112,4 +113,52 @@ export async function readContentsFileAsText(
 ): Promise<string | null> {
   const fileModel = await getFileModel(serviceManager, path);
   return fileModelToText(fileModel);
+}
+
+export async function copyValueToClipboard(value: string): Promise<void> {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+    Clipboard.copyToSystem(value);
+  } catch (error) {
+    try {
+      Clipboard.copyToSystem(value);
+    } catch (fallbackError) {
+      throw fallbackError instanceof Error
+        ? fallbackError
+        : error instanceof Error
+        ? error
+        : new Error('Unknown clipboard error');
+    }
+  }
+}
+
+export function setCopiedStateWithTimeout(
+  value: string,
+  copiedTimer: number | null,
+  setCopiedTimer: (timer: number | null) => void,
+  setCopiedValue: (copiedValue: string | null) => void,
+  update: () => void,
+  timeoutMs = 1200
+): void {
+  setCopiedValue(value);
+  update();
+
+  if (copiedTimer !== null) {
+    window.clearTimeout(copiedTimer);
+  }
+
+  const timer = window.setTimeout(() => {
+    setCopiedValue(null);
+    setCopiedTimer(null);
+    update();
+  }, timeoutMs);
+
+  setCopiedTimer(timer);
+}
+
+export function openExternalLink(url: string): void {
+  window.open(url, '_blank', 'noopener,noreferrer');
 }

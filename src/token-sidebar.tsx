@@ -1,9 +1,4 @@
-import {
-  Clipboard,
-  Dialog,
-  ReactWidget,
-  showDialog
-} from '@jupyterlab/apputils';
+import { Dialog, ReactWidget, showDialog } from '@jupyterlab/apputils';
 
 import { addIcon, checkIcon, copyIcon } from '@jupyterlab/ui-components';
 
@@ -13,6 +8,7 @@ import {
   formatCommandDescription,
   type ICommandRecord
 } from './command-completion';
+import { copyValueToClipboard, setCopiedStateWithTimeout } from './contents';
 
 export namespace TokenSidebar {
   export interface ITokenRecord {
@@ -314,43 +310,28 @@ export class TokenSidebar extends ReactWidget {
 
   private async _copyValue(value: string, valueKind: string): Promise<void> {
     try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(value);
-      } else {
-        Clipboard.copyToSystem(value);
-      }
-      this._setCopiedState(value);
+      await copyValueToClipboard(value);
+      setCopiedStateWithTimeout(
+        value,
+        this._copiedTimer,
+        timer => {
+          this._copiedTimer = timer;
+        },
+        copiedValue => {
+          this._copiedValue = copiedValue;
+        },
+        () => {
+          this.update();
+        }
+      );
     } catch (error) {
-      try {
-        Clipboard.copyToSystem(value);
-        this._setCopiedState(value);
-      } catch (fallbackError) {
-        const message =
-          fallbackError instanceof Error
-            ? fallbackError.message
-            : error instanceof Error
-            ? error.message
-            : 'Unknown clipboard error';
-        await showDialog({
-          title: `Failed to copy ${valueKind}`,
-          body: `Could not copy "${value}". ${message}`,
-          buttons: [Dialog.okButton()]
-        });
-      }
+      const message =
+        error instanceof Error ? error.message : 'Unknown clipboard error';
+      await showDialog({
+        title: `Failed to copy ${valueKind}`,
+        body: `Could not copy "${value}". ${message}`,
+        buttons: [Dialog.okButton()]
+      });
     }
-  }
-
-  private _setCopiedState(value: string): void {
-    this._copiedValue = value;
-    this.update();
-
-    if (this._copiedTimer !== null) {
-      window.clearTimeout(this._copiedTimer);
-    }
-    this._copiedTimer = window.setTimeout(() => {
-      this._copiedValue = null;
-      this._copiedTimer = null;
-      this.update();
-    }, 1200);
   }
 }

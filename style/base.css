@@ -12,16 +12,13 @@
 
 .jp-PluginPlayground-sidebarInner {
   box-sizing: border-box;
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   gap: var(--jp-layout-spacing-standard);
   height: 100%;
   overflow: auto;
   padding: var(--jp-code-padding);
-}
-
-.jp-PluginPlayground-exampleSidebarInner {
-  container-type: inline-size;
 }
 
 .jp-PluginPlayground-viewToggle {
@@ -75,6 +72,7 @@
   color: var(--jp-ui-font-color1);
   font-size: var(--jp-ui-font-size1);
   padding: 4px 8px;
+  width: 100%;
 }
 
 .jp-PluginPlayground-list {
@@ -109,6 +107,13 @@
 .jp-PluginPlayground-actions {
   display: inline-flex;
   gap: 4px;
+}
+
+.jp-PluginPlayground-tokenActions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
 }
 
 .jp-PluginPlayground-actionButton {

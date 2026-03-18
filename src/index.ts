@@ -9,6 +9,7 @@ import { ISettingRegistry } from '@jupyterlab/settingregistry';
 
 import {
   Dialog,
+  MainAreaWidget,
   showDialog,
   showErrorMessage,
   ICommandPalette
@@ -33,7 +34,16 @@ import { PluginLoader, PluginLoadingError } from './loader';
 
 import { PluginTranspiler } from './transpiler';
 
-import { loadKnownModule } from './modules';
+import {
+  discoverFederatedKnownModules,
+  type IKnownModule,
+  listKnownModules,
+  loadKnownModule,
+  registerCoreKnownModules,
+  registerKnownModule
+} from './modules';
+
+import { JSImportExplorer } from './js-explorer';
 
 import { formatErrorWithResult } from './errors';
 
@@ -69,6 +79,7 @@ import { IPlugin } from '@lumino/application';
 namespace CommandIDs {
   export const createNewFile = 'plugin-playground:create-new-plugin';
   export const loadCurrentAsExtension = 'plugin-playground:load-as-extension';
+  export const openJSImportExplorer = 'plugin-playground:open-js-explorer';
 }
 
 const PLUGIN_TEMPLATE = `import {
@@ -117,6 +128,14 @@ interface IPrivatePluginData {
 
 const EXTENSION_EXAMPLES_ROOT = 'extension-examples';
 
+export interface IPluginPlayground {
+  registerKnownModule(known: IKnownModule): void;
+}
+
+export const IPluginPlayground = new Token<IPluginPlayground>(
+  '@jupyterlab/plugin-playground:IPluginPlayground'
+);
+
 class PluginPlayground {
   constructor(
     protected app: JupyterFrontEnd,
@@ -128,6 +147,8 @@ class PluginPlayground {
     protected settings: ISettingRegistry.ISettings,
     protected requirejs: IRequireJS
   ) {
+    registerCoreKnownModules();
+
     loadKnownModule('@jupyter-widgets/base').then((module: any) => {
       // Define the widgets base module for RequireJS (left for compatibility only)
       requirejs.define('@jupyter-widgets/base', [], () => module);
@@ -151,6 +172,21 @@ class PluginPlayground {
 
     commandPalette.addItem({
       command: CommandIDs.loadCurrentAsExtension,
+      category: 'Plugin Playground',
+      args: {}
+    });
+
+    app.commands.addCommand(CommandIDs.openJSImportExplorer, {
+      label: 'Open JS Explorer',
+      caption: 'Browse known module imports, docs, and repository links.',
+      describedBy: { args: null },
+      execute: async () => {
+        await this._openJSImportExplorer();
+      }
+    });
+
+    commandPalette.addItem({
+      command: CommandIDs.openJSImportExplorer,
       category: 'Plugin Playground',
       args: {}
     });
@@ -387,6 +423,40 @@ class PluginPlayground {
     }
 
     this._tokenSidebar?.update();
+  }
+
+  public registerKnownModule(known: IKnownModule): void {
+    registerKnownModule(known);
+    this._jsExplorerWidget?.content.update();
+  }
+
+  private async _openJSImportExplorer(): Promise<void> {
+    if (this._jsExplorerWidget && !this._jsExplorerWidget.isDisposed) {
+      this.app.shell.activateById(this._jsExplorerWidget.id);
+      return;
+    }
+
+    const explorer = new JSImportExplorer({
+      getKnownModules: () => listKnownModules(),
+      discoverModules: async force => {
+        await discoverFederatedKnownModules({ force });
+        this._jsExplorerWidget?.content.update();
+      }
+    });
+    explorer.id = 'jp-plugin-js-explorer-content';
+
+    const widget = new MainAreaWidget({ content: explorer });
+    widget.id = 'jp-plugin-js-explorer';
+    widget.title.label = 'JS Explorer';
+    widget.title.caption = 'Known module docs and repository links';
+    widget.title.closable = true;
+    widget.disposed.connect(() => {
+      this._jsExplorerWidget = null;
+    });
+
+    this._jsExplorerWidget = widget;
+    this.app.shell.add(widget, 'main');
+    this.app.shell.activateById(widget.id);
   }
 
   private _missingRequiredTokens(
@@ -816,16 +886,18 @@ class PluginPlayground {
   private readonly _tokenMap = new Map<string, Token<string>>();
   private readonly _tokenDescriptionMap = new Map<string, string>();
   private _tokenSidebar: TokenSidebar | null = null;
+  private _jsExplorerWidget: MainAreaWidget<JSImportExplorer> | null = null;
 }
 
 /**
  * Initialization data for the @jupyterlab/plugin-playground extension.
  */
-const plugin: JupyterFrontEndPlugin<void> = {
+const plugin: JupyterFrontEndPlugin<IPluginPlayground> = {
   id: '@jupyterlab/plugin-playground:plugin',
   description:
     'Provide a playground for developing and testing JupyterLab plugins.',
   autoStart: true,
+  provides: IPluginPlayground,
   requires: [ISettingRegistry, ICommandPalette, IEditorTracker],
   optional: [ICompletionProviderManager, ILauncher, IDocumentManager],
   activate: (
@@ -836,21 +908,32 @@ const plugin: JupyterFrontEndPlugin<void> = {
     completionManager: ICompletionProviderManager | null,
     launcher: ILauncher | null,
     documentManager: IDocumentManager | null
-  ) => {
+  ): IPluginPlayground => {
     if (completionManager) {
       completionManager.registerProvider(new CommandCompletionProvider(app));
     }
+
+    let playground: PluginPlayground | null = null;
+    const api: IPluginPlayground = {
+      registerKnownModule: (known: IKnownModule) => {
+        if (playground) {
+          playground.registerKnownModule(known);
+          return;
+        }
+        registerKnownModule(known);
+      }
+    };
 
     // In order to accommodate loading ipywidgets and other AMD modules, we
     // load RequireJS before loading any custom extensions.
 
     const requirejsLoader = new RequireJSLoader();
-    // We coud convert to `async` and use `await` but we don't, because a failure
+    // We could convert to `async` and use `await` but we don't, because a failure
     // would freeze JupyterLab on splash screen; this way if it fails to load,
     // only the plugin is affected, not the entire application.
     Promise.all([settingRegistry.load(plugin.id), requirejsLoader.load()]).then(
       ([settings, requirejs]) => {
-        new PluginPlayground(
+        playground = new PluginPlayground(
           app,
           settingRegistry,
           commandPalette,
@@ -862,7 +945,10 @@ const plugin: JupyterFrontEndPlugin<void> = {
         );
       }
     );
+
+    return api;
   }
 };
 
 export default plugin;
+export type { IKnownModule };
