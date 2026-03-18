@@ -280,13 +280,11 @@ export class TokenSidebar extends ReactWidget {
                             className="jp-PluginPlayground-argumentFunctionLabel"
                             aria-hidden="true"
                           >
-                            f()
-                          </span>
-                          <span
-                            className="jp-PluginPlayground-argumentCountBadge"
-                            aria-hidden="true"
-                          >
-                            {argumentCountBadge}
+                            <span>f(</span>
+                            <span className="jp-PluginPlayground-argumentCountBadge">
+                              {argumentCountBadge}
+                            </span>
+                            <span>)</span>
                           </span>
                         </button>
                         <button
