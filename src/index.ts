@@ -153,8 +153,9 @@ class PluginPlayground {
         const currentWidget = editorTracker.currentWidget;
         if (currentWidget) {
           const currentText = currentWidget.context.model.toString();
-          this._queuePluginLoad(currentText, currentWidget.context.path);
+          return this._queuePluginLoad(currentText, currentWidget.context.path);
         }
+        return undefined;
       }
     });
 
@@ -173,7 +174,7 @@ class PluginPlayground {
           const normalizedPath = normalizeContentsPath(widget.context.path);
           if (state === 'completed' && this._shouldLoadOnSave(normalizedPath)) {
             const currentText = widget.context.model.toString();
-            this._queuePluginLoad(currentText, widget.context.path);
+            void this._queuePluginLoad(currentText, widget.context.path);
           }
         };
         widget.context.saveState.connect(onSaveState);
@@ -411,7 +412,7 @@ class PluginPlayground {
     return toggleWidget;
   }
 
-  private _queuePluginLoad(pluginSource: string, path: string): void {
+  private _queuePluginLoad(pluginSource: string, path: string): Promise<void> {
     const normalizedPath = normalizeContentsPath(path);
     const previous =
       this._inFlightLoads.get(normalizedPath) ?? Promise.resolve();
@@ -428,6 +429,7 @@ class PluginPlayground {
         }
       });
     this._inFlightLoads.set(normalizedPath, next);
+    return next;
   }
 
   private _updateSettings(

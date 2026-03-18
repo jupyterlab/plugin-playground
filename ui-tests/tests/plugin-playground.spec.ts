@@ -496,8 +496,10 @@ test.describe('load-on-save setting', () => {
     await page.filebrowser.open(pluginPath);
     expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
     const loadOnSaveCheckbox = page.getByRole('checkbox', {
-      name: LOAD_ON_SAVE_CHECKBOX_LABEL
+      name: LOAD_ON_SAVE_CHECKBOX_LABEL,
+      includeHidden: true
     });
+    await expect(loadOnSaveCheckbox).toBeAttached();
     await expect(loadOnSaveCheckbox).toBeHidden();
 
     // Make the editor dirty so save reliably emits a completed saveState.
@@ -545,8 +547,10 @@ test.describe('load-on-save setting', () => {
     expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
 
     const loadOnSaveCheckbox = page.getByRole('checkbox', {
-      name: LOAD_ON_SAVE_CHECKBOX_LABEL
+      name: LOAD_ON_SAVE_CHECKBOX_LABEL,
+      includeHidden: true
     });
+    await expect(loadOnSaveCheckbox).toBeAttached();
     await expect(loadOnSaveCheckbox).toBeHidden();
   });
 });
