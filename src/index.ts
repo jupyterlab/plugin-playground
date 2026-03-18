@@ -413,7 +413,8 @@ class PluginPlayground {
 
   private _queuePluginLoad(pluginSource: string, path: string): void {
     const normalizedPath = normalizeContentsPath(path);
-    const previous = this._inFlightLoads.get(normalizedPath) ?? Promise.resolve();
+    const previous =
+      this._inFlightLoads.get(normalizedPath) ?? Promise.resolve();
     const next = previous
       .catch(() => {
         /* swallow previous load error to continue queue */
