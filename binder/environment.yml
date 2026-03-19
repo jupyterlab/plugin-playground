@@ -21,3 +21,6 @@ dependencies:
   # - ipywidgets
   - jupyterlab-lsp
   - jupyterlab-js-logs>=1,<2
+  # install stable Jupyter AI on Binder; move to v3 when it is released
+  - pip:
+      - jupyter-ai>=2,<3

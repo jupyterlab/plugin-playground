@@ -116,6 +116,26 @@ To migrate to the ES6-compatible syntax:
 - add `export default plugin;` line,
 - convert `require()` calls to ES6 default imports.
 
+## AI Tooling (Lite + Binder)
+
+Plugin Playground supports AI-assisted extension prototyping in both JupyterLite and Binder deployments.
+
+- In JupyterLite, you can use browser-based AI chat and completions.
+- In Binder (JupyterLab), you can use Jupyter AI chat and notebook magics.
+
+### Quick Start
+
+1. Launch Plugin Playground in Lite or Binder.
+2. Open the AI settings panel.
+3. Add a provider and choose a model.
+4. Enter your provider API key and save.
+5. Ask the assistant to draft or refine plugin code, then run `Load Current File As Extension`.
+
+### Provider Setup Help
+
+- [JupyterLite AI documentation](https://jupyterlite-ai.readthedocs.io/en/latest/)
+- [Jupyter AI user documentation](https://jupyter-ai.readthedocs.io/en/latest/users/index.html)
+
 ## Advanced Settings
 
 The Advanced Settings for the Plugin Playground enable you to configure plugins to load every time JupyterLab starts up. Automatically loaded plugins can be configured in two ways:
