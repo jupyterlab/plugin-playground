@@ -153,6 +153,26 @@ jupyter labextension develop . --overwrite
 jlpm run build
 ```
 
+### Pre-commit hooks
+
+Install and enable hooks:
+
+```bash
+python -m pip install pre-commit
+pre-commit install
+```
+
+Run all configured hooks once after setup:
+
+```bash
+pre-commit run --all-files
+```
+
+Useful commands:
+
+- `pre-commit run --files <path ...>`: run hooks for specific files only.
+- `pre-commit autoupdate`: update pinned hook versions.
+
 You can watch the source directory and run JupyterLab at the same time in different terminals to watch for changes in the extension's source and automatically rebuild the extension.
 
 ```bash

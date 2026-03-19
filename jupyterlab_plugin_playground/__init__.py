@@ -12,4 +12,3 @@ def _jupyter_labextension_paths():
         "src": "labextension",
         "dest": data["name"]
     }]
-
