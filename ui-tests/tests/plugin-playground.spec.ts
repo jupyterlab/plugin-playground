@@ -362,9 +362,73 @@ test('commands tab lists and filters available commands', async ({ page }) => {
   ]);
   await expect(panel.getByText('Load Current File As Extension')).toBeVisible();
 
+  const loadCommandArgumentsButton = panel.locator(
+    '.jp-PluginPlayground-argumentBadgeButton'
+  );
+  await expect(
+    loadCommandArgumentsButton.locator(
+      '.jp-PluginPlayground-argumentCountBadge'
+    )
+  ).toHaveText('?');
+  await expect(loadCommandArgumentsButton).toBeDisabled();
+  await expect(loadCommandArgumentsButton).toHaveAttribute(
+    'title',
+    'Argument documentation unavailable'
+  );
+
   await filterInput.fill(INTERNAL_CONTEXT_INFO_COMMAND);
   await expect(panel.locator('.jp-PluginPlayground-listItem')).toHaveCount(0);
   await expect(panel.getByText('No matching commands.')).toBeVisible();
+
+  const commandWithArgumentDocs = await page.evaluate(async () => {
+    const commands = window.jupyterapp.commands;
+    const commandIds = commands
+      .listCommands()
+      .filter(id => !id.startsWith('__internal:'));
+
+    for (const id of commandIds) {
+      let usage = '';
+      try {
+        usage = commands.usage(id).trim();
+      } catch {
+        usage = '';
+      }
+
+      try {
+        const description = await commands.describedBy(id);
+        const args = description.args;
+        if (usage || (args && Object.keys(args).length > 0)) {
+          return id;
+        }
+      } catch {
+        if (usage) {
+          return id;
+        }
+      }
+    }
+
+    return null;
+  });
+  expect(commandWithArgumentDocs).toBeTruthy();
+  await filterInput.fill(commandWithArgumentDocs ?? '');
+  await expect(panel.locator('.jp-PluginPlayground-listItem')).toHaveCount(1);
+
+  const showArgsButton = panel.getByRole('button', {
+    name: `Show argument documentation for ${commandWithArgumentDocs}`
+  });
+  await expect(showArgsButton).toBeEnabled();
+  await showArgsButton.click();
+  await expect(
+    panel.getByRole('button', {
+      name: `Hide argument documentation for ${commandWithArgumentDocs}`
+    })
+  ).toHaveAttribute('aria-expanded', 'true');
+
+  const argumentsPanel = panel.locator('.jp-PluginPlayground-commandArguments');
+  await expect(argumentsPanel).toBeVisible();
+  await expect(
+    panel.locator('.jp-PluginPlayground-commandArgumentsText')
+  ).toContainText(/(Usage:|Arguments Schema:)/);
 });
 
 test('command completer suggests command ids inside execute calls', async ({

@@ -106,7 +106,8 @@
   overflow-wrap: anywhere;
 }
 
-.jp-PluginPlayground-actions {
+.jp-PluginPlayground-actions,
+.jp-PluginPlayground-tokenActions {
   display: inline-flex;
   gap: 4px;
 }
@@ -127,8 +128,47 @@
   justify-content: center;
 }
 
+.jp-PluginPlayground-argumentBadgeButton {
+  position: relative;
+}
+
+.jp-PluginPlayground-argumentFunctionLabel {
+  align-items: center;
+  display: inline-flex;
+  font-family: var(--jp-code-font-family);
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1;
+}
+
 .jp-PluginPlayground-actionButton:hover {
   background: var(--jp-layout-color3);
+}
+
+.jp-PluginPlayground-argumentCountBadge {
+  background: var(--jp-brand-color1);
+  border-radius: 999px;
+  color: var(--jp-ui-inverse-font-color1);
+  display: inline-flex;
+  font-family: var(--jp-code-font-family);
+  font-size: 8px;
+  font-weight: 700;
+  justify-content: center;
+  line-height: 1;
+  min-width: 10px;
+  padding: 2px;
+  pointer-events: none;
+  text-align: center;
+}
+
+.jp-PluginPlayground-argumentBadgeButton:disabled {
+  opacity: 1;
+}
+
+.jp-PluginPlayground-argumentBadgeButton:disabled
+  .jp-PluginPlayground-argumentCountBadge {
+  background: var(--jp-layout-color3);
+  border: var(--jp-border-width) solid var(--jp-border-color2);
+  color: var(--jp-ui-font-color1);
 }
 
 .jp-PluginPlayground-viewButton:focus-visible,
@@ -164,6 +204,25 @@
 .jp-PluginPlayground-exampleActionIcon svg {
   height: 16px;
   width: 16px;
+}
+
+.jp-PluginPlayground-commandArguments {
+  margin-top: 8px;
+}
+
+.jp-PluginPlayground-commandArgumentsText {
+  background: var(--jp-layout-color2);
+  border: var(--jp-border-width) solid var(--jp-border-color2);
+  border-radius: var(--jp-border-radius);
+  color: var(--jp-ui-font-color1);
+  font-family: var(--jp-code-font-family);
+  font-size: var(--jp-code-font-size);
+  line-height: 1.4;
+  margin: 0;
+  overflow-x: auto;
+  padding: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .jp-PluginPlayground-description {

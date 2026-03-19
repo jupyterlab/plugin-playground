@@ -10,6 +10,7 @@ import { addIcon, checkIcon, copyIcon } from '@jupyterlab/ui-components';
 import * as React from 'react';
 
 import {
+  type ICommandArgumentDocumentation,
   formatCommandDescription,
   type ICommandRecord
 } from './command-completion';
@@ -23,6 +24,10 @@ export namespace TokenSidebar {
   export interface IOptions {
     getTokens: () => ReadonlyArray<ITokenRecord>;
     getCommands: () => ReadonlyArray<ICommandRecord>;
+    getCommandArguments: (
+      commandId: string
+    ) => Promise<ICommandArgumentDocumentation | null>;
+    getCommandArgumentCount: (commandId: string) => Promise<number | null>;
     onInsertImport: (tokenName: string) => Promise<void> | void;
     isImportEnabled: (tokenName: string) => boolean;
   }
@@ -34,17 +39,32 @@ const EXTENSION_POINT_PANEL_ID = 'jp-PluginPlayground-extensionPointPanel';
 export class TokenSidebar extends ReactWidget {
   private readonly _getTokens: () => ReadonlyArray<TokenSidebar.ITokenRecord>;
   private readonly _getCommands: () => ReadonlyArray<ICommandRecord>;
+  private readonly _getCommandArguments: (
+    commandId: string
+  ) => Promise<ICommandArgumentDocumentation | null>;
+  private readonly _getCommandArgumentCount: (
+    commandId: string
+  ) => Promise<number | null>;
   private readonly _onInsertImport: (tokenName: string) => Promise<void> | void;
   private readonly _isImportEnabled: (tokenName: string) => boolean;
   private _query = '';
   private _activeView: ExtensionPointView = 'tokens';
   private _copiedValue: string | null = null;
   private _copiedTimer: number | null = null;
+  private _expandedCommandIds = new Set<string>();
+  private _loadingCommandIds = new Set<string>();
+  private _commandArguments = new Map<
+    string,
+    ICommandArgumentDocumentation | null
+  >();
+  private _commandArgumentCounts = new Map<string, number | null>();
 
   constructor(options: TokenSidebar.IOptions) {
     super();
     this._getTokens = options.getTokens;
     this._getCommands = options.getCommands;
+    this._getCommandArguments = options.getCommandArguments;
+    this._getCommandArgumentCount = options.getCommandArgumentCount;
     this._onInsertImport = options.onInsertImport;
     this._isImportEnabled = options.isImportEnabled;
     this.addClass('jp-PluginPlayground-sidebar');
@@ -201,7 +221,26 @@ export class TokenSidebar extends ReactWidget {
           ) : (
             <ul className="jp-PluginPlayground-list jp-PluginPlayground-tokenList">
               {filteredCommands.map(command => {
+                this._ensureCommandArgumentCount(command.id);
                 const description = formatCommandDescription(command);
+                const isExpanded = this._expandedCommandIds.has(command.id);
+                const isLoadingArguments = this._loadingCommandIds.has(
+                  command.id
+                );
+                const commandArgumentCount = this._commandArgumentCounts.get(
+                  command.id
+                );
+                const argumentCountBadge =
+                  typeof commandArgumentCount === 'number'
+                    ? commandArgumentCount.toString()
+                    : '?';
+                const commandArguments = this._commandArguments.get(command.id);
+                const isUnknownArgumentCount = commandArgumentCount === null;
+                const isArgumentsButtonDisabled =
+                  !isExpanded && (isLoadingArguments || isUnknownArgumentCount);
+                const commandArgumentsPanelId = this._commandArgumentsPanelId(
+                  command.id
+                );
 
                 return (
                   <li
@@ -213,6 +252,41 @@ export class TokenSidebar extends ReactWidget {
                         {command.id}
                       </code>
                       <div className="jp-PluginPlayground-tokenActions">
+                        <button
+                          className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-argumentBadgeButton"
+                          type="button"
+                          onClick={() => {
+                            void this._toggleCommandArguments(command.id);
+                          }}
+                          disabled={isArgumentsButtonDisabled}
+                          aria-expanded={isExpanded}
+                          aria-controls={commandArgumentsPanelId}
+                          aria-label={
+                            isArgumentsButtonDisabled
+                              ? `Argument documentation unavailable for ${command.id}`
+                              : isExpanded
+                              ? `Hide argument documentation for ${command.id}`
+                              : `Show argument documentation for ${command.id}`
+                          }
+                          title={
+                            isArgumentsButtonDisabled
+                              ? 'Argument documentation unavailable'
+                              : isExpanded
+                              ? 'Hide argument documentation'
+                              : 'Show argument documentation'
+                          }
+                        >
+                          <span
+                            className="jp-PluginPlayground-argumentFunctionLabel"
+                            aria-hidden="true"
+                          >
+                            <span>f(</span>
+                            <span className="jp-PluginPlayground-argumentCountBadge">
+                              {argumentCountBadge}
+                            </span>
+                            <span>)</span>
+                          </span>
+                        </button>
                         <button
                           className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-copyButton"
                           type="button"
@@ -247,6 +321,24 @@ export class TokenSidebar extends ReactWidget {
                       <p className="jp-PluginPlayground-description jp-PluginPlayground-tokenDescription">
                         {description}
                       </p>
+                    ) : null}
+                    {isExpanded ? (
+                      <div
+                        id={commandArgumentsPanelId}
+                        className="jp-PluginPlayground-commandArguments"
+                        role="region"
+                        aria-label={`Arguments for ${command.id}`}
+                      >
+                        {isLoadingArguments ? (
+                          <p className="jp-PluginPlayground-count jp-PluginPlayground-tokenCount">
+                            Loading argument documentation…
+                          </p>
+                        ) : (
+                          <pre className="jp-PluginPlayground-commandArgumentsText">
+                            {this._formatCommandArguments(commandArguments)}
+                          </pre>
+                        )}
+                      </div>
                     ) : null}
                   </li>
                 );
@@ -296,6 +388,78 @@ export class TokenSidebar extends ReactWidget {
     this._activeView = view;
     this._query = '';
     this.update();
+  }
+
+  private _ensureCommandArgumentCount(commandId: string): void {
+    if (this._commandArgumentCounts.has(commandId)) {
+      return;
+    }
+
+    this._commandArgumentCounts.set(commandId, null);
+    void this._getCommandArgumentCount(commandId)
+      .then(argumentCount => {
+        this._commandArgumentCounts.set(commandId, argumentCount);
+      })
+      .catch(() => {
+        this._commandArgumentCounts.set(commandId, null);
+      })
+      .finally(() => {
+        this.update();
+      });
+  }
+
+  private async _toggleCommandArguments(commandId: string): Promise<void> {
+    if (this._expandedCommandIds.has(commandId)) {
+      this._expandedCommandIds.delete(commandId);
+      this.update();
+      return;
+    }
+
+    this._expandedCommandIds.add(commandId);
+    if (this._commandArguments.has(commandId)) {
+      this.update();
+      return;
+    }
+
+    this._loadingCommandIds.add(commandId);
+    this.update();
+
+    try {
+      const argumentsDocumentation = await this._getCommandArguments(commandId);
+      this._commandArguments.set(commandId, argumentsDocumentation);
+    } catch {
+      this._commandArguments.set(commandId, null);
+    } finally {
+      this._loadingCommandIds.delete(commandId);
+      this.update();
+    }
+  }
+
+  private _formatCommandArguments(
+    commandArguments: ICommandArgumentDocumentation | null | undefined
+  ): string {
+    if (!commandArguments) {
+      return 'No arguments';
+    }
+
+    const sections: string[] = [];
+
+    if (commandArguments.usage) {
+      sections.push(`Usage:\n${commandArguments.usage}`);
+    }
+
+    if (commandArguments.args) {
+      sections.push(
+        `Arguments Schema:\n${JSON.stringify(commandArguments.args, null, 2)}`
+      );
+    }
+
+    return sections.join('\n\n') || 'No arguments';
+  }
+
+  private _commandArgumentsPanelId(commandId: string): string {
+    const normalizedId = commandId.replace(/[^A-Za-z0-9_-]/g, '-');
+    return `jp-PluginPlayground-commandArguments-${normalizedId}`;
   }
 
   private async _insertImport(tokenName: string): Promise<void> {
