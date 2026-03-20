@@ -101,7 +101,7 @@ export class ExampleSidebar extends ReactWidget {
                   </span>
                   <div className="jp-PluginPlayground-tokenActions">
                     <button
-                      className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton"
+                      className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-exampleOpenButton"
                       type="button"
                       aria-label={`Open source for ${example.name}`}
                       title="Open example source file"
@@ -119,7 +119,7 @@ export class ExampleSidebar extends ReactWidget {
                       </span>
                     </button>
                     <button
-                      className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton"
+                      className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-exampleReadmeButton"
                       type="button"
                       aria-label={`Open README for ${example.name}`}
                       title="Open example README"

@@ -257,7 +257,7 @@ export class TokenSidebar extends ReactWidget {
                     </code>
                     <div className="jp-PluginPlayground-tokenActions">
                       <button
-                        className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton"
+                        className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-importButton"
                         type="button"
                         onClick={() => {
                           void this._insertImport(token.name);
@@ -273,7 +273,7 @@ export class TokenSidebar extends ReactWidget {
                         })}
                       </button>
                       <button
-                        className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton"
+                        className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-copyButton"
                         type="button"
                         onClick={() => {
                           void this._copyValue(token.name, 'token string');
@@ -377,7 +377,7 @@ export class TokenSidebar extends ReactWidget {
                           </span>
                         </button>
                         <button
-                          className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton"
+                          className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-copyButton"
                           type="button"
                           onClick={() => {
                             void this._copyValue(command.id, 'command id');
@@ -475,7 +475,7 @@ export class TokenSidebar extends ReactWidget {
                           </button>
                         ))}
                         <button
-                          className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton"
+                          className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-copyButton"
                           type="button"
                           onClick={() => {
                             void this._copyValue(known.name, 'package name');
