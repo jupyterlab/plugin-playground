@@ -24,7 +24,7 @@ import { FileEditor, IEditorTracker } from '@jupyterlab/fileeditor';
 
 import { ILauncher } from '@jupyterlab/launcher';
 
-import { extensionIcon, SidePanel } from '@jupyterlab/ui-components';
+import { extensionIcon, IFrame, SidePanel } from '@jupyterlab/ui-components';
 
 import { IDocumentManager } from '@jupyterlab/docmanager';
 
@@ -44,8 +44,6 @@ import {
   registerCoreKnownModules,
   registerKnownModule
 } from './known-modules';
-
-import { JSImportExplorer } from './js-explorer';
 
 import { formatErrorWithResult } from './errors';
 
@@ -71,7 +69,8 @@ import {
   getDirectoryModel,
   getFileModel,
   IFileModel,
-  normalizeContentsPath
+  normalizeContentsPath,
+  openExternalLink
 } from './contents';
 
 import { Token } from '@lumino/coreutils';
@@ -215,11 +214,12 @@ class PluginPlayground {
     });
 
     app.commands.addCommand(CommandIDs.openJSImportExplorer, {
-      label: 'Open JS Explorer',
-      caption: 'Browse known module imports, docs, and repository links.',
+      label: 'Open Packages Reference',
+      caption: 'Browse package docs, repository links, and package metadata.',
       describedBy: { args: null },
       execute: async () => {
-        await this._openJSImportExplorer();
+        await app.restored;
+        this._openPackagesReference();
       }
     });
 
@@ -267,10 +267,13 @@ class PluginPlayground {
               description: this._tokenDescriptionMap.get(name) ?? ''
             })),
         getCommands: () => getCommandRecords(this.app),
+        getKnownModules: () => listKnownModules(),
         getCommandArguments: commandId =>
           getCommandArgumentDocumentation(this.app, commandId),
         getCommandArgumentCount: commandId =>
           getCommandArgumentCount(this.app, commandId),
+        discoverKnownModules: force => discoverFederatedKnownModules({ force }),
+        openDocumentationLink: this._openDocumentationLink.bind(this),
         onInsertImport: this._insertTokenImport.bind(this),
         isImportEnabled: this._canInsertImport.bind(this)
       });
@@ -299,6 +302,7 @@ class PluginPlayground {
       (playgroundSidebar.content as AccordionPanel).expand(0);
       (playgroundSidebar.content as AccordionPanel).expand(1);
       this.app.shell.add(playgroundSidebar, 'right', { rank: 650 });
+      this._playgroundSidebar = playgroundSidebar;
 
       app.shell.currentChanged?.connect(() => {
         tokenSidebar.update();
@@ -609,34 +613,62 @@ class PluginPlayground {
 
   public registerKnownModule(known: IKnownModule): void {
     registerKnownModule(known);
-    this._jsExplorerWidget?.content.update();
+    this._tokenSidebar?.update();
   }
 
-  private async _openJSImportExplorer(): Promise<void> {
-    if (this._jsExplorerWidget && !this._jsExplorerWidget.isDisposed) {
-      this.app.shell.activateById(this._jsExplorerWidget.id);
+  private _openPackagesReference(): void {
+    if (!this._tokenSidebar) {
       return;
     }
 
-    const explorer = new JSImportExplorer({
-      getKnownModules: () => listKnownModules(),
-      discoverModules: async force => {
-        await discoverFederatedKnownModules({ force });
-        this._jsExplorerWidget?.content.update();
-      }
-    });
-    explorer.id = 'jp-plugin-js-explorer-content';
+    this._tokenSidebar.showPackagesView();
+    this.app.shell.activateById(
+      this._playgroundSidebar?.id ?? this._tokenSidebar.id
+    );
+    if (this._playgroundSidebar) {
+      (this._playgroundSidebar.content as AccordionPanel).expand(0);
+    }
+  }
 
-    const widget = new MainAreaWidget({ content: explorer });
-    widget.id = 'jp-plugin-js-explorer';
-    widget.title.label = 'JS Explorer';
-    widget.title.caption = 'Known module docs and repository links';
+  private _openDocumentationLink(
+    url: string,
+    moduleName: string,
+    openInBrowserTab: boolean
+  ): void {
+    if (openInBrowserTab) {
+      openExternalLink(url);
+      return;
+    }
+
+    const existingWidget = this._documentationWidgets.get(url);
+    if (existingWidget && !existingWidget.isDisposed) {
+      this.app.shell.activateById(existingWidget.id);
+      return;
+    }
+
+    const iframe = new IFrame({
+      sandbox: [
+        'allow-same-origin',
+        'allow-scripts',
+        'allow-popups',
+        'allow-forms'
+      ]
+    });
+    iframe.url = url;
+
+    const widget = new MainAreaWidget({ content: iframe });
+    widget.id = `jp-plugin-package-doc-${this._documentationWidgetId}`;
+    this._documentationWidgetId += 1;
+    widget.title.label = `${moduleName} Docs`;
+    widget.title.caption = url;
     widget.title.closable = true;
     widget.disposed.connect(() => {
-      this._jsExplorerWidget = null;
+      if (this._documentationWidgets.get(url) === widget) {
+        this._documentationWidgets.delete(url);
+      }
     });
 
-    this._jsExplorerWidget = widget;
+    this._documentationWidgets.set(url, widget);
     this.app.shell.add(widget, 'main');
     this.app.shell.activateById(widget.id);
   }
@@ -1250,8 +1282,13 @@ class PluginPlayground {
   private readonly _loadOnSaveToggleRefreshers = new Set<() => void>();
   private readonly _tokenMap = new Map<string, Token<string>>();
   private readonly _tokenDescriptionMap = new Map<string, string>();
+  private readonly _documentationWidgets = new Map<
+    string,
+    MainAreaWidget<IFrame>
+  >();
+  private _playgroundSidebar: SidePanel | null = null;
   private _tokenSidebar: TokenSidebar | null = null;
-  private _jsExplorerWidget: MainAreaWidget<JSImportExplorer> | null = null;
+  private _documentationWidgetId = 0;
 }
 
 /**

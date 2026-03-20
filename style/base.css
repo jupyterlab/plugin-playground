@@ -24,7 +24,7 @@
 .jp-PluginPlayground-viewToggle {
   display: grid;
   gap: 6px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-bottom: 5px;
 }
 
@@ -104,7 +104,6 @@
   overflow-wrap: anywhere;
 }
 
-.jp-PluginPlayground-actions,
 .jp-PluginPlayground-tokenActions {
   display: inline-flex;
   gap: 4px;
@@ -201,14 +200,15 @@
   white-space: nowrap;
 }
 
-.jp-PluginPlayground-exampleActionIcon {
-  height: 16px;
-  width: 16px;
-}
+@container (max-width: 300px) {
+  .jp-PluginPlayground-actionLabel {
+    display: none;
+  }
 
-.jp-PluginPlayground-exampleActionIcon svg {
-  height: 16px;
-  width: 16px;
+  .jp-PluginPlayground-actionButton {
+    padding-left: 4px;
+    padding-right: 4px;
+  }
 }
 
 .jp-PluginPlayground-commandArguments {
@@ -323,18 +323,4 @@
 .jp-PluginPlayground-loadOnSaveCheckbox:disabled
   + .jp-PluginPlayground-loadOnSaveText {
   color: var(--jp-ui-font-color2);
-}
-
-@container (max-width: 360px) {
-  .jp-PluginPlayground-exampleActions {
-    gap: 2px;
-  }
-
-  .jp-PluginPlayground-exampleActions .jp-PluginPlayground-actionButton {
-    padding: 2px 4px;
-  }
-
-  .jp-PluginPlayground-exampleActions .jp-PluginPlayground-actionLabel {
-    display: none;
-  }
 }

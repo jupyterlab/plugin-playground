@@ -103,7 +103,7 @@ export function registerCoreKnownModules(): void {
         name,
         load: () => loadKnownModule(name),
         urls: {
-          docHtml: `https://lumino.readthedocs.io/en/latest/api/${packageName}/`,
+          docHtml: `https://lumino.readthedocs.io/en/stable/api/modules/${packageName}.html`,
           npmHtml: _npmPackageUrl(name),
           packageJson: `${repositoryHtml}/package.json`,
           repositoryHtml
