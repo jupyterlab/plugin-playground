@@ -1,15 +1,17 @@
 ---
-name: 'plugin-authoring'
-description: 'Bootstrap and iterate TypeScript/TSX JupyterLab plugins in Plugin Playground using command-driven workflows and existing extension references.'
-keywords:
-  - jupyterlab
-  - plugin-playground
-  - plugin-authoring
-  - extension
-  - typescript
-  - tsx
-  - token
-  - command
+name: plugin-authoring
+description: Bootstrap and iterate TypeScript/TSX JupyterLab plugins in Plugin Playground for plugin development, using command-driven workflows and extension references.
+metadata:
+  keywords:
+    - jupyterlab
+    - plugin-playground
+    - plugin-authoring
+    - plugin development
+    - extension
+    - typescript
+    - tsx
+    - token
+    - command
 ---
 
 # Plugin Authoring Skill (Playground)
