@@ -121,7 +121,7 @@ To migrate to the ES6-compatible syntax:
 Plugin Playground supports AI-assisted extension prototyping in both JupyterLite and Binder deployments.
 
 - In JupyterLite, you can use browser-based AI chat and completions.
-- In Binder (JupyterLab), you can use Jupyter AI chat and notebook magics.
+- In Binder (JupyterLab), you can use the same JupyterLite AI tooling.
 
 ### Quick Start
 
@@ -134,7 +134,6 @@ Plugin Playground supports AI-assisted extension prototyping in both JupyterLite
 ### Provider Setup Help
 
 - [JupyterLite AI documentation](https://jupyterlite-ai.readthedocs.io/en/latest/)
-- [Jupyter AI user documentation](https://jupyter-ai.readthedocs.io/en/latest/users/index.html)
 - [Plugin authoring skill for agents](skills/plugin-authoring/SKILL.md)
 
 ### Commands for AI Agents and Automation

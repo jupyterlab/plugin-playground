@@ -21,9 +21,6 @@ dependencies:
   # - ipywidgets
   - jupyterlab-lsp
   - jupyterlab-js-logs>=1,<2
-  # install stable Jupyter AI on Binder; move to v3 when it is released
+  # use the same AI package in Binder and JupyterLite deployments
   - pip:
-      - jupyter-ai==3.0.0b9 #currently using Jupyter AI v3 pre-release
-      - jupyter-ai-jupyternaut==0.0.10
-      # expose command discovery/execution tools via MCP for AI assistants
-      - jupyterlab_commands_toolkit[mcp]>=0.1,<1
+      - jupyterlite-ai>=0.12,<1
