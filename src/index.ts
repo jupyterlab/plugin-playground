@@ -82,6 +82,22 @@ namespace CommandIDs {
     'plugin-playground:list-extension-examples';
 }
 
+type PluginLoadStatus =
+  | 'loaded'
+  | 'editor-not-active'
+  | 'loading-failed'
+  | 'autostart-failed';
+
+interface IPluginLoadResult {
+  status: PluginLoadStatus;
+  ok: boolean;
+  path: string | null;
+  pluginIds: string[];
+  transpiled: boolean | null;
+  message?: string;
+  skippedAutoStartPluginIds?: string[];
+}
+
 const PLUGIN_TEMPLATE = `import {
   JupyterFrontEnd,
   JupyterFrontEndPlugin,
@@ -176,7 +192,14 @@ class PluginPlayground {
           const currentText = currentWidget.context.model.toString();
           return this._queuePluginLoad(currentText, currentWidget.context.path);
         }
-        return undefined;
+        return {
+          status: 'editor-not-active',
+          ok: false,
+          path: null,
+          pluginIds: [],
+          transpiled: null,
+          message: 'No active editor is available.'
+        } as IPluginLoadResult;
       }
     });
 
@@ -482,24 +505,28 @@ class PluginPlayground {
     return toggleWidget;
   }
 
-  private _queuePluginLoad(pluginSource: string, path: string): Promise<void> {
+  private _queuePluginLoad(
+    pluginSource: string,
+    path: string
+  ): Promise<IPluginLoadResult> {
     const normalizedPath = normalizeContentsPath(path);
-    const previous =
-      this._inFlightLoads.get(normalizedPath) ?? Promise.resolve();
+    const previous = this._inFlightLoads.get(normalizedPath);
     const next = previous
-      .catch(() => {
-        /* swallow previous load error to continue queue */
-      })
-      .then(async () => {
-        await this._loadPlugin(pluginSource, path);
-      })
-      .finally(() => {
-        if (this._inFlightLoads.get(normalizedPath) === next) {
-          this._inFlightLoads.delete(normalizedPath);
-        }
-      });
-    this._inFlightLoads.set(normalizedPath, next);
-    return next;
+      ? previous
+          .catch(() => {
+            /* swallow previous load error to continue queue */
+          })
+          .then(() => this._loadPlugin(pluginSource, path))
+      : this._loadPlugin(pluginSource, path);
+
+    const guardedNext = next.finally(() => {
+      if (this._inFlightLoads.get(normalizedPath) === guardedNext) {
+        this._inFlightLoads.delete(normalizedPath);
+      }
+    });
+
+    this._inFlightLoads.set(normalizedPath, guardedNext);
+    return guardedNext;
   }
 
   private _updateSettings(
@@ -531,7 +558,10 @@ class PluginPlayground {
       }));
   }
 
-  private async _loadPlugin(code: string, path: string | null) {
+  private async _loadPlugin(
+    code: string,
+    path: string | null
+  ): Promise<IPluginLoadResult> {
     if (this._tokenMap.size === 0) {
       try {
         this._populateTokenMap();
@@ -565,7 +595,7 @@ class PluginPlayground {
     });
     importResolver.dynamicLoader = pluginLoader.loadFile.bind(pluginLoader);
 
-    let result;
+    let result: PluginLoader.IResult;
     try {
       result = await pluginLoader.load(code, path);
     } catch (error) {
@@ -575,14 +605,33 @@ class PluginPlayground {
           title: `Plugin loading failed: ${internalError.message}`,
           body: formatErrorWithResult(error, error.partialResult)
         });
-      } else {
-        showErrorMessage('Plugin loading failed', (error as Error).message);
+        return {
+          status: 'loading-failed',
+          ok: false,
+          path,
+          pluginIds: [],
+          transpiled: null,
+          message: internalError.message
+        };
       }
-      return;
+
+      const message = error instanceof Error ? error.message : String(error);
+      showErrorMessage('Plugin loading failed', message);
+      return {
+        status: 'loading-failed',
+        ok: false,
+        path,
+        pluginIds: [],
+        transpiled: null,
+        message
+      };
     }
+
     const plugins = result.plugins.map(plugin =>
       this._ensureDeactivateSupport(plugin)
     );
+    const pluginIds = plugins.map(plugin => plugin.id);
+    const skippedAutoStartPluginIds: string[] = [];
 
     for (const plugin of plugins) {
       const schema = result.schemas[plugin.id];
@@ -625,19 +674,46 @@ class PluginPlayground {
             plugin.id
           }: missing required services ${missingRequiredTokens.join(', ')}`
         );
+        skippedAutoStartPluginIds.push(plugin.id);
         continue;
       }
       try {
         await this.app.activatePlugin(plugin.id);
         this._refreshExtensionPoints();
-      } catch (e) {
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const skippedAutoStartPluginIdsResult =
+          skippedAutoStartPluginIds.length > 0
+            ? skippedAutoStartPluginIds
+            : undefined;
         showDialog({
-          title: `Plugin autostart failed: ${(e as Error).message}`,
-          body: formatErrorWithResult(e as Error, result)
+          title: `Plugin autostart failed: ${message}`,
+          body: formatErrorWithResult(error as Error, result)
         });
-        return;
+        return {
+          status: 'autostart-failed',
+          ok: false,
+          path,
+          pluginIds,
+          transpiled: result.transpiled,
+          message,
+          skippedAutoStartPluginIds: skippedAutoStartPluginIdsResult
+        };
       }
     }
+
+    const skippedAutoStartPluginIdsResult =
+      skippedAutoStartPluginIds.length > 0
+        ? skippedAutoStartPluginIds
+        : undefined;
+    return {
+      status: 'loaded',
+      ok: true,
+      path,
+      pluginIds,
+      transpiled: result.transpiled,
+      skippedAutoStartPluginIds: skippedAutoStartPluginIdsResult
+    };
   }
 
   private _refreshExtensionPoints(): void {
@@ -1257,7 +1333,10 @@ class PluginPlayground {
 
   private readonly _fallbackExampleDescription =
     'No description provided by this example.';
-  private readonly _inFlightLoads = new Map<string, Promise<void>>();
+  private readonly _inFlightLoads = new Map<
+    string,
+    Promise<IPluginLoadResult>
+  >();
   private readonly _loadOnSaveByFile = new Set<string>();
   private readonly _loadOnSaveToggleRefreshers = new Set<() => void>();
   private readonly _tokenMap = new Map<string, Token<string>>();

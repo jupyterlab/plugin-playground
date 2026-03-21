@@ -281,9 +281,12 @@ test('loads current editor file as a plugin extension', async ({
       return window.jupyterapp.commands.hasCommand(id);
     }, LOAD_COMMAND)
   );
-  await page.evaluate((id: string) => {
+  const loadResult = await page.evaluate((id: string) => {
     return window.jupyterapp.commands.execute(id);
   }, LOAD_COMMAND);
+  expect(loadResult.ok).toBe(true);
+  expect(loadResult.status).toBe('loaded');
+  expect(loadResult.pluginIds).toContain(TEST_PLUGIN_ID);
 
   await page.waitForCondition(() =>
     page.evaluate((id: string) => {
