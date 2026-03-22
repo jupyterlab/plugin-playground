@@ -181,6 +181,8 @@ class PluginPlayground {
 
     app.commands.addCommand(CommandIDs.loadCurrentAsExtension, {
       label: 'Load Current File As Extension',
+      caption:
+        'Load the active editor file as an extension for plugin development',
       describedBy: { args: null },
       icon: extensionIcon,
       isEnabled: () =>
