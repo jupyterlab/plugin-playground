@@ -16,6 +16,7 @@ dependencies:
 - jupyterlite-core>=0.7.0,<0.8
 - jupyterlite-sphinx>=0.22.0,<0.23
 - jupyterlite-pyodide-kernel>=0.7.0,<0.8
+- jupyterlite-ai>=0.12,<1
 - nodejs=18
 - pip:
   - build

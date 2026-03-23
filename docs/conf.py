@@ -95,6 +95,35 @@ def _sync_examples_to_lite_contents(root):
     print(f"Copied {copied_count} extension examples into docs/content for Lite.")
 
 
+def _sync_agent_skills_to_lite_contents(root):
+    import shutil
+
+    source_skills_root = root / "_agents" / "skills"
+    lite_skills_root = root / "docs" / "content" / "_agents" / "skills"
+
+    if lite_skills_root.exists():
+        shutil.rmtree(lite_skills_root)
+
+    if not source_skills_root.exists():
+        print("No _agents/skills directory found; skipping Lite skill sync.")
+        return
+
+    copied_count = 0
+    for skill_dir in sorted(source_skills_root.iterdir()):
+        if not skill_dir.is_dir() or skill_dir.name.startswith("."):
+            continue
+        skill_file = skill_dir / "SKILL.md"
+        if not skill_file.exists():
+            continue
+
+        destination_dir = lite_skills_root / skill_dir.name
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(skill_file, destination_dir / "SKILL.md")
+        copied_count += 1
+
+    print(f"Copied {copied_count} agent skills into docs/content for Lite.")
+
+
 def on_config_inited(*args):
     import sys
     import subprocess
@@ -103,6 +132,7 @@ def on_config_inited(*args):
     HERE = Path(__file__)
     ROOT = HERE.parent.parent
     _sync_examples_to_lite_contents(ROOT)
+    _sync_agent_skills_to_lite_contents(ROOT)
 
     subprocess.check_call(["jlpm"], cwd=str(ROOT))
     subprocess.check_call(["jlpm", "build"], cwd=str(ROOT))

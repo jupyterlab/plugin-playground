@@ -9,6 +9,7 @@ import { ISettingRegistry } from '@jupyterlab/settingregistry';
 
 import {
   Dialog,
+  MainAreaWidget,
   showDialog,
   showErrorMessage,
   ICommandPalette,
@@ -23,7 +24,7 @@ import { FileEditor, IEditorTracker } from '@jupyterlab/fileeditor';
 
 import { ILauncher } from '@jupyterlab/launcher';
 
-import { extensionIcon, SidePanel } from '@jupyterlab/ui-components';
+import { extensionIcon, IFrame, SidePanel } from '@jupyterlab/ui-components';
 
 import { IDocumentManager } from '@jupyterlab/docmanager';
 
@@ -36,15 +37,27 @@ import { PluginTranspiler } from './transpiler';
 
 import { loadKnownModule } from './modules';
 
+import {
+  discoverFederatedKnownModules,
+  type IKnownModule,
+  listKnownModules,
+  registerCoreKnownModules,
+  registerKnownModule
+} from './known-modules';
+
 import { formatErrorWithResult } from './errors';
 
 import { ImportResolver } from './resolver';
 
 import { IRequireJS, RequireJSLoader } from './requirejs';
 
-import { TokenSidebar } from './token-sidebar';
+import {
+  filterCommandRecords,
+  filterTokenRecords,
+  TokenSidebar
+} from './token-sidebar';
 
-import { ExampleSidebar } from './example-sidebar';
+import { ExampleSidebar, filterExampleRecords } from './example-sidebar';
 
 import { tokenSidebarIcon } from './icons';
 
@@ -60,7 +73,9 @@ import {
   getDirectoryModel,
   getFileModel,
   IFileModel,
-  normalizeContentsPath
+  normalizeExternalUrl,
+  normalizeContentsPath,
+  openExternalLink
 } from './contents';
 
 import { Token } from '@lumino/coreutils';
@@ -72,6 +87,27 @@ import { IPlugin } from '@lumino/application';
 namespace CommandIDs {
   export const createNewFile = 'plugin-playground:create-new-plugin';
   export const loadCurrentAsExtension = 'plugin-playground:load-as-extension';
+  export const openJSImportExplorer = 'plugin-playground:open-js-explorer';
+  export const listTokens = 'plugin-playground:list-tokens';
+  export const listCommands = 'plugin-playground:list-commands';
+  export const listExtensionExamples =
+    'plugin-playground:list-extension-examples';
+}
+
+type PluginLoadStatus =
+  | 'loaded'
+  | 'editor-not-active'
+  | 'loading-failed'
+  | 'autostart-failed';
+
+interface IPluginLoadResult {
+  status: PluginLoadStatus;
+  ok: boolean;
+  path: string | null;
+  pluginIds: string[];
+  transpiled: boolean | null;
+  message?: string;
+  skippedAutoStartPluginIds?: string[];
 }
 
 const PLUGIN_TEMPLATE = `import {
@@ -119,6 +155,17 @@ interface IPrivatePluginData {
 }
 
 const EXTENSION_EXAMPLES_ROOT = 'extension-examples';
+const LIST_QUERY_ARGS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    query: {
+      type: 'string',
+      description:
+        'Optional filter text. Matches records case-insensitively by visible text fields (such as id, label, caption, name, or description, depending on record type).'
+    }
+  }
+};
 const LOAD_ON_SAVE_TOGGLE_TOOLBAR_ITEM = 'plugin-playground-load-on-save';
 const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
 const LOAD_ON_SAVE_SETTING = 'loadOnSave';
@@ -126,6 +173,14 @@ const LOAD_ON_SAVE_ENABLED_DESCRIPTION =
   'Toggle auto-loading this file as an extension on save';
 const LOAD_ON_SAVE_DISABLED_DESCRIPTION =
   'Auto load on save is available for JavaScript and TypeScript files';
+
+export interface IPluginPlayground {
+  registerKnownModule(known: IKnownModule): Promise<void>;
+}
+
+export const IPluginPlayground = new Token<IPluginPlayground>(
+  '@jupyterlab/plugin-playground:IPluginPlayground'
+);
 
 class PluginPlayground {
   constructor(
@@ -139,6 +194,8 @@ class PluginPlayground {
     protected requirejs: IRequireJS,
     toolbarWidgetRegistry: IToolbarWidgetRegistry
   ) {
+    registerCoreKnownModules();
+
     loadKnownModule('@jupyter-widgets/base').then((module: any) => {
       // Define the widgets base module for RequireJS (left for compatibility only)
       requirejs.define('@jupyter-widgets/base', [], () => module);
@@ -146,6 +203,8 @@ class PluginPlayground {
 
     app.commands.addCommand(CommandIDs.loadCurrentAsExtension, {
       label: 'Load Current File As Extension',
+      caption:
+        'Load the active editor file as an extension for plugin development',
       describedBy: { args: null },
       icon: extensionIcon,
       isEnabled: () =>
@@ -157,7 +216,14 @@ class PluginPlayground {
           const currentText = currentWidget.context.model.toString();
           return this._queuePluginLoad(currentText, currentWidget.context.path);
         }
-        return undefined;
+        return {
+          status: 'editor-not-active',
+          ok: false,
+          path: null,
+          pluginIds: [],
+          transpiled: null,
+          message: 'No active editor is available.'
+        } as IPluginLoadResult;
       }
     });
 
@@ -192,6 +258,22 @@ class PluginPlayground {
       args: {}
     });
 
+    app.commands.addCommand(CommandIDs.openJSImportExplorer, {
+      label: 'Open Packages Reference',
+      caption: 'Browse package docs, repository links, and package metadata.',
+      describedBy: { args: null },
+      execute: async () => {
+        await app.restored;
+        this._openPackagesReference();
+      }
+    });
+
+    commandPalette.addItem({
+      command: CommandIDs.openJSImportExplorer,
+      category: 'Plugin Playground',
+      args: {}
+    });
+
     app.commands.addCommand(CommandIDs.createNewFile, {
       label: 'TypeScript File (Playground)',
       caption: 'Create a new TypeScript file',
@@ -217,23 +299,71 @@ class PluginPlayground {
       }
     });
 
+    app.commands.addCommand(CommandIDs.listTokens, {
+      label: 'List Extension Tokens (Playground)',
+      caption: 'List available token strings',
+      describedBy: { args: LIST_QUERY_ARGS_SCHEMA },
+      execute: args => {
+        const query = typeof args.query === 'string' ? args.query.trim() : '';
+        const tokens = this._getTokenRecords();
+        const items = filterTokenRecords(tokens, query);
+        return {
+          query,
+          total: tokens.length,
+          count: items.length,
+          items: [...items]
+        };
+      }
+    });
+
+    app.commands.addCommand(CommandIDs.listCommands, {
+      label: 'List Extension Commands (Playground)',
+      caption: 'List available command IDs',
+      describedBy: { args: LIST_QUERY_ARGS_SCHEMA },
+      execute: args => {
+        const query = typeof args.query === 'string' ? args.query.trim() : '';
+        const commands = getCommandRecords(this.app);
+        const items = filterCommandRecords(commands, query);
+        return {
+          query,
+          total: commands.length,
+          count: items.length,
+          items: [...items]
+        };
+      }
+    });
+
+    app.commands.addCommand(CommandIDs.listExtensionExamples, {
+      label: 'List Extension Examples (Playground)',
+      caption: 'List available extension examples',
+      describedBy: { args: LIST_QUERY_ARGS_SCHEMA },
+      execute: async args => {
+        const query = typeof args.query === 'string' ? args.query.trim() : '';
+        const examples = await this._discoverExtensionExamples();
+        const items = filterExampleRecords(examples, query);
+        return {
+          query,
+          total: examples.length,
+          count: items.length,
+          items: [...items]
+        };
+      }
+    });
+
     app.restored.then(async () => {
       const settings = this.settings;
       this._updateSettings(requirejs, settings);
       this._refreshExtensionPoints();
       const tokenSidebar = new TokenSidebar({
-        getTokens: () =>
-          Array.from(this._tokenMap.keys())
-            .sort((left, right) => left.localeCompare(right))
-            .map(name => ({
-              name,
-              description: this._tokenDescriptionMap.get(name) ?? ''
-            })),
+        getTokens: this._getTokenRecords.bind(this),
         getCommands: () => getCommandRecords(this.app),
+        getKnownModules: () => listKnownModules(),
         getCommandArguments: commandId =>
           getCommandArgumentDocumentation(this.app, commandId),
         getCommandArgumentCount: commandId =>
           getCommandArgumentCount(this.app, commandId),
+        discoverKnownModules: force => discoverFederatedKnownModules({ force }),
+        openDocumentationLink: this._openDocumentationLink.bind(this),
         onInsertImport: this._insertTokenImport.bind(this),
         isImportEnabled: this._canInsertImport.bind(this)
       });
@@ -262,6 +392,7 @@ class PluginPlayground {
       (playgroundSidebar.content as AccordionPanel).expand(0);
       (playgroundSidebar.content as AccordionPanel).expand(1);
       this.app.shell.add(playgroundSidebar, 'right', { rank: 650 });
+      this._playgroundSidebar = playgroundSidebar;
 
       app.shell.currentChanged?.connect(() => {
         tokenSidebar.update();
@@ -418,24 +549,28 @@ class PluginPlayground {
     return toggleWidget;
   }
 
-  private _queuePluginLoad(pluginSource: string, path: string): Promise<void> {
+  private _queuePluginLoad(
+    pluginSource: string,
+    path: string
+  ): Promise<IPluginLoadResult> {
     const normalizedPath = normalizeContentsPath(path);
-    const previous =
-      this._inFlightLoads.get(normalizedPath) ?? Promise.resolve();
+    const previous = this._inFlightLoads.get(normalizedPath);
     const next = previous
-      .catch(() => {
-        /* swallow previous load error to continue queue */
-      })
-      .then(async () => {
-        await this._loadPlugin(pluginSource, path);
-      })
-      .finally(() => {
-        if (this._inFlightLoads.get(normalizedPath) === next) {
-          this._inFlightLoads.delete(normalizedPath);
-        }
-      });
-    this._inFlightLoads.set(normalizedPath, next);
-    return next;
+      ? previous
+          .catch(() => {
+            /* swallow previous load error to continue queue */
+          })
+          .then(() => this._loadPlugin(pluginSource, path))
+      : this._loadPlugin(pluginSource, path);
+
+    const guardedNext = next.finally(() => {
+      if (this._inFlightLoads.get(normalizedPath) === guardedNext) {
+        this._inFlightLoads.delete(normalizedPath);
+      }
+    });
+
+    this._inFlightLoads.set(normalizedPath, guardedNext);
+    return guardedNext;
   }
 
   private _updateSettings(
@@ -448,7 +583,29 @@ class PluginPlayground {
     });
   }
 
-  private async _loadPlugin(code: string, path: string | null) {
+  private _getTokenRecords(): ReadonlyArray<TokenSidebar.ITokenRecord> {
+    if (this._tokenMap.size === 0) {
+      try {
+        this._populateTokenMap();
+      } catch (error) {
+        console.warn(
+          'Failed to discover token names for listing extension points',
+          error
+        );
+      }
+    }
+    return Array.from(this._tokenMap.keys())
+      .sort((left, right) => left.localeCompare(right))
+      .map(name => ({
+        name,
+        description: this._tokenDescriptionMap.get(name) ?? ''
+      }));
+  }
+
+  private async _loadPlugin(
+    code: string,
+    path: string | null
+  ): Promise<IPluginLoadResult> {
     if (this._tokenMap.size === 0) {
       try {
         this._populateTokenMap();
@@ -482,7 +639,7 @@ class PluginPlayground {
     });
     importResolver.dynamicLoader = pluginLoader.loadFile.bind(pluginLoader);
 
-    let result;
+    let result: PluginLoader.IResult;
     try {
       result = await pluginLoader.load(code, path);
     } catch (error) {
@@ -492,14 +649,33 @@ class PluginPlayground {
           title: `Plugin loading failed: ${internalError.message}`,
           body: formatErrorWithResult(error, error.partialResult)
         });
-      } else {
-        showErrorMessage('Plugin loading failed', (error as Error).message);
+        return {
+          status: 'loading-failed',
+          ok: false,
+          path,
+          pluginIds: [],
+          transpiled: null,
+          message: internalError.message
+        };
       }
-      return;
+
+      const message = error instanceof Error ? error.message : String(error);
+      showErrorMessage('Plugin loading failed', message);
+      return {
+        status: 'loading-failed',
+        ok: false,
+        path,
+        pluginIds: [],
+        transpiled: null,
+        message
+      };
     }
+
     const plugins = result.plugins.map(plugin =>
       this._ensureDeactivateSupport(plugin)
     );
+    const pluginIds = plugins.map(plugin => plugin.id);
+    const skippedAutoStartPluginIds: string[] = [];
 
     for (const plugin of plugins) {
       const schema = result.schemas[plugin.id];
@@ -542,19 +718,48 @@ class PluginPlayground {
             plugin.id
           }: missing required services ${missingRequiredTokens.join(', ')}`
         );
+        skippedAutoStartPluginIds.push(plugin.id);
         continue;
       }
       try {
         await this.app.activatePlugin(plugin.id);
         this._refreshExtensionPoints();
-      } catch (e) {
+      } catch (error) {
+        const normalizedError =
+          error instanceof Error ? error : new Error(String(error));
+        const message = normalizedError.message;
+        const skippedAutoStartPluginIdsResult =
+          skippedAutoStartPluginIds.length > 0
+            ? skippedAutoStartPluginIds
+            : undefined;
         showDialog({
-          title: `Plugin autostart failed: ${(e as Error).message}`,
-          body: formatErrorWithResult(e as Error, result)
+          title: `Plugin autostart failed: ${message}`,
+          body: formatErrorWithResult(normalizedError, result)
         });
-        return;
+        return {
+          status: 'autostart-failed',
+          ok: false,
+          path,
+          pluginIds,
+          transpiled: result.transpiled,
+          message,
+          skippedAutoStartPluginIds: skippedAutoStartPluginIdsResult
+        };
       }
     }
+
+    const skippedAutoStartPluginIdsResult =
+      skippedAutoStartPluginIds.length > 0
+        ? skippedAutoStartPluginIds
+        : undefined;
+    return {
+      status: 'loaded',
+      ok: true,
+      path,
+      pluginIds,
+      transpiled: result.transpiled,
+      skippedAutoStartPluginIds: skippedAutoStartPluginIdsResult
+    };
   }
 
   private _refreshExtensionPoints(): void {
@@ -568,6 +773,73 @@ class PluginPlayground {
     }
 
     this._tokenSidebar?.update();
+  }
+
+  public async registerKnownModule(known: IKnownModule): Promise<void> {
+    registerKnownModule(known);
+    this._tokenSidebar?.update();
+  }
+
+  private _openPackagesReference(): void {
+    if (!this._tokenSidebar) {
+      return;
+    }
+
+    this._tokenSidebar.showPackagesView();
+    this.app.shell.activateById(
+      this._playgroundSidebar?.id ?? this._tokenSidebar.id
+    );
+    if (this._playgroundSidebar) {
+      (this._playgroundSidebar.content as AccordionPanel).expand(0);
+    }
+  }
+
+  private _openDocumentationLink(
+    url: string,
+    moduleName: string,
+    openInBrowserTab: boolean
+  ): void {
+    const safeUrl = normalizeExternalUrl(url);
+    if (!safeUrl) {
+      void showDialog({
+        title: 'Invalid documentation URL',
+        body: `Could not open docs for "${moduleName}" because the URL is invalid.`,
+        buttons: [Dialog.okButton()]
+      });
+      return;
+    }
+
+    if (openInBrowserTab) {
+      openExternalLink(safeUrl);
+      return;
+    }
+
+    const existingWidget = this._documentationWidgets.get(safeUrl);
+    if (existingWidget && !existingWidget.isDisposed) {
+      this.app.shell.activateById(existingWidget.id);
+      return;
+    }
+
+    const iframe = new IFrame({
+      sandbox: ['allow-scripts', 'allow-popups']
+    });
+    iframe.url = safeUrl;
+
+    const widget = new MainAreaWidget({ content: iframe });
+    widget.id = `jp-plugin-package-doc-${this._documentationWidgetId}`;
+    this._documentationWidgetId += 1;
+    widget.title.label = `${moduleName} Docs`;
+    widget.title.caption = safeUrl;
+    widget.title.closable = true;
+    widget.disposed.connect(() => {
+      if (this._documentationWidgets.get(safeUrl) === widget) {
+        this._documentationWidgets.delete(safeUrl);
+      }
+    });
+
+    this._documentationWidgets.set(safeUrl, widget);
+    this.app.shell.add(widget, 'main');
+    this.app.shell.activateById(widget.id);
   }
 
   private _missingRequiredTokens(
@@ -1174,22 +1446,32 @@ class PluginPlayground {
 
   private readonly _fallbackExampleDescription =
     'No description provided by this example.';
-  private readonly _inFlightLoads = new Map<string, Promise<void>>();
+  private readonly _inFlightLoads = new Map<
+    string,
+    Promise<IPluginLoadResult>
+  >();
   private readonly _loadOnSaveByFile = new Set<string>();
   private readonly _loadOnSaveToggleRefreshers = new Set<() => void>();
   private readonly _tokenMap = new Map<string, Token<string>>();
   private readonly _tokenDescriptionMap = new Map<string, string>();
+  private readonly _documentationWidgets = new Map<
+    string,
+    MainAreaWidget<IFrame>
+  >();
+  private _playgroundSidebar: SidePanel | null = null;
   private _tokenSidebar: TokenSidebar | null = null;
+  private _documentationWidgetId = 0;
 }
 
 /**
  * Initialization data for the @jupyterlab/plugin-playground extension.
  */
-const plugin: JupyterFrontEndPlugin<void> = {
+const plugin: JupyterFrontEndPlugin<IPluginPlayground> = {
   id: '@jupyterlab/plugin-playground:plugin',
   description:
     'Provide a playground for developing and testing JupyterLab plugins.',
   autoStart: true,
+  provides: IPluginPlayground,
   requires: [
     ISettingRegistry,
     ICommandPalette,
@@ -1206,21 +1488,32 @@ const plugin: JupyterFrontEndPlugin<void> = {
     completionManager: ICompletionProviderManager | null,
     launcher: ILauncher | null,
     documentManager: IDocumentManager | null
-  ) => {
+  ): IPluginPlayground => {
     if (completionManager) {
       completionManager.registerProvider(new CommandCompletionProvider(app));
     }
+
+    let playground: PluginPlayground | null = null;
+    const api: IPluginPlayground = {
+      registerKnownModule: async (known: IKnownModule) => {
+        if (playground) {
+          await playground.registerKnownModule(known);
+          return;
+        }
+        registerKnownModule(known);
+      }
+    };
 
     // In order to accommodate loading ipywidgets and other AMD modules, we
     // load RequireJS before loading any custom extensions.
 
     const requirejsLoader = new RequireJSLoader();
-    // We coud convert to `async` and use `await` but we don't, because a failure
+    // We could convert to `async` and use `await` but we don't, because a failure
     // would freeze JupyterLab on splash screen; this way if it fails to load,
     // only the plugin is affected, not the entire application.
     Promise.all([settingRegistry.load(plugin.id), requirejsLoader.load()]).then(
       ([settings, requirejs]) => {
-        new PluginPlayground(
+        playground = new PluginPlayground(
           app,
           settingRegistry,
           commandPalette,
@@ -1233,7 +1526,10 @@ const plugin: JupyterFrontEndPlugin<void> = {
         );
       }
     );
+
+    return api;
   }
 };
 
 export default plugin;
+export type { IKnownModule };
