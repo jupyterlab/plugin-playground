@@ -175,14 +175,15 @@ export class TokenSidebar extends ReactWidget {
       filteredCommands = filterCommandRecords(commands, this._query);
     } else {
       knownModules = this._getKnownModules();
+      const normalizedQuery = normalizeQuery(this._query);
       filteredKnownModules =
-        query.length > 0
+        normalizedQuery.length > 0
           ? knownModules.filter(known => {
               const haystack = [known.name, known.description, known.origin]
                 .map(value => value ?? '')
                 .join(' ')
                 .toLowerCase();
-              return haystack.includes(query);
+              return haystack.includes(normalizedQuery);
             })
           : knownModules;
     }

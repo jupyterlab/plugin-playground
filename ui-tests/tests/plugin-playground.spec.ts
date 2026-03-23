@@ -278,6 +278,8 @@ test('lists tokens and searches commands via command APIs', async ({
       (item: { id: string }) => item.id === LOAD_COMMAND
     )
   ).toBe(true);
+});
+
 test('open packages reference command switches to packages view', async ({
   page
 }) => {
