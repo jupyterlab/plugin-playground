@@ -1196,8 +1196,8 @@ class PluginPlayground {
   }
 
   private async _insertTokenImport(tokenName: string): Promise<void> {
-    const statement = this._importStatement(tokenName);
-    if (!statement) {
+    const tokenReference = this._parseTokenReference(tokenName);
+    if (!tokenReference) {
       await showDialog({
         title: 'Cannot generate import statement',
         body: `Token "${tokenName}" does not follow the package:token format.`,
@@ -1227,14 +1227,33 @@ class PluginPlayground {
     }
 
     const source = sourceModel.sharedModel.getSource();
-    if (source.includes(statement)) {
-      return;
+    let updatedSource = this._insertImportStatement(source, tokenReference);
+    updatedSource = this._insertTokenDependency(
+      updatedSource,
+      tokenReference.tokenSymbol
+    );
+    if (updatedSource !== source) {
+      sourceModel.sharedModel.setSource(updatedSource);
     }
-    const separator = source.length > 0 ? '\n' : '';
-    sourceModel.sharedModel.setSource(`${statement}${separator}${source}`);
   }
 
-  private _importStatement(tokenName: string): string | null {
+  private _canInsertImport(tokenName: string): boolean {
+    if (!this._parseTokenReference(tokenName)) {
+      return false;
+    }
+
+    const editorWidget = this.editorTracker.currentWidget;
+    if (!editorWidget) {
+      return false;
+    }
+
+    const sourceModel = editorWidget.content.model;
+    return !!(sourceModel && sourceModel.sharedModel);
+  }
+
+  private _parseTokenReference(
+    tokenName: string
+  ): { packageName: string; tokenSymbol: string } | null {
     const separatorIndex = tokenName.indexOf(':');
     if (separatorIndex === -1) {
       return null;
@@ -1247,21 +1266,329 @@ class PluginPlayground {
     if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(tokenSymbol)) {
       return null;
     }
-    return `import { ${tokenSymbol} } from '${packageName}';`;
+    return { packageName, tokenSymbol };
   }
 
-  private _canInsertImport(tokenName: string): boolean {
-    if (!this._importStatement(tokenName)) {
-      return false;
+  private _insertImportStatement(
+    source: string,
+    tokenReference: { packageName: string; tokenSymbol: string }
+  ): string {
+    const statement = `import { ${tokenReference.tokenSymbol} } from '${tokenReference.packageName}';`;
+    if (source.includes(statement)) {
+      return source;
+    }
+    if (
+      this._hasNamedValueImport(
+        source,
+        tokenReference.packageName,
+        tokenReference.tokenSymbol
+      )
+    ) {
+      return source;
     }
 
-    const editorWidget = this.editorTracker.currentWidget;
-    if (!editorWidget) {
-      return false;
+    const separator = source.length > 0 ? '\n' : '';
+    return `${statement}${separator}${source}`;
+  }
+
+  private _insertTokenDependency(source: string, tokenSymbol: string): string {
+    const sourceFile = ts.createSourceFile(
+      'plugin-playground-token.ts',
+      source,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX
+    );
+    const lineEnding = source.includes('\r\n') ? '\r\n' : '\n';
+
+    const pluginObject = this._resolveDefaultPluginObject(sourceFile);
+    if (!pluginObject) {
+      return source;
+    }
+    const activateProperty = this._findObjectProperty(pluginObject, 'activate');
+    if (!activateProperty) {
+      return source;
     }
 
-    const sourceModel = editorWidget.content.model;
-    return !!(sourceModel && sourceModel.sharedModel);
+    const requiresProperty = this._findObjectProperty(pluginObject, 'requires');
+    const optionalProperty = this._findObjectProperty(pluginObject, 'optional');
+    const requiresArray = this._arrayPropertyInitializer(requiresProperty);
+    const optionalArray = this._arrayPropertyInitializer(optionalProperty);
+    if (requiresProperty && !requiresArray) {
+      return source;
+    }
+    if (!requiresProperty && optionalProperty && !optionalArray) {
+      return source;
+    }
+    if (
+      this._arrayHasIdentifier(requiresArray, tokenSymbol) ||
+      this._arrayHasIdentifier(optionalArray, tokenSymbol)
+    ) {
+      return source;
+    }
+
+    const edits: Array<{ start: number; end: number; text: string }> = [];
+    const dependencyKind: 'requires' | 'optional' =
+      requiresArray || !optionalArray ? 'requires' : 'optional';
+    const targetArray =
+      dependencyKind === 'requires' ? requiresArray : optionalArray;
+    if (targetArray) {
+      if (targetArray.elements.length === 0) {
+        edits.push({
+          start: targetArray.elements.pos,
+          end: targetArray.elements.pos,
+          text: tokenSymbol
+        });
+      } else {
+        const hasTrailingComma = Boolean(targetArray.elements.hasTrailingComma);
+        const insertionPosition = targetArray.elements.end;
+        const arrayText = source.slice(
+          targetArray.getStart(sourceFile),
+          targetArray.end
+        );
+        let text = `${hasTrailingComma ? ' ' : ', '}${tokenSymbol}`;
+        if (arrayText.includes('\n')) {
+          const firstElementStart = targetArray.elements[0].getStart(sourceFile);
+          const multilineIndent = this._lineIndent(source, firstElementStart);
+          text = `${hasTrailingComma ? '' : ','}${lineEnding}${multilineIndent}${tokenSymbol}${hasTrailingComma ? ',' : ''}`;
+        }
+        edits.push({
+          start: insertionPosition,
+          end: insertionPosition,
+          text
+        });
+      }
+    } else {
+      const activateStart = activateProperty.getStart(sourceFile);
+      const insertionStart =
+        source.lastIndexOf('\n', Math.max(0, activateStart - 1)) + 1;
+      const activateIndent = this._lineIndent(source, activateStart);
+      edits.push({
+        start: insertionStart,
+        end: insertionStart,
+        text: `${activateIndent}${dependencyKind}: [${tokenSymbol}],${lineEnding}`
+      });
+    }
+
+    const activate = this._resolveActivateFunction(activateProperty);
+    if (activate) {
+      const requiredCount = requiresArray?.elements.length ?? 0;
+      const optionalCount = optionalArray?.elements.length ?? 0;
+      const desiredIndex =
+        dependencyKind === 'requires'
+          ? 1 + requiredCount
+          : 1 + requiredCount + optionalCount;
+      const existingNames = new Set<string>();
+      for (const parameter of activate.parameters) {
+        if (ts.isIdentifier(parameter.name)) {
+          existingNames.add(parameter.name.text);
+        }
+      }
+      let parameterName = `${tokenSymbol.charAt(0).toLowerCase()}${tokenSymbol.slice(1)}`;
+      if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(parameterName)) {
+        parameterName = 'service';
+      }
+      const baseName = parameterName;
+      let suffix = 2;
+      while (existingNames.has(parameterName)) {
+        parameterName = `${baseName}${suffix}`;
+        suffix += 1;
+      }
+
+      const insertionIndex = Math.max(
+        0,
+        Math.min(desiredIndex, activate.parameters.length)
+      );
+      if (activate.parameters.length === 0) {
+        edits.push({
+          start: activate.parameters.pos,
+          end: activate.parameters.pos,
+          text: parameterName
+        });
+      } else if (insertionIndex < activate.parameters.length) {
+        const insertionPoint =
+          activate.parameters[insertionIndex].getStart(sourceFile);
+        edits.push({
+          start: insertionPoint,
+          end: insertionPoint,
+          text: `${parameterName}, `
+        });
+      } else {
+        const lastParameter = activate.parameters[activate.parameters.length - 1];
+        edits.push({
+          start: lastParameter.end,
+          end: lastParameter.end,
+          text: `, ${parameterName}`
+        });
+      }
+    }
+
+    edits.sort((left, right) => right.start - left.start || right.end - left.end);
+    let updated = source;
+    for (const edit of edits) {
+      updated = `${updated.slice(0, edit.start)}${edit.text}${updated.slice(edit.end)}`;
+    }
+    return updated;
+  }
+
+  private _lineIndent(source: string, offset: number): string {
+    const start = source.lastIndexOf('\n', Math.max(0, offset - 1)) + 1;
+    const match = source.slice(start, offset).match(/^[ \t]*/);
+    return match ? match[0] : '';
+  }
+
+  private _findObjectProperty(
+    objectLiteral: ts.ObjectLiteralExpression,
+    propertyName: string
+  ): ts.ObjectLiteralElementLike | null {
+    for (const property of objectLiteral.properties) {
+      const name = property.name;
+      if (
+        name &&
+        (ts.isIdentifier(name) ||
+          ts.isStringLiteral(name) ||
+          ts.isNumericLiteral(name)) &&
+        name.text === propertyName
+      ) {
+        return property;
+      }
+    }
+    return null;
+  }
+
+  private _arrayPropertyInitializer(
+    property: ts.ObjectLiteralElementLike | null
+  ): ts.ArrayLiteralExpression | null {
+    if (
+      property &&
+      ts.isPropertyAssignment(property) &&
+      ts.isArrayLiteralExpression(property.initializer)
+    ) {
+      return property.initializer;
+    }
+    return null;
+  }
+
+  private _arrayHasIdentifier(
+    arrayLiteral: ts.ArrayLiteralExpression | null,
+    identifier: string
+  ): boolean {
+    if (!arrayLiteral) {
+      return false;
+    }
+    return arrayLiteral.elements.some(
+      element => ts.isIdentifier(element) && element.text === identifier
+    );
+  }
+
+  private _unwrapExpression(expression: ts.Expression): ts.Expression {
+    let current = expression;
+    while (true) {
+      if (ts.isParenthesizedExpression(current)) {
+        current = current.expression;
+        continue;
+      }
+      if (ts.isAsExpression(current) || ts.isTypeAssertionExpression(current)) {
+        current = current.expression;
+        continue;
+      }
+      return current;
+    }
+  }
+
+  private _resolveDefaultPluginObject(
+    sourceFile: ts.SourceFile
+  ): ts.ObjectLiteralExpression | null {
+    let exported: ts.Expression | null = null;
+    for (const statement of sourceFile.statements) {
+      if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
+        exported = this._unwrapExpression(statement.expression);
+        break;
+      }
+    }
+    if (!exported) {
+      return null;
+    }
+    if (ts.isObjectLiteralExpression(exported)) {
+      return exported;
+    }
+    if (!ts.isIdentifier(exported)) {
+      return null;
+    }
+
+    for (const statement of sourceFile.statements) {
+      if (!ts.isVariableStatement(statement)) {
+        continue;
+      }
+      for (const declaration of statement.declarationList.declarations) {
+        if (
+          ts.isIdentifier(declaration.name) &&
+          declaration.name.text === exported.text &&
+          declaration.initializer &&
+          ts.isObjectLiteralExpression(declaration.initializer)
+        ) {
+          return declaration.initializer;
+        }
+      }
+    }
+    return null;
+  }
+
+  private _resolveActivateFunction(
+    activateProperty: ts.ObjectLiteralElementLike
+  ): ts.FunctionLikeDeclarationBase | null {
+    if (ts.isMethodDeclaration(activateProperty)) {
+      return activateProperty;
+    }
+    if (
+      ts.isPropertyAssignment(activateProperty) &&
+      (ts.isArrowFunction(activateProperty.initializer) ||
+        ts.isFunctionExpression(activateProperty.initializer))
+    ) {
+      return activateProperty.initializer;
+    }
+    return null;
+  }
+
+  private _hasNamedValueImport(
+    source: string,
+    packageName: string,
+    localName: string
+  ): boolean {
+    const sourceFile = ts.createSourceFile(
+      'plugin-playground-import-check.ts',
+      source,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX
+    );
+    for (const statement of sourceFile.statements) {
+      if (!ts.isImportDeclaration(statement)) {
+        continue;
+      }
+      if (
+        !ts.isStringLiteral(statement.moduleSpecifier) ||
+        statement.moduleSpecifier.text !== packageName
+      ) {
+        continue;
+      }
+
+      const importClause = statement.importClause;
+      if (!importClause || importClause.isTypeOnly) {
+        continue;
+      }
+      const namedBindings = importClause.namedBindings;
+      if (!namedBindings || !ts.isNamedImports(namedBindings)) {
+        continue;
+      }
+
+      for (const specifier of namedBindings.elements) {
+        if (!specifier.isTypeOnly && specifier.name.text === localName) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   /**

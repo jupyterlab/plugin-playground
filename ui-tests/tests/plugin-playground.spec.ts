@@ -411,7 +411,18 @@ test('token sidebar inserts import statement into active editor', async ({
   const editorPath = `${tmpPath}/token-sidebar-import.ts`;
 
   await page.contents.uploadContent(
-    "const pluginId = 'token-sidebar-test';\n",
+    `import { JupyterFrontEnd, JupyterFrontEndPlugin } from '@jupyterlab/application';
+
+const plugin: JupyterFrontEndPlugin<void> = {
+  id: 'token-sidebar-test:plugin',
+  autoStart: true,
+  activate: (app: JupyterFrontEnd) => {
+    void app;
+  }
+};
+
+export default plugin;
+`,
     'text',
     editorPath
   );
@@ -437,27 +448,206 @@ test('token sidebar inserts import statement into active editor', async ({
   const packageName = tokenName.slice(0, separatorIndex).trim();
   const tokenSymbol = tokenName.slice(separatorIndex + 1).trim();
   const expectedImport = `import { ${tokenSymbol} } from '${packageName}';`;
+  const expectedDependency = `requires: [${tokenSymbol}]`;
 
-  await page.waitForFunction((expected: string) => {
-    const current = window.jupyterapp.shell
-      .currentWidget as FileEditorWidget | null;
-    const source = current?.content.model.sharedModel.getSource();
-    if (typeof source !== 'string') {
-      return false;
+  await page.waitForFunction(
+    ({ expectedImportStatement, expectedDependencyStatement }) => {
+      const current = window.jupyterapp.shell
+        .currentWidget as FileEditorWidget | null;
+      const source = current?.content.model.sharedModel.getSource();
+      if (typeof source !== 'string') {
+        return false;
+      }
+      return (
+        source.startsWith(expectedImportStatement) &&
+        source.includes(expectedDependencyStatement) &&
+        /activate:\s*\(app:\s*JupyterFrontEnd,\s*[A-Za-z_$][A-Za-z0-9_$]*\)/.test(
+          source
+        )
+      );
+    },
+    {
+      expectedImportStatement: expectedImport,
+      expectedDependencyStatement: expectedDependency
     }
-    return source.startsWith(expected);
-  }, expectedImport);
+  );
 
   await importButton.click();
-  await page.waitForFunction((expected: string) => {
-    const current = window.jupyterapp.shell
-      .currentWidget as FileEditorWidget | null;
-    const source = current?.content.model.sharedModel.getSource();
-    if (typeof source !== 'string') {
-      return false;
+  await page.waitForFunction(
+    ({ expectedImportStatement, expectedDependencyStatement }) => {
+      const current = window.jupyterapp.shell
+        .currentWidget as FileEditorWidget | null;
+      const source = current?.content.model.sharedModel.getSource();
+      if (typeof source !== 'string') {
+        return false;
+      }
+      return (
+        source.split(expectedImportStatement).length - 1 === 1 &&
+        source.split(expectedDependencyStatement).length - 1 === 1
+      );
+    },
+    {
+      expectedImportStatement: expectedImport,
+      expectedDependencyStatement: expectedDependency
     }
-    return source.split(expected).length - 1 === 1;
-  }, expectedImport);
+  );
+});
+
+test('token sidebar inserts canonical token import when alias import exists', async ({
+  page,
+  tmpPath
+}) => {
+  const editorPath = `${tmpPath}/token-sidebar-alias-import.ts`;
+
+  await page.contents.uploadContent(
+    `import { JupyterFrontEnd, JupyterFrontEndPlugin } from '@jupyterlab/application';
+
+const plugin: JupyterFrontEndPlugin<void> = {
+  id: 'token-sidebar-alias-test:plugin',
+  autoStart: true,
+  activate: (app: JupyterFrontEnd) => {
+    void app;
+  }
+};
+
+export default plugin;
+`,
+    'text',
+    editorPath
+  );
+  await page.goto();
+  await page.filebrowser.open(editorPath);
+  expect(await page.activity.activateTab('token-sidebar-alias-import.ts')).toBe(
+    true
+  );
+
+  const section = await openSidebarPanel(page, TOKEN_SECTION_ID);
+  const tokenName = await findImportableToken(section);
+  const filterInput = section.getByPlaceholder('Filter token strings');
+  await filterInput.fill(tokenName);
+  const tokenListItem = section.locator('.jp-PluginPlayground-listItem');
+  await expect(tokenListItem).toHaveCount(1);
+
+  const separatorIndex = tokenName.indexOf(':');
+  const packageName = tokenName.slice(0, separatorIndex).trim();
+  const tokenSymbol = tokenName.slice(separatorIndex + 1).trim();
+
+  await page.evaluate(
+    ({ packageName: pkg, symbol }) => {
+      const current = window.jupyterapp.shell
+        .currentWidget as FileEditorWidget | null;
+      if (!current) {
+        return;
+      }
+      const model = current.content.model.sharedModel;
+      const currentSource = model.getSource();
+      model.setSource(
+        `import { ${symbol} as existingAlias } from '${pkg}';\n${currentSource}`
+      );
+    },
+    { packageName, symbol: tokenSymbol }
+  );
+
+  const importButton = tokenListItem.locator(
+    '.jp-PluginPlayground-importButton'
+  );
+  await expect(importButton).toBeEnabled();
+  await importButton.click();
+
+  const expectedImport = `import { ${tokenSymbol} } from '${packageName}';`;
+  const aliasImport = `import { ${tokenSymbol} as existingAlias } from '${packageName}';`;
+  const expectedDependency = `requires: [${tokenSymbol}]`;
+  await page.waitForFunction(
+    ({ expectedImportStatement, aliasImportStatement, expectedDependencyStatement }) => {
+      const current = window.jupyterapp.shell
+        .currentWidget as FileEditorWidget | null;
+      const source = current?.content.model.sharedModel.getSource();
+      if (typeof source !== 'string') {
+        return false;
+      }
+      return (
+        source.startsWith(expectedImportStatement) &&
+        source.includes(aliasImportStatement) &&
+        source.includes(expectedDependencyStatement)
+      );
+    },
+    {
+      expectedImportStatement: expectedImport,
+      aliasImportStatement: aliasImport,
+      expectedDependencyStatement: expectedDependency
+    }
+  );
+});
+
+test('token sidebar avoids dependency edits for non-array requires property', async ({
+  page,
+  tmpPath
+}) => {
+  const editorPath = `${tmpPath}/token-sidebar-non-array-requires.ts`;
+
+  await page.contents.uploadContent(
+    `import { JupyterFrontEnd, JupyterFrontEndPlugin } from '@jupyterlab/application';
+
+const requiredServices: unknown[] = [];
+const plugin: JupyterFrontEndPlugin<void> = {
+  id: 'token-sidebar-non-array-test:plugin',
+  autoStart: true,
+  requires: requiredServices,
+  activate: (app: JupyterFrontEnd) => {
+    void app;
+  }
+};
+
+export default plugin;
+`,
+    'text',
+    editorPath
+  );
+  await page.goto();
+  await page.filebrowser.open(editorPath);
+  expect(
+    await page.activity.activateTab('token-sidebar-non-array-requires.ts')
+  ).toBe(true);
+
+  const section = await openSidebarPanel(page, TOKEN_SECTION_ID);
+  const tokenName = await findImportableToken(section);
+  const filterInput = section.getByPlaceholder('Filter token strings');
+  await filterInput.fill(tokenName);
+  const tokenListItem = section.locator('.jp-PluginPlayground-listItem');
+  await expect(tokenListItem).toHaveCount(1);
+
+  const importButton = tokenListItem.locator(
+    '.jp-PluginPlayground-importButton'
+  );
+  await expect(importButton).toBeEnabled();
+  await importButton.click();
+
+  const separatorIndex = tokenName.indexOf(':');
+  const packageName = tokenName.slice(0, separatorIndex).trim();
+  const tokenSymbol = tokenName.slice(separatorIndex + 1).trim();
+  const expectedImport = `import { ${tokenSymbol} } from '${packageName}';`;
+
+  await page.waitForFunction(
+    ({ expectedImportStatement, token }) => {
+      const current = window.jupyterapp.shell
+        .currentWidget as FileEditorWidget | null;
+      const source = current?.content.model.sharedModel.getSource();
+      if (typeof source !== 'string') {
+        return false;
+      }
+      return (
+        source.startsWith(expectedImportStatement) &&
+        source.includes('requires: requiredServices') &&
+        source.split('requires:').length - 1 === 1 &&
+        !source.includes(`requires: [${token}]`) &&
+        /activate:\s*\(app:\s*JupyterFrontEnd\)/.test(source)
+      );
+    },
+    {
+      expectedImportStatement: expectedImport,
+      token: tokenSymbol
+    }
+  );
 });
 
 test('commands tab lists and filters available commands', async ({ page }) => {
