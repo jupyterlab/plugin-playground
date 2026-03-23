@@ -1348,9 +1348,14 @@ class PluginPlayground {
         );
         let text = `${hasTrailingComma ? ' ' : ', '}${tokenSymbol}`;
         if (arrayText.includes('\n')) {
-          const firstElementStart = targetArray.elements[0].getStart(sourceFile);
+          const firstElementStart =
+            targetArray.elements[0].getStart(sourceFile);
           const multilineIndent = this._lineIndent(source, firstElementStart);
-          text = `${hasTrailingComma ? '' : ','}${lineEnding}${multilineIndent}${tokenSymbol}${hasTrailingComma ? ',' : ''}`;
+          text = `${
+            hasTrailingComma ? '' : ','
+          }${lineEnding}${multilineIndent}${tokenSymbol}${
+            hasTrailingComma ? ',' : ''
+          }`;
         }
         edits.push({
           start: insertionPosition,
@@ -1384,7 +1389,9 @@ class PluginPlayground {
           existingNames.add(parameter.name.text);
         }
       }
-      let parameterName = `${tokenSymbol.charAt(0).toLowerCase()}${tokenSymbol.slice(1)}`;
+      let parameterName = `${tokenSymbol
+        .charAt(0)
+        .toLowerCase()}${tokenSymbol.slice(1)}`;
       if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(parameterName)) {
         parameterName = 'service';
       }
@@ -1414,7 +1421,8 @@ class PluginPlayground {
           text: `${parameterName}, `
         });
       } else {
-        const lastParameter = activate.parameters[activate.parameters.length - 1];
+        const lastParameter =
+          activate.parameters[activate.parameters.length - 1];
         edits.push({
           start: lastParameter.end,
           end: lastParameter.end,
@@ -1423,10 +1431,14 @@ class PluginPlayground {
       }
     }
 
-    edits.sort((left, right) => right.start - left.start || right.end - left.end);
+    edits.sort(
+      (left, right) => right.start - left.start || right.end - left.end
+    );
     let updated = source;
     for (const edit of edits) {
-      updated = `${updated.slice(0, edit.start)}${edit.text}${updated.slice(edit.end)}`;
+      updated = `${updated.slice(0, edit.start)}${edit.text}${updated.slice(
+        edit.end
+      )}`;
     }
     return updated;
   }

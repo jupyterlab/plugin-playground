@@ -558,7 +558,11 @@ export default plugin;
   const aliasImport = `import { ${tokenSymbol} as existingAlias } from '${packageName}';`;
   const expectedDependency = `requires: [${tokenSymbol}]`;
   await page.waitForFunction(
-    ({ expectedImportStatement, aliasImportStatement, expectedDependencyStatement }) => {
+    ({
+      expectedImportStatement,
+      aliasImportStatement,
+      expectedDependencyStatement
+    }) => {
       const current = window.jupyterapp.shell
         .currentWidget as FileEditorWidget | null;
       const source = current?.content.model.sharedModel.getSource();
