@@ -4,6 +4,7 @@ import type { IJupyterLabPageFixture } from '@jupyterlab/galata';
 import type { Locator } from '@playwright/test';
 
 const LOAD_COMMAND = 'plugin-playground:load-as-extension';
+const OPEN_PACKAGES_REFERENCE_COMMAND = 'plugin-playground:open-js-explorer';
 const INTERNAL_CONTEXT_INFO_COMMAND = '__internal:context-menu-info';
 const CREATE_FILE_COMMAND = 'plugin-playground:create-new-plugin';
 const PLAYGROUND_PLUGIN_ID = '@jupyterlab/plugin-playground:plugin';
@@ -188,6 +189,35 @@ test('opens a dummy extension example from the sidebar', async ({ page }) => {
     const path = current?.context?.path;
     return path === pathToOpen;
   }, expectedReadmePath);
+});
+
+test('open packages reference command switches to packages view', async ({
+  page
+}) => {
+  await page.goto();
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, OPEN_PACKAGES_REFERENCE_COMMAND)
+  );
+
+  await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, OPEN_PACKAGES_REFERENCE_COMMAND);
+
+  const section = await openSidebarPanel(page, TOKEN_SECTION_ID);
+  const packagesTab = section.getByRole('tab', { name: 'Packages' });
+  await expect(packagesTab).toHaveAttribute('aria-selected', 'true');
+
+  const count = section.locator('.jp-PluginPlayground-count').first();
+  await expect(count).toContainText('packages');
+
+  const packageItems = section.locator('.jp-PluginPlayground-listItem');
+  await expect(packageItems.first()).toBeVisible();
+  await expect(
+    packageItems.first().locator('.jp-PluginPlayground-actionButton').first()
+  ).toBeVisible();
 });
 
 test('loads current editor file as a plugin extension', async ({

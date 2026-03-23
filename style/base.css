@@ -106,11 +106,6 @@
 
 .jp-PluginPlayground-tokenActions {
   display: inline-flex;
-  gap: 4px;
-}
-
-.jp-PluginPlayground-tokenActions {
-  display: inline-flex;
   flex-wrap: wrap;
   gap: 4px;
   justify-content: flex-end;

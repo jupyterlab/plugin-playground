@@ -659,15 +659,18 @@ export class TokenSidebar extends ReactWidget {
 
     const seenUrls = new Set<string>();
     return links
-      .filter((link): link is IKnownModuleLink => !!link.url)
-      .filter(link => {
-        const url = link.url.trim();
-        if (seenUrls.has(url)) {
-          return false;
+      .map(link => {
+        const trimmedUrl = (link.url ?? '').trim();
+        if (!trimmedUrl) {
+          return null;
         }
-        seenUrls.add(url);
-        return true;
-      });
+        if (seenUrls.has(trimmedUrl)) {
+          return null;
+        }
+        seenUrls.add(trimmedUrl);
+        return { ...link, url: trimmedUrl } as IKnownModuleLink;
+      })
+      .filter((link): link is IKnownModuleLink => link !== null);
   }
 
   private _ensureCommandArgumentCount(commandId: string): void {

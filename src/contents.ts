@@ -159,6 +159,22 @@ export function setCopiedStateWithTimeout(
   setCopiedTimer(timer);
 }
 
-export function openExternalLink(url: string): void {
-  window.open(url, '_blank', 'noopener,noreferrer');
+export function normalizeExternalUrl(rawUrl: string): string | null {
+  try {
+    const parsedUrl = new URL(rawUrl, window.location.origin);
+    if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') {
+      return parsedUrl.toString();
+    }
+  } catch {
+    // Invalid URL.
+  }
+  return null;
+}
+
+export function openExternalLink(rawUrl: string): void {
+  const safeUrl = normalizeExternalUrl(rawUrl);
+  if (!safeUrl) {
+    return;
+  }
+  window.open(safeUrl, '_blank', 'noopener,noreferrer');
 }

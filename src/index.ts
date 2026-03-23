@@ -69,6 +69,7 @@ import {
   getDirectoryModel,
   getFileModel,
   IFileModel,
+  normalizeExternalUrl,
   normalizeContentsPath,
   openExternalLink
 } from './contents';
@@ -635,40 +636,45 @@ class PluginPlayground {
     moduleName: string,
     openInBrowserTab: boolean
   ): void {
-    if (openInBrowserTab) {
-      openExternalLink(url);
+    const safeUrl = normalizeExternalUrl(url);
+    if (!safeUrl) {
+      void showDialog({
+        title: 'Invalid documentation URL',
+        body: `Could not open docs for "${moduleName}" because the URL is invalid.`,
+        buttons: [Dialog.okButton()]
+      });
       return;
     }
 
-    const existingWidget = this._documentationWidgets.get(url);
+    if (openInBrowserTab) {
+      openExternalLink(safeUrl);
+      return;
+    }
+
+    const existingWidget = this._documentationWidgets.get(safeUrl);
     if (existingWidget && !existingWidget.isDisposed) {
       this.app.shell.activateById(existingWidget.id);
       return;
     }
 
     const iframe = new IFrame({
-      sandbox: [
-        'allow-same-origin',
-        'allow-scripts',
-        'allow-popups',
-        'allow-forms'
-      ]
+      sandbox: ['allow-scripts', 'allow-popups']
     });
-    iframe.url = url;
+    iframe.url = safeUrl;
 
     const widget = new MainAreaWidget({ content: iframe });
     widget.id = `jp-plugin-package-doc-${this._documentationWidgetId}`;
     this._documentationWidgetId += 1;
     widget.title.label = `${moduleName} Docs`;
-    widget.title.caption = url;
+    widget.title.caption = safeUrl;
     widget.title.closable = true;
     widget.disposed.connect(() => {
-      if (this._documentationWidgets.get(url) === widget) {
-        this._documentationWidgets.delete(url);
+      if (this._documentationWidgets.get(safeUrl) === widget) {
+        this._documentationWidgets.delete(safeUrl);
       }
     });
 
-    this._documentationWidgets.set(url, widget);
+    this._documentationWidgets.set(safeUrl, widget);
     this.app.shell.add(widget, 'main');
     this.app.shell.activateById(widget.id);
   }
