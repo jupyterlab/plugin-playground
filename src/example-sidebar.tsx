@@ -45,7 +45,6 @@ export class ExampleSidebar extends ReactWidget {
     this._onOpenExample = options.onOpenExample;
     this._onOpenReadme = options.onOpenReadme;
     this.addClass('jp-PluginPlayground-sidebar');
-    this.addClass('jp-PluginPlayground-exampleSidebar');
   }
 
   protected onAfterAttach(msg: Message): void {
@@ -57,20 +56,21 @@ export class ExampleSidebar extends ReactWidget {
     const filteredExamples = filterExampleRecords(this._examples, this._query);
 
     return (
-      <div className="jp-PluginPlayground-sidebarInner jp-PluginPlayground-exampleSidebarInner">
+      <div className="jp-PluginPlayground-sidebarInner">
         <input
-          className="jp-PluginPlayground-filter jp-PluginPlayground-exampleFilter"
+          className="jp-PluginPlayground-filter"
           type="search"
           placeholder="Filter extension examples"
+          aria-label="Filter extension examples"
           value={this._query}
           onChange={this._onQueryChange}
         />
-        <p className="jp-PluginPlayground-count jp-PluginPlayground-exampleCount">
+        <p className="jp-PluginPlayground-count">
           {filteredExamples.length} of {this._examples.length} extension
           examples
         </p>
         {this._isLoading ? (
-          <p className="jp-PluginPlayground-count jp-PluginPlayground-exampleCount">
+          <p className="jp-PluginPlayground-count">
             Loading extension examples…
           </p>
         ) : null}
@@ -82,16 +82,16 @@ export class ExampleSidebar extends ReactWidget {
         {!this._isLoading &&
         !this._errorMessage &&
         filteredExamples.length === 0 ? (
-          <div className="jp-PluginPlayground-emptyState">
-            <p className="jp-PluginPlayground-count jp-PluginPlayground-exampleCount">
+          <div>
+            <p className="jp-PluginPlayground-count">
               No extension examples found in <code>extension-examples/</code>.
             </p>
-            <p className="jp-PluginPlayground-count jp-PluginPlayground-exampleCount">
+            <p className="jp-PluginPlayground-count">
               If this repository was cloned from source, run{' '}
               <code>git submodule update --init --recursive</code> from the
               project root.
             </p>
-            <p className="jp-PluginPlayground-count jp-PluginPlayground-exampleCount">
+            <p className="jp-PluginPlayground-count">
               If installed from PyPI, clone{' '}
               <code>https://github.com/jupyterlab/extension-examples</code> as{' '}
               <code>extension-examples/</code> in your working directory and
@@ -100,17 +100,14 @@ export class ExampleSidebar extends ReactWidget {
           </div>
         ) : null}
         {filteredExamples.length > 0 ? (
-          <ul className="jp-PluginPlayground-list jp-PluginPlayground-exampleList">
+          <ul className="jp-PluginPlayground-list">
             {filteredExamples.map(example => (
-              <li
-                key={example.path}
-                className="jp-PluginPlayground-listItem jp-PluginPlayground-exampleListItem"
-              >
-                <div className="jp-PluginPlayground-row jp-PluginPlayground-exampleRow">
-                  <span className="jp-PluginPlayground-entryLabel jp-PluginPlayground-exampleName">
+              <li key={example.path} className="jp-PluginPlayground-listItem">
+                <div className="jp-PluginPlayground-row">
+                  <span className="jp-PluginPlayground-entryLabel">
                     {example.name}
                   </span>
-                  <div className="jp-PluginPlayground-actions jp-PluginPlayground-exampleActions">
+                  <div className="jp-PluginPlayground-tokenActions">
                     <button
                       className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-exampleOpenButton"
                       type="button"
@@ -123,8 +120,7 @@ export class ExampleSidebar extends ReactWidget {
                       {React.createElement(codeIcon.react, {
                         tag: 'span',
                         elementSize: 'normal',
-                        className:
-                          'jp-PluginPlayground-actionIcon jp-PluginPlayground-exampleActionIcon'
+                        className: 'jp-PluginPlayground-actionIcon'
                       })}
                       <span className="jp-PluginPlayground-actionLabel">
                         Code
@@ -142,8 +138,7 @@ export class ExampleSidebar extends ReactWidget {
                       {React.createElement(markdownIcon.react, {
                         tag: 'span',
                         elementSize: 'normal',
-                        className:
-                          'jp-PluginPlayground-actionIcon jp-PluginPlayground-exampleActionIcon'
+                        className: 'jp-PluginPlayground-actionIcon'
                       })}
                       <span className="jp-PluginPlayground-actionLabel">
                         README
@@ -151,7 +146,7 @@ export class ExampleSidebar extends ReactWidget {
                     </button>
                   </div>
                 </div>
-                <p className="jp-PluginPlayground-description jp-PluginPlayground-exampleDescription">
+                <p className="jp-PluginPlayground-description">
                   {example.description}
                 </p>
               </li>

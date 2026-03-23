@@ -63,10 +63,7 @@
         "command": "plugin-playground:load-as-extension",
         "rank": 20
       },
-      {
-        "name": "plugin-playground-load-on-save",
-        "rank": 21
-      }
+      { "name": "plugin-playground-load-on-save", "rank": 21 }
     ]
   },
   "jupyter.lab.shortcuts": [

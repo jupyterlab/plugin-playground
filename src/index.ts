@@ -9,6 +9,7 @@ import { ISettingRegistry } from '@jupyterlab/settingregistry';
 
 import {
   Dialog,
+  MainAreaWidget,
   showDialog,
   showErrorMessage,
   ICommandPalette,
@@ -23,7 +24,7 @@ import { FileEditor, IEditorTracker } from '@jupyterlab/fileeditor';
 
 import { ILauncher } from '@jupyterlab/launcher';
 
-import { extensionIcon, SidePanel } from '@jupyterlab/ui-components';
+import { extensionIcon, IFrame, SidePanel } from '@jupyterlab/ui-components';
 
 import { IDocumentManager } from '@jupyterlab/docmanager';
 
@@ -35,6 +36,14 @@ import { PluginLoader, PluginLoadingError } from './loader';
 import { PluginTranspiler } from './transpiler';
 
 import { loadKnownModule } from './modules';
+
+import {
+  discoverFederatedKnownModules,
+  type IKnownModule,
+  listKnownModules,
+  registerCoreKnownModules,
+  registerKnownModule
+} from './known-modules';
 
 import { formatErrorWithResult } from './errors';
 
@@ -64,7 +73,9 @@ import {
   getDirectoryModel,
   getFileModel,
   IFileModel,
-  normalizeContentsPath
+  normalizeExternalUrl,
+  normalizeContentsPath,
+  openExternalLink
 } from './contents';
 
 import { Token } from '@lumino/coreutils';
@@ -76,6 +87,7 @@ import { IPlugin } from '@lumino/application';
 namespace CommandIDs {
   export const createNewFile = 'plugin-playground:create-new-plugin';
   export const loadCurrentAsExtension = 'plugin-playground:load-as-extension';
+  export const openJSImportExplorer = 'plugin-playground:open-js-explorer';
   export const listTokens = 'plugin-playground:list-tokens';
   export const listCommands = 'plugin-playground:list-commands';
   export const listExtensionExamples =
@@ -162,6 +174,14 @@ const LOAD_ON_SAVE_ENABLED_DESCRIPTION =
 const LOAD_ON_SAVE_DISABLED_DESCRIPTION =
   'Auto load on save is available for JavaScript and TypeScript files';
 
+export interface IPluginPlayground {
+  registerKnownModule(known: IKnownModule): Promise<void>;
+}
+
+export const IPluginPlayground = new Token<IPluginPlayground>(
+  '@jupyterlab/plugin-playground:IPluginPlayground'
+);
+
 class PluginPlayground {
   constructor(
     protected app: JupyterFrontEnd,
@@ -174,6 +194,8 @@ class PluginPlayground {
     protected requirejs: IRequireJS,
     toolbarWidgetRegistry: IToolbarWidgetRegistry
   ) {
+    registerCoreKnownModules();
+
     loadKnownModule('@jupyter-widgets/base').then((module: any) => {
       // Define the widgets base module for RequireJS (left for compatibility only)
       requirejs.define('@jupyter-widgets/base', [], () => module);
@@ -232,6 +254,22 @@ class PluginPlayground {
 
     commandPalette.addItem({
       command: CommandIDs.loadCurrentAsExtension,
+      category: 'Plugin Playground',
+      args: {}
+    });
+
+    app.commands.addCommand(CommandIDs.openJSImportExplorer, {
+      label: 'Open Packages Reference',
+      caption: 'Browse package docs, repository links, and package metadata.',
+      describedBy: { args: null },
+      execute: async () => {
+        await app.restored;
+        this._openPackagesReference();
+      }
+    });
+
+    commandPalette.addItem({
+      command: CommandIDs.openJSImportExplorer,
       category: 'Plugin Playground',
       args: {}
     });
@@ -319,10 +357,13 @@ class PluginPlayground {
       const tokenSidebar = new TokenSidebar({
         getTokens: this._getTokenRecords.bind(this),
         getCommands: () => getCommandRecords(this.app),
+        getKnownModules: () => listKnownModules(),
         getCommandArguments: commandId =>
           getCommandArgumentDocumentation(this.app, commandId),
         getCommandArgumentCount: commandId =>
           getCommandArgumentCount(this.app, commandId),
+        discoverKnownModules: force => discoverFederatedKnownModules({ force }),
+        openDocumentationLink: this._openDocumentationLink.bind(this),
         onInsertImport: this._insertTokenImport.bind(this),
         isImportEnabled: this._canInsertImport.bind(this)
       });
@@ -351,6 +392,7 @@ class PluginPlayground {
       (playgroundSidebar.content as AccordionPanel).expand(0);
       (playgroundSidebar.content as AccordionPanel).expand(1);
       this.app.shell.add(playgroundSidebar, 'right', { rank: 650 });
+      this._playgroundSidebar = playgroundSidebar;
 
       app.shell.currentChanged?.connect(() => {
         tokenSidebar.update();
@@ -731,6 +773,73 @@ class PluginPlayground {
     }
 
     this._tokenSidebar?.update();
+  }
+
+  public async registerKnownModule(known: IKnownModule): Promise<void> {
+    registerKnownModule(known);
+    this._tokenSidebar?.update();
+  }
+
+  private _openPackagesReference(): void {
+    if (!this._tokenSidebar) {
+      return;
+    }
+
+    this._tokenSidebar.showPackagesView();
+    this.app.shell.activateById(
+      this._playgroundSidebar?.id ?? this._tokenSidebar.id
+    );
+    if (this._playgroundSidebar) {
+      (this._playgroundSidebar.content as AccordionPanel).expand(0);
+    }
+  }
+
+  private _openDocumentationLink(
+    url: string,
+    moduleName: string,
+    openInBrowserTab: boolean
+  ): void {
+    const safeUrl = normalizeExternalUrl(url);
+    if (!safeUrl) {
+      void showDialog({
+        title: 'Invalid documentation URL',
+        body: `Could not open docs for "${moduleName}" because the URL is invalid.`,
+        buttons: [Dialog.okButton()]
+      });
+      return;
+    }
+
+    if (openInBrowserTab) {
+      openExternalLink(safeUrl);
+      return;
+    }
+
+    const existingWidget = this._documentationWidgets.get(safeUrl);
+    if (existingWidget && !existingWidget.isDisposed) {
+      this.app.shell.activateById(existingWidget.id);
+      return;
+    }
+
+    const iframe = new IFrame({
+      sandbox: ['allow-scripts', 'allow-popups']
+    });
+    iframe.url = safeUrl;
+
+    const widget = new MainAreaWidget({ content: iframe });
+    widget.id = `jp-plugin-package-doc-${this._documentationWidgetId}`;
+    this._documentationWidgetId += 1;
+    widget.title.label = `${moduleName} Docs`;
+    widget.title.caption = safeUrl;
+    widget.title.closable = true;
+    widget.disposed.connect(() => {
+      if (this._documentationWidgets.get(safeUrl) === widget) {
+        this._documentationWidgets.delete(safeUrl);
+      }
+    });
+
+    this._documentationWidgets.set(safeUrl, widget);
+    this.app.shell.add(widget, 'main');
+    this.app.shell.activateById(widget.id);
   }
 
   private _missingRequiredTokens(
@@ -1345,17 +1454,24 @@ class PluginPlayground {
   private readonly _loadOnSaveToggleRefreshers = new Set<() => void>();
   private readonly _tokenMap = new Map<string, Token<string>>();
   private readonly _tokenDescriptionMap = new Map<string, string>();
+  private readonly _documentationWidgets = new Map<
+    string,
+    MainAreaWidget<IFrame>
+  >();
+  private _playgroundSidebar: SidePanel | null = null;
   private _tokenSidebar: TokenSidebar | null = null;
+  private _documentationWidgetId = 0;
 }
 
 /**
  * Initialization data for the @jupyterlab/plugin-playground extension.
  */
-const plugin: JupyterFrontEndPlugin<void> = {
+const plugin: JupyterFrontEndPlugin<IPluginPlayground> = {
   id: '@jupyterlab/plugin-playground:plugin',
   description:
     'Provide a playground for developing and testing JupyterLab plugins.',
   autoStart: true,
+  provides: IPluginPlayground,
   requires: [
     ISettingRegistry,
     ICommandPalette,
@@ -1372,21 +1488,32 @@ const plugin: JupyterFrontEndPlugin<void> = {
     completionManager: ICompletionProviderManager | null,
     launcher: ILauncher | null,
     documentManager: IDocumentManager | null
-  ) => {
+  ): IPluginPlayground => {
     if (completionManager) {
       completionManager.registerProvider(new CommandCompletionProvider(app));
     }
+
+    let playground: PluginPlayground | null = null;
+    const api: IPluginPlayground = {
+      registerKnownModule: async (known: IKnownModule) => {
+        if (playground) {
+          await playground.registerKnownModule(known);
+          return;
+        }
+        registerKnownModule(known);
+      }
+    };
 
     // In order to accommodate loading ipywidgets and other AMD modules, we
     // load RequireJS before loading any custom extensions.
 
     const requirejsLoader = new RequireJSLoader();
-    // We coud convert to `async` and use `await` but we don't, because a failure
+    // We could convert to `async` and use `await` but we don't, because a failure
     // would freeze JupyterLab on splash screen; this way if it fails to load,
     // only the plugin is affected, not the entire application.
     Promise.all([settingRegistry.load(plugin.id), requirejsLoader.load()]).then(
       ([settings, requirejs]) => {
-        new PluginPlayground(
+        playground = new PluginPlayground(
           app,
           settingRegistry,
           commandPalette,
@@ -1399,7 +1526,10 @@ const plugin: JupyterFrontEndPlugin<void> = {
         );
       }
     );
+
+    return api;
   }
 };
 
 export default plugin;
+export type { IKnownModule };
