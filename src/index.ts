@@ -150,7 +150,7 @@ const LIST_QUERY_ARGS_SCHEMA = {
     query: {
       type: 'string',
       description:
-        'Optional filter text. Matches records case-insensitively by id/name/description.'
+        'Optional filter text. Matches records case-insensitively by visible text fields (such as id, label, caption, name, or description, depending on record type).'
     }
   }
 };
@@ -683,14 +683,16 @@ class PluginPlayground {
         await this.app.activatePlugin(plugin.id);
         this._refreshExtensionPoints();
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const normalizedError =
+          error instanceof Error ? error : new Error(String(error));
+        const message = normalizedError.message;
         const skippedAutoStartPluginIdsResult =
           skippedAutoStartPluginIds.length > 0
             ? skippedAutoStartPluginIds
             : undefined;
         showDialog({
           title: `Plugin autostart failed: ${message}`,
-          body: formatErrorWithResult(error as Error, result)
+          body: formatErrorWithResult(normalizedError, result)
         });
         return {
           status: 'autostart-failed',

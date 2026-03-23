@@ -188,6 +188,11 @@ test('opens a dummy extension example from the sidebar', async ({ page }) => {
   );
 
   await page.goto();
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LIST_EXAMPLES_COMMAND)
+  );
   const examplesResult = await page.evaluate(
     ({ id, query }) => {
       return window.jupyterapp.commands.execute(id, { query });
@@ -239,6 +244,16 @@ test('lists tokens and searches commands via command APIs', async ({
   page
 }) => {
   await page.goto();
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LIST_TOKENS_COMMAND)
+  );
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LIST_COMMANDS_COMMAND)
+  );
 
   const tokensResult = await page.evaluate((id: string) => {
     return window.jupyterapp.commands.execute(id);
