@@ -111,6 +111,32 @@ export function fileModelToText(fileModel: IFileModel | null): string | null {
   return null;
 }
 
+export function fileModelToBytes(
+  fileModel: IFileModel | null
+): Uint8Array | null {
+  if (!fileModel) {
+    return null;
+  }
+
+  if (typeof fileModel.content === 'string') {
+    if (fileModel.format === 'base64') {
+      try {
+        const decoded = atob(fileModel.content);
+        const bytes = new Uint8Array(decoded.length);
+        for (let index = 0; index < decoded.length; index++) {
+          bytes[index] = decoded.charCodeAt(index);
+        }
+        return bytes;
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  const text = fileModelToText(fileModel);
+  return text === null ? null : new TextEncoder().encode(text);
+}
+
 export async function readContentsFileAsText(
   serviceManager: ServiceManager.IManager,
   path: string

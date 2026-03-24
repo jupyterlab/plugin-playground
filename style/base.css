@@ -335,3 +335,7 @@
   + .jp-PluginPlayground-loadOnSaveText {
   color: var(--jp-ui-font-color2);
 }
+
+.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name='export-extension'] {
+  margin-left: auto;
+}

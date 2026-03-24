@@ -24,7 +24,12 @@ import { FileEditor, IEditorTracker } from '@jupyterlab/fileeditor';
 
 import { ILauncher } from '@jupyterlab/launcher';
 
-import { extensionIcon, IFrame, SidePanel } from '@jupyterlab/ui-components';
+import {
+  downloadIcon,
+  extensionIcon,
+  IFrame,
+  SidePanel
+} from '@jupyterlab/ui-components';
 
 import { IDocumentManager } from '@jupyterlab/docmanager';
 
@@ -69,6 +74,7 @@ import {
 } from './command-completion';
 
 import {
+  fileModelToBytes,
   fileModelToText,
   getDirectoryModel,
   getFileModel,
@@ -77,6 +83,9 @@ import {
   normalizeContentsPath,
   openExternalLink
 } from './contents';
+
+import { downloadArchive, IArchiveEntry } from './archive';
+import { createTemplateArchive } from './export-template';
 
 import { Token } from '@lumino/coreutils';
 
@@ -87,6 +96,7 @@ import { IPlugin } from '@lumino/application';
 namespace CommandIDs {
   export const createNewFile = 'plugin-playground:create-new-plugin';
   export const loadCurrentAsExtension = 'plugin-playground:load-as-extension';
+  export const exportAsExtension = 'plugin-playground:export-as-extension';
   export const openJSImportExplorer = 'plugin-playground:open-js-explorer';
   export const listTokens = 'plugin-playground:list-tokens';
   export const listCommands = 'plugin-playground:list-commands';
@@ -108,6 +118,21 @@ interface IPluginLoadResult {
   transpiled: boolean | null;
   message?: string;
   skippedAutoStartPluginIds?: string[];
+}
+
+interface IPluginExportResult {
+  ok: boolean;
+  archiveName: string | null;
+  rootPath: string | null;
+  fileCount: number;
+  message?: string;
+}
+
+interface IResolvedExportContext {
+  archiveName: string;
+  rootPath: string;
+  archiveEntries: IArchiveEntry[];
+  usedTemplate: boolean;
 }
 
 const PLUGIN_TEMPLATE = `import {
@@ -173,6 +198,12 @@ const LOAD_ON_SAVE_ENABLED_DESCRIPTION =
   'Toggle auto-loading this file as an extension on save';
 const LOAD_ON_SAVE_DISABLED_DESCRIPTION =
   'Auto load on save is available for JavaScript and TypeScript files';
+const ARCHIVE_EXCLUDED_DIRECTORIES = new Set([
+  '.git',
+  '.ipynb_checkpoints',
+  '__pycache__',
+  'node_modules'
+]);
 
 export interface IPluginPlayground {
   registerKnownModule(known: IKnownModule): Promise<void>;
@@ -227,6 +258,17 @@ class PluginPlayground {
       }
     });
 
+    app.commands.addCommand(CommandIDs.exportAsExtension, {
+      label: 'Export Plugin Folder As Extension',
+      caption: 'Download the active plugin folder as an extension zip archive',
+      describedBy: { args: null },
+      icon: downloadIcon,
+      isEnabled: () =>
+        editorTracker.currentWidget !== null &&
+        editorTracker.currentWidget === app.shell.currentWidget,
+      execute: () => this._exportAsExtension()
+    });
+
     toolbarWidgetRegistry.addFactory<IDocumentWidget<FileEditor>>(
       'Editor',
       LOAD_ON_SAVE_TOGGLE_TOOLBAR_ITEM,
@@ -254,6 +296,12 @@ class PluginPlayground {
 
     commandPalette.addItem({
       command: CommandIDs.loadCurrentAsExtension,
+      category: 'Plugin Playground',
+      args: {}
+    });
+
+    commandPalette.addItem({
+      command: CommandIDs.exportAsExtension,
       category: 'Plugin Playground',
       args: {}
     });
@@ -571,6 +619,264 @@ class PluginPlayground {
 
     this._inFlightLoads.set(normalizedPath, guardedNext);
     return guardedNext;
+  }
+
+  private async _exportAsExtension(): Promise<IPluginExportResult> {
+    const currentWidget = this.editorTracker.currentWidget;
+    if (!currentWidget || currentWidget !== this.app.shell.currentWidget) {
+      return {
+        ok: false,
+        archiveName: null,
+        rootPath: null,
+        fileCount: 0,
+        message: 'No active editor is available.'
+      };
+    }
+
+    const activePath = normalizeContentsPath(currentWidget.context.path);
+    const activeSource = currentWidget.context.model.toString();
+    try {
+      const exportContext = await this._resolveExportContext(
+        activePath,
+        activeSource
+      );
+      if (exportContext.archiveEntries.length === 0) {
+        const message = `No files were found in "${exportContext.rootPath}".`;
+        await showDialog({
+          title: 'No files to export',
+          body: message,
+          buttons: [Dialog.okButton()]
+        });
+        return {
+          ok: false,
+          archiveName: null,
+          rootPath: exportContext.rootPath,
+          fileCount: 0,
+          message
+        };
+      }
+
+      downloadArchive(exportContext.archiveEntries, exportContext.archiveName);
+      const templateMessage = exportContext.usedTemplate
+        ? ' A minimal extension-template scaffold was generated from the active file.'
+        : '';
+
+      await showDialog({
+        title: 'Extension exported',
+        body:
+          `Downloaded "${exportContext.archiveName}" with ` +
+          `${exportContext.archiveEntries.length} file` +
+          `${exportContext.archiveEntries.length === 1 ? '' : 's'} from ` +
+          `"${exportContext.rootPath}".${templateMessage}`,
+        buttons: [Dialog.okButton()]
+      });
+
+      return {
+        ok: true,
+        archiveName: exportContext.archiveName,
+        rootPath: exportContext.rootPath,
+        fileCount: exportContext.archiveEntries.length
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await showErrorMessage('Extension export failed', message);
+      return {
+        ok: false,
+        archiveName: null,
+        rootPath: activePath || null,
+        fileCount: 0,
+        message
+      };
+    }
+  }
+
+  private async _resolveExportContext(
+    activePath: string,
+    activeSource: string
+  ): Promise<IResolvedExportContext> {
+    const rootPath = await this._inferExportRoot(activePath);
+    if (rootPath) {
+      const overrides = new Map<string, Uint8Array>([
+        [
+          normalizeContentsPath(activePath),
+          new TextEncoder().encode(activeSource)
+        ]
+      ]);
+      const archiveEntries = await this._collectArchiveEntries(
+        rootPath,
+        overrides
+      );
+      return {
+        archiveName: `${this._basename(rootPath) || 'plugin-extension'}.zip`,
+        rootPath,
+        archiveEntries,
+        usedTemplate: false
+      };
+    }
+
+    const templateArchive = createTemplateArchive(activePath, activeSource);
+    return {
+      archiveName: `${templateArchive.projectRoot}.zip`,
+      rootPath: templateArchive.projectRoot,
+      archiveEntries: templateArchive.entries,
+      usedTemplate: true
+    };
+  }
+
+  private async _inferExportRoot(path: string): Promise<string | null> {
+    const normalizedPath = normalizeContentsPath(path);
+    const inferredRoot = this._inferRootFromSourcePath(normalizedPath);
+    if (inferredRoot) {
+      const inferredRootDirectory = await getDirectoryModel(
+        this.app.serviceManager,
+        inferredRoot
+      );
+      if (inferredRootDirectory) {
+        return (
+          normalizeContentsPath(inferredRootDirectory.path) || inferredRoot
+        );
+      }
+    }
+
+    const sourceDirectory = this._dirname(normalizedPath);
+    if (!sourceDirectory) {
+      return null;
+    }
+
+    const sourceDirectoryModel = await getDirectoryModel(
+      this.app.serviceManager,
+      sourceDirectory
+    );
+    if (!sourceDirectoryModel) {
+      throw new Error(`Could not access folder "${sourceDirectory}".`);
+    }
+
+    return normalizeContentsPath(sourceDirectoryModel.path) || sourceDirectory;
+  }
+
+  private _inferRootFromSourcePath(path: string): string | null {
+    const segments = normalizeContentsPath(path).split('/');
+    const srcIndex = segments.indexOf('src');
+    if (srcIndex <= 0) {
+      return null;
+    }
+    return segments.slice(0, srcIndex).join('/');
+  }
+
+  private async _collectArchiveEntries(
+    rootPath: string,
+    overrides: ReadonlyMap<string, Uint8Array> = new Map()
+  ): Promise<IArchiveEntry[]> {
+    const normalizedRootPath = normalizeContentsPath(rootPath);
+    const archiveEntries: IArchiveEntry[] = [];
+    await this._collectArchiveEntriesInDirectory(
+      normalizedRootPath,
+      normalizedRootPath,
+      archiveEntries,
+      overrides
+    );
+    return archiveEntries.sort((left, right) =>
+      left.path.localeCompare(right.path)
+    );
+  }
+
+  private async _collectArchiveEntriesInDirectory(
+    rootPath: string,
+    directoryPath: string,
+    archiveEntries: IArchiveEntry[],
+    overrides: ReadonlyMap<string, Uint8Array>
+  ): Promise<void> {
+    const directory = await getDirectoryModel(
+      this.app.serviceManager,
+      directoryPath
+    );
+    if (!directory) {
+      throw new Error(`Could not read directory "${directoryPath}".`);
+    }
+
+    for (const item of directory.content) {
+      if (item.type !== 'directory' && item.type !== 'file') {
+        continue;
+      }
+      if (
+        item.type === 'directory' &&
+        this._shouldSkipArchiveDirectory(item.name)
+      ) {
+        continue;
+      }
+
+      const itemPath = normalizeContentsPath(item.path);
+      if (!itemPath) {
+        continue;
+      }
+
+      if (item.type === 'directory') {
+        await this._collectArchiveEntriesInDirectory(
+          rootPath,
+          itemPath,
+          archiveEntries,
+          overrides
+        );
+        continue;
+      }
+
+      const fileBytes =
+        overrides.get(itemPath) ??
+        fileModelToBytes(await getFileModel(this.app.serviceManager, itemPath));
+      if (!fileBytes) {
+        continue;
+      }
+
+      const relativePath = this._relativePath(rootPath, itemPath);
+      if (!relativePath) {
+        continue;
+      }
+
+      archiveEntries.push({
+        path: relativePath,
+        data: fileBytes
+      });
+    }
+  }
+
+  private _relativePath(rootPath: string, path: string): string {
+    const normalizedRootPath = normalizeContentsPath(rootPath).replace(
+      /\/+$/g,
+      ''
+    );
+    const normalizedPath = normalizeContentsPath(path);
+    if (!normalizedRootPath) {
+      return normalizedPath;
+    }
+    if (normalizedPath.startsWith(`${normalizedRootPath}/`)) {
+      return normalizedPath.slice(normalizedRootPath.length + 1);
+    }
+    return normalizedPath;
+  }
+
+  private _dirname(path: string): string {
+    const normalizedPath = normalizeContentsPath(path).replace(/\/+$/g, '');
+    const index = normalizedPath.lastIndexOf('/');
+    if (index <= 0) {
+      return '';
+    }
+    return normalizedPath.slice(0, index);
+  }
+
+  private _basename(path: string): string {
+    const normalizedPath = normalizeContentsPath(path).replace(/\/+$/g, '');
+    if (!normalizedPath) {
+      return '';
+    }
+    const index = normalizedPath.lastIndexOf('/');
+    if (index === -1) {
+      return normalizedPath;
+    }
+    return normalizedPath.slice(index + 1);
+  }
+
+  private _shouldSkipArchiveDirectory(name: string): boolean {
+    return ARCHIVE_EXCLUDED_DIRECTORIES.has(name);
   }
 
   private _updateSettings(
