@@ -353,6 +353,6 @@
   }
 }
 
-body .jp-FileEditor .jp-PluginPlayground-lineHighlight {
+.jp-PluginPlayground-lineHighlight {
   animation: jp-PluginPlayground-lineChangePulse 1200ms ease-out;
 }
