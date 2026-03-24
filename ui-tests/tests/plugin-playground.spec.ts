@@ -661,7 +661,7 @@ export default plugin;
         `activate:\\s*\\(app:\\s*JupyterFrontEnd,\\s*${expectedParameter}\\s*:\\s*${expectedToken}\\)`
       );
       const highlightedLines = document.querySelectorAll(
-        '.jp-FileEditor .jp-DebuggerEditor-highlight'
+        '.jp-FileEditor .jp-PluginPlayground-lineHighlight'
       ).length;
       return activatePattern.test(source) && highlightedLines >= 2;
     },

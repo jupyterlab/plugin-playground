@@ -16,7 +16,7 @@ export type IFileModel = Contents.IModel & {
 };
 
 const LINE_CHANGE_DECORATION = Decoration.line({
-  class: 'jp-DebuggerEditor-highlight'
+  class: 'jp-PluginPlayground-lineHighlight'
 });
 const LINE_HIGHLIGHT_EFFECT = StateEffect.define<{ pos: number[] }>({
   map: (value, mapping) => ({
@@ -31,11 +31,10 @@ const LINE_CHANGE_STATE = StateField.define<DecorationSet>({
       if (effect.is(LINE_HIGHLIGHT_EFFECT)) {
         const positions = effect.value.pos;
         return positions.length
-          ? highlights.update({
-              add: positions.map(position =>
-                LINE_CHANGE_DECORATION.range(position)
-              )
-            })
+          ? Decoration.set(
+              positions.map(position => LINE_CHANGE_DECORATION.range(position)),
+              true
+            )
           : Decoration.none;
       }
     }

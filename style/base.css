@@ -353,10 +353,6 @@
   }
 }
 
-body .jp-FileEditor .jp-DebuggerEditor-highlight {
+body .jp-FileEditor .jp-PluginPlayground-lineHighlight {
   animation: jp-PluginPlayground-lineChangePulse 1200ms ease-out;
-  background-color: transparent;
-  box-shadow: none;
-  outline: none;
-  text-shadow: none;
 }
