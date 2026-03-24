@@ -72,6 +72,7 @@ import {
   fileModelToText,
   getDirectoryModel,
   getFileModel,
+  highlightEditorLines,
   IFileModel,
   normalizeExternalUrl,
   normalizeContentsPath,
@@ -173,6 +174,10 @@ const LOAD_ON_SAVE_ENABLED_DESCRIPTION =
   'Toggle auto-loading this file as an extension on save';
 const LOAD_ON_SAVE_DISABLED_DESCRIPTION =
   'Auto load on save is available for JavaScript and TypeScript files';
+interface ISourceUpdateResult {
+  source: string;
+  changedLines: number[];
+}
 
 export interface IPluginPlayground {
   registerKnownModule(known: IKnownModule): Promise<void>;
@@ -1227,13 +1232,21 @@ class PluginPlayground {
     }
 
     const source = sourceModel.sharedModel.getSource();
-    let updatedSource = this._insertImportStatement(source, tokenReference);
-    updatedSource = this._insertTokenDependency(
-      updatedSource,
+    const importResult = this._insertImportStatement(source, tokenReference);
+    const dependencyResult = this._insertTokenDependency(
+      importResult.source,
       tokenReference.tokenSymbol
     );
-    if (updatedSource !== source) {
-      sourceModel.sharedModel.setSource(updatedSource);
+    if (dependencyResult.source !== source) {
+      const changedLines = Array.from(
+        new Set([...importResult.changedLines, ...dependencyResult.changedLines])
+      ).sort((left, right) => left - right);
+      sourceModel.sharedModel.setSource(dependencyResult.source);
+      if (changedLines.length > 0) {
+        window.requestAnimationFrame(() => {
+          highlightEditorLines(editorWidget.content.editor, changedLines);
+        });
+      }
     }
   }
 
@@ -1272,10 +1285,10 @@ class PluginPlayground {
   private _insertImportStatement(
     source: string,
     tokenReference: { packageName: string; tokenSymbol: string }
-  ): string {
+  ): ISourceUpdateResult {
     const statement = `import { ${tokenReference.tokenSymbol} } from '${tokenReference.packageName}';`;
     if (source.includes(statement)) {
-      return source;
+      return { source, changedLines: [] };
     }
     if (
       this._hasNamedValueImport(
@@ -1284,14 +1297,20 @@ class PluginPlayground {
         tokenReference.tokenSymbol
       )
     ) {
-      return source;
+      return { source, changedLines: [] };
     }
 
     const separator = source.length > 0 ? '\n' : '';
-    return `${statement}${separator}${source}`;
+    return {
+      source: `${statement}${separator}${source}`,
+      changedLines: [0]
+    };
   }
 
-  private _insertTokenDependency(source: string, tokenSymbol: string): string {
+  private _insertTokenDependency(
+    source: string,
+    tokenSymbol: string
+  ): ISourceUpdateResult {
     const sourceFile = ts.createSourceFile(
       'plugin-playground-token.ts',
       source,
@@ -1303,11 +1322,11 @@ class PluginPlayground {
 
     const pluginObject = this._resolveDefaultPluginObject(sourceFile);
     if (!pluginObject) {
-      return source;
+      return { source, changedLines: [] };
     }
     const activateProperty = this._findObjectProperty(pluginObject, 'activate');
     if (!activateProperty) {
-      return source;
+      return { source, changedLines: [] };
     }
 
     const requiresProperty = this._findObjectProperty(pluginObject, 'requires');
@@ -1315,16 +1334,16 @@ class PluginPlayground {
     const requiresArray = this._arrayPropertyInitializer(requiresProperty);
     const optionalArray = this._arrayPropertyInitializer(optionalProperty);
     if (requiresProperty && !requiresArray) {
-      return source;
+      return { source, changedLines: [] };
     }
     if (!requiresProperty && optionalProperty && !optionalArray) {
-      return source;
+      return { source, changedLines: [] };
     }
     if (
       this._arrayHasIdentifier(requiresArray, tokenSymbol) ||
       this._arrayHasIdentifier(optionalArray, tokenSymbol)
     ) {
-      return source;
+      return { source, changedLines: [] };
     }
 
     const edits: Array<{ start: number; end: number; text: string }> = [];
@@ -1389,9 +1408,10 @@ class PluginPlayground {
           existingNames.add(parameter.name.text);
         }
       }
-      let parameterName = `${tokenSymbol
-        .charAt(0)
-        .toLowerCase()}${tokenSymbol.slice(1)}`;
+      const variableBase = /^I[A-Z]/.test(tokenSymbol)
+        ? tokenSymbol.slice(1)
+        : tokenSymbol;
+      let parameterName = `${variableBase.charAt(0).toLowerCase()}${variableBase.slice(1)}`;
       if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(parameterName)) {
         parameterName = 'service';
       }
@@ -1401,6 +1421,7 @@ class PluginPlayground {
         parameterName = `${baseName}${suffix}`;
         suffix += 1;
       }
+      const parameterText = `${parameterName}: ${tokenSymbol}`;
 
       const insertionIndex = Math.max(
         0,
@@ -1410,7 +1431,7 @@ class PluginPlayground {
         edits.push({
           start: activate.parameters.pos,
           end: activate.parameters.pos,
-          text: parameterName
+          text: parameterText
         });
       } else if (insertionIndex < activate.parameters.length) {
         const insertionPoint =
@@ -1418,7 +1439,7 @@ class PluginPlayground {
         edits.push({
           start: insertionPoint,
           end: insertionPoint,
-          text: `${parameterName}, `
+          text: `${parameterText}, `
         });
       } else {
         const lastParameter =
@@ -1426,21 +1447,66 @@ class PluginPlayground {
         edits.push({
           start: lastParameter.end,
           end: lastParameter.end,
-          text: `, ${parameterName}`
+          text: `, ${parameterText}`
         });
       }
     }
 
-    edits.sort(
-      (left, right) => right.start - left.start || right.end - left.end
-    );
-    let updated = source;
-    for (const edit of edits) {
-      updated = `${updated.slice(0, edit.start)}${edit.text}${updated.slice(
-        edit.end
-      )}`;
+    return this._applyEditsWithChangedLines(source, edits);
+  }
+
+  private _applyEditsWithChangedLines(
+    source: string,
+    edits: Array<{ start: number; end: number; text: string }>
+  ): ISourceUpdateResult {
+    if (edits.length === 0) {
+      return { source, changedLines: [] };
     }
-    return updated;
+
+    edits.sort(
+      (left, right) => left.start - right.start || left.end - right.end
+    );
+    const changedLines = new Set<number>();
+    let updated = source;
+    let offsetDelta = 0;
+    for (const edit of edits) {
+      const start = edit.start + offsetDelta;
+      const end = edit.end + offsetDelta;
+      const startLine = this._lineNumberAt(updated, start);
+      const insertedNewlines = this._countNewlines(edit.text);
+      changedLines.add(startLine);
+      for (let index = 1; index <= insertedNewlines; index += 1) {
+        changedLines.add(startLine + index);
+      }
+
+      updated = `${updated.slice(0, start)}${edit.text}${updated.slice(end)}`;
+      offsetDelta += edit.text.length - (end - start);
+    }
+    return {
+      source: updated,
+      changedLines: [...changedLines].sort((left, right) => left - right)
+    };
+  }
+
+  private _lineNumberAt(source: string, offset: number): number {
+    const limit = Math.max(0, Math.min(offset, source.length));
+    let line = 0;
+    for (let index = 0; index < limit; index += 1) {
+      if (source.charCodeAt(index) === 10) {
+        line += 1;
+      }
+    }
+    return line;
+  }
+
+  private _countNewlines(text: string): number {
+    let count = 0;
+    for (let index = 0; index < text.length; index += 1) {
+      if (text.charCodeAt(index) === 10) {
+        count += 1;
+      }
+    }
+    return count;
   }
 
   private _lineIndent(source: string, offset: number): string {

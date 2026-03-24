@@ -1,4 +1,8 @@
+import { StateField } from '@codemirror/state';
+import { Decoration, DecorationSet, EditorView } from '@codemirror/view';
+import type { CodeEditor } from '@jupyterlab/codeeditor';
 import { Clipboard } from '@jupyterlab/apputils';
+import { Debugger } from '@jupyterlab/debugger';
 import { Contents, ServiceManager } from '@jupyterlab/services';
 
 export type IDirectoryModel = Contents.IModel & {
@@ -11,6 +15,30 @@ export type IFileModel = Contents.IModel & {
   content: unknown;
   format?: string | null;
 };
+
+const LINE_CHANGE_DECORATION = Decoration.line({
+  class: 'jp-DebuggerEditor-highlight'
+});
+const LINE_CHANGE_STATE = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update: (highlights, transaction) => {
+    highlights = highlights.map(transaction.changes);
+    for (const effect of transaction.effects) {
+      if (effect.is(Debugger.EditorHandler._highlightEffect)) {
+        const positions = effect.value.pos;
+        return positions.length
+          ? highlights.update({
+              add: positions.map(position => LINE_CHANGE_DECORATION.range(position))
+            })
+          : Decoration.none;
+      }
+    }
+    return highlights;
+  },
+  provide: field => EditorView.decorations.from(field)
+});
+const LINE_HIGHLIGHT_EDITORS = new WeakSet<CodeEditor.IEditor>();
+const LINE_HIGHLIGHT_TIMEOUTS = new WeakMap<CodeEditor.IEditor, number>();
 
 export function normalizeContentsPath(path: string | null | undefined): string {
   return (path ?? '').replace(/^\/+/g, '');
@@ -181,4 +209,49 @@ export function openExternalLink(rawUrl: string): void {
     return;
   }
   window.open(safeUrl, '_blank', 'noopener,noreferrer');
+}
+
+export function highlightEditorLines(
+  editor: CodeEditor.IEditor,
+  lines: number[],
+  timeoutMs = 1200
+): void {
+  if (editor.isDisposed) {
+    return;
+  }
+
+  const visibleLines = lines.filter(line => line >= 0 && line < editor.lineCount);
+  if (visibleLines.length === 0) {
+    return;
+  }
+
+  if (!LINE_HIGHLIGHT_EDITORS.has(editor)) {
+    editor.injectExtension(LINE_CHANGE_STATE);
+    LINE_HIGHLIGHT_EDITORS.add(editor);
+  }
+
+  const positions = visibleLines.map(line =>
+    editor.getOffsetAt({ line, column: 0 })
+  );
+  const cmEditor = (editor as CodeEditor.IEditor & {
+    editor?: { dispatch?: (spec: { effects: unknown }) => void };
+  }).editor;
+  if (!cmEditor || typeof cmEditor.dispatch !== 'function') {
+    return;
+  }
+
+  cmEditor.dispatch({
+    effects: Debugger.EditorHandler._highlightEffect.of({ pos: positions })
+  });
+
+  const previousTimeout = LINE_HIGHLIGHT_TIMEOUTS.get(editor);
+  if (previousTimeout !== undefined) {
+    window.clearTimeout(previousTimeout);
+  }
+
+  const timeout = window.setTimeout(() => {
+    LINE_HIGHLIGHT_TIMEOUTS.delete(editor);
+    Debugger.EditorHandler.clearHighlight(editor);
+  }, timeoutMs);
+  LINE_HIGHLIGHT_TIMEOUTS.set(editor, timeout);
 }

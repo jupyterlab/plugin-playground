@@ -335,3 +335,30 @@
   + .jp-PluginPlayground-loadOnSaveText {
   color: var(--jp-ui-font-color2);
 }
+
+@keyframes jp-PluginPlayground-lineChangePulse {
+  0% {
+    background-color: var(--jp-brand-color3);
+    box-shadow:
+      inset 3px 0 0 0 var(--jp-brand-color1),
+      inset 0 0 0 1px var(--jp-brand-color2);
+  }
+  45% {
+    background-color: var(--jp-brand-color4, var(--jp-brand-color3));
+    box-shadow:
+      inset 3px 0 0 0 var(--jp-brand-color2),
+      inset 0 0 0 1px var(--jp-brand-color3);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: inset 0 0 0 0 transparent;
+  }
+}
+
+body .jp-FileEditor .jp-DebuggerEditor-highlight {
+  animation: jp-PluginPlayground-lineChangePulse 1200ms ease-out;
+  background-color: transparent;
+  box-shadow: none;
+  outline: none;
+  text-shadow: none;
+}

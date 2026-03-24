@@ -84,6 +84,17 @@ async function findImportableToken(panel: Locator): Promise<string> {
   throw new Error('No importable token found in token sidebar');
 }
 
+function parameterNameFromToken(tokenSymbol: string): string {
+  const base = /^I[A-Z]/.test(tokenSymbol)
+    ? tokenSymbol.slice(1)
+    : tokenSymbol;
+  return `${base.charAt(0).toLowerCase()}${base.slice(1)}`;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 async function findLoadOnSaveCheckbox(
   page: IJupyterLabPageFixture
 ): Promise<Locator> {
@@ -449,26 +460,37 @@ export default plugin;
   const tokenSymbol = tokenName.slice(separatorIndex + 1).trim();
   const expectedImport = `import { ${tokenSymbol} } from '${packageName}';`;
   const expectedDependency = `requires: [${tokenSymbol}]`;
+  const expectedParameterName = parameterNameFromToken(tokenSymbol);
+  const expectedTokenPattern = escapeRegExp(tokenSymbol);
+  const expectedParameterPattern = escapeRegExp(expectedParameterName);
 
   await page.waitForFunction(
-    ({ expectedImportStatement, expectedDependencyStatement }) => {
+    ({
+      expectedImportStatement,
+      expectedDependencyStatement,
+      expectedToken,
+      expectedParameter
+    }) => {
       const current = window.jupyterapp.shell
         .currentWidget as FileEditorWidget | null;
       const source = current?.content.model.sharedModel.getSource();
       if (typeof source !== 'string') {
         return false;
       }
+      const activatePattern = new RegExp(
+        `activate:\\s*\\(app:\\s*JupyterFrontEnd,\\s*${expectedParameter}\\s*:\\s*${expectedToken}\\)`
+      );
       return (
         source.startsWith(expectedImportStatement) &&
         source.includes(expectedDependencyStatement) &&
-        /activate:\s*\(app:\s*JupyterFrontEnd,\s*[A-Za-z_$][A-Za-z0-9_$]*\)/.test(
-          source
-        )
+        activatePattern.test(source)
       );
     },
     {
       expectedImportStatement: expectedImport,
-      expectedDependencyStatement: expectedDependency
+      expectedDependencyStatement: expectedDependency,
+      expectedToken: expectedTokenPattern,
+      expectedParameter: expectedParameterPattern
     }
   );
 
@@ -579,6 +601,75 @@ export default plugin;
       expectedImportStatement: expectedImport,
       aliasImportStatement: aliasImport,
       expectedDependencyStatement: expectedDependency
+    }
+  );
+});
+
+test('token sidebar briefly highlights changed lines after insertion', async ({
+  page,
+  tmpPath
+}) => {
+  const editorPath = `${tmpPath}/token-sidebar-highlight.ts`;
+
+  await page.contents.uploadContent(
+    `import { JupyterFrontEnd, JupyterFrontEndPlugin } from '@jupyterlab/application';
+
+const plugin: JupyterFrontEndPlugin<void> = {
+  id: 'token-sidebar-highlight-test:plugin',
+  autoStart: true,
+  activate: (app: JupyterFrontEnd) => {
+    void app;
+  }
+};
+
+export default plugin;
+`,
+    'text',
+    editorPath
+  );
+
+  await page.goto();
+  await page.filebrowser.open(editorPath);
+  expect(await page.activity.activateTab('token-sidebar-highlight.ts')).toBe(
+    true
+  );
+
+  const section = await openSidebarPanel(page, TOKEN_SECTION_ID);
+  const tokenName = await findImportableToken(section);
+  const filterInput = section.getByPlaceholder('Filter token strings');
+  await filterInput.fill(tokenName);
+  const tokenListItem = section.locator('.jp-PluginPlayground-listItem');
+  await expect(tokenListItem).toHaveCount(1);
+
+  const importButton = tokenListItem.locator(
+    '.jp-PluginPlayground-importButton'
+  );
+  await expect(importButton).toBeEnabled();
+  await importButton.click();
+
+  const separatorIndex = tokenName.indexOf(':');
+  const tokenSymbol = tokenName.slice(separatorIndex + 1).trim();
+  const expectedParameterName = parameterNameFromToken(tokenSymbol);
+
+  await page.waitForFunction(
+    ({ expectedToken, expectedParameter }) => {
+      const current = window.jupyterapp.shell
+        .currentWidget as FileEditorWidget | null;
+      const source = current?.content.model.sharedModel.getSource();
+      if (typeof source !== 'string') {
+        return false;
+      }
+      const activatePattern = new RegExp(
+        `activate:\\s*\\(app:\\s*JupyterFrontEnd,\\s*${expectedParameter}\\s*:\\s*${expectedToken}\\)`
+      );
+      const highlightedLines = document.querySelectorAll(
+        '.jp-FileEditor .jp-DebuggerEditor-highlight'
+      ).length;
+      return activatePattern.test(source) && highlightedLines >= 2;
+    },
+    {
+      expectedToken: escapeRegExp(tokenSymbol),
+      expectedParameter: escapeRegExp(expectedParameterName)
     }
   );
 });
