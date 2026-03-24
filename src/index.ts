@@ -1238,19 +1238,16 @@ class PluginPlayground {
       importResult.source,
       tokenReference.tokenSymbol
     );
+    const changedLines = Array.from(
+      new Set([...importResult.changedLines, ...dependencyResult.changedLines])
+    ).sort((left, right) => left - right);
     if (dependencyResult.source !== source) {
-      const changedLines = Array.from(
-        new Set([
-          ...importResult.changedLines,
-          ...dependencyResult.changedLines
-        ])
-      ).sort((left, right) => left - right);
       sourceModel.sharedModel.setSource(dependencyResult.source);
-      if (changedLines.length > 0) {
-        window.requestAnimationFrame(() => {
-          highlightEditorLines(editorWidget.content.editor, changedLines);
-        });
-      }
+    }
+    if (changedLines.length > 0) {
+      window.requestAnimationFrame(() => {
+        highlightEditorLines(editorWidget.content.editor, changedLines);
+      });
     }
   }
 

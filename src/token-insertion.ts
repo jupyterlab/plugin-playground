@@ -34,14 +34,13 @@ export function insertImportStatement(
   tokenReference: ITokenReference
 ): ISourceUpdateResult {
   const statement = `import { ${tokenReference.tokenSymbol} } from '${tokenReference.packageName}';`;
-  if (
-    hasNamedValueImport(
-      source,
-      tokenReference.packageName,
-      tokenReference.tokenSymbol
-    )
-  ) {
-    return { source, changedLines: [] };
+  const existingImportLines = hasNamedValueImport(
+    source,
+    tokenReference.packageName,
+    tokenReference.tokenSymbol
+  );
+  if (existingImportLines.length > 0) {
+    return { source, changedLines: existingImportLines };
   }
 
   const separator = source.length > 0 ? '\n' : '';
@@ -72,6 +71,7 @@ export function insertTokenDependency(
   if (!activateProperty) {
     return { source, changedLines: [] };
   }
+  const activate = resolveActivateFunction(activateProperty);
 
   const requiresProperty = findObjectProperty(pluginObject, 'requires');
   const optionalProperty = findObjectProperty(pluginObject, 'optional');
@@ -83,11 +83,45 @@ export function insertTokenDependency(
   if (!requiresProperty && optionalProperty && !optionalArray) {
     return { source, changedLines: [] };
   }
-  if (
-    arrayHasIdentifier(requiresArray, tokenSymbol) ||
-    arrayHasIdentifier(optionalArray, tokenSymbol)
-  ) {
-    return { source, changedLines: [] };
+  const existingDependencyLines = new Set<number>();
+  for (const arrayLiteral of [requiresArray, optionalArray]) {
+    if (!arrayLiteral) {
+      continue;
+    }
+    for (const element of arrayLiteral.elements) {
+      if (ts.isIdentifier(element) && element.text === tokenSymbol) {
+        existingDependencyLines.add(
+          lineNumberAt(source, element.getStart(sourceFile))
+        );
+      }
+    }
+  }
+  if (existingDependencyLines.size > 0) {
+    if (activate) {
+      for (const parameter of activate.parameters) {
+        if (!parameter.type) {
+          continue;
+        }
+        const typeNode = parameter.type;
+        if (
+          ts.isTypeReferenceNode(typeNode) &&
+          ((ts.isIdentifier(typeNode.typeName) &&
+            typeNode.typeName.text === tokenSymbol) ||
+            (ts.isQualifiedName(typeNode.typeName) &&
+              typeNode.typeName.right.text === tokenSymbol))
+        ) {
+          existingDependencyLines.add(
+            lineNumberAt(source, parameter.getStart(sourceFile))
+          );
+        }
+      }
+    }
+    return {
+      source,
+      changedLines: [...existingDependencyLines].sort(
+        (left, right) => left - right
+      )
+    };
   }
 
   const edits: Array<{ start: number; end: number; text: string }> = [];
@@ -119,12 +153,12 @@ export function insertTokenDependency(
         );
         const multilineIndent = `${propertyIndent}  `;
         const elementTexts = targetArray.elements.map(element =>
-          source.slice(element.getStart(sourceFile), element.end)
+          source.slice(element.getStart(sourceFile), element.end).trimEnd()
         );
         elementTexts.push(tokenSymbol);
         edits.push({
           start: targetArray.elements.pos,
-          end: targetArray.elements.end,
+          end: targetArray.end - 1,
           text: `${lineEnding}${multilineIndent}${elementTexts.join(
             `,${lineEnding}${multilineIndent}`
           )}${lineEnding}${propertyIndent}`
@@ -149,7 +183,6 @@ export function insertTokenDependency(
     });
   }
 
-  const activate = resolveActivateFunction(activateProperty);
   if (activate) {
     const requiredCount = requiresArray?.elements.length ?? 0;
     const optionalCount = optionalArray?.elements.length ?? 0;
@@ -185,7 +218,7 @@ export function insertTokenDependency(
       Math.min(desiredIndex, activate.parameters.length)
     );
     const updatedParameters = activate.parameters.map(parameter =>
-      source.slice(parameter.getStart(sourceFile), parameter.end)
+      source.slice(parameter.getStart(sourceFile), parameter.end).trimEnd()
     );
     updatedParameters.splice(insertionIndex, 0, parameterText);
 
@@ -199,9 +232,10 @@ export function insertTokenDependency(
     if (shouldUseMultilineParameters) {
       const functionIndent = lineIndent(source, activate.getStart(sourceFile));
       const parameterIndent = `${functionIndent}  `;
+      const parameterListEnd = findParameterListClosingParen(source, activate);
       edits.push({
         start: activate.parameters.pos,
-        end: activate.parameters.end,
+        end: parameterListEnd,
         text: `${lineEnding}${parameterIndent}${updatedParameters.join(
           `,${lineEnding}${parameterIndent}`
         )}${lineEnding}${functionIndent}`
@@ -323,18 +357,6 @@ function arrayPropertyInitializer(
   return null;
 }
 
-function arrayHasIdentifier(
-  arrayLiteral: ts.ArrayLiteralExpression | null,
-  identifier: string
-): boolean {
-  if (!arrayLiteral) {
-    return false;
-  }
-  return arrayLiteral.elements.some(
-    element => ts.isIdentifier(element) && element.text === identifier
-  );
-}
-
 function unwrapExpression(expression: ts.Expression): ts.Expression {
   let current = expression;
   while (true) {
@@ -408,7 +430,7 @@ function hasNamedValueImport(
   source: string,
   packageName: string,
   localName: string
-): boolean {
+): number[] {
   const sourceFile = ts.createSourceFile(
     'plugin-playground-import-check.ts',
     source,
@@ -416,6 +438,7 @@ function hasNamedValueImport(
     true,
     ts.ScriptKind.TSX
   );
+  const matchingLines = new Set<number>();
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement)) {
       continue;
@@ -438,9 +461,24 @@ function hasNamedValueImport(
 
     for (const specifier of namedBindings.elements) {
       if (!specifier.isTypeOnly && specifier.name.text === localName) {
-        return true;
+        matchingLines.add(lineNumberAt(source, statement.getStart(sourceFile)));
+        break;
       }
     }
   }
-  return false;
+  return [...matchingLines].sort((left, right) => left - right);
+}
+
+function findParameterListClosingParen(
+  source: string,
+  activate: ts.FunctionLikeDeclarationBase
+): number {
+  const searchEnd = ts.isArrowFunction(activate)
+    ? activate.equalsGreaterThanToken.pos
+    : activate.body?.pos ?? activate.end;
+  const closeParen = source.indexOf(')', activate.parameters.end);
+  if (closeParen === -1 || closeParen > searchEnd) {
+    return activate.parameters.end;
+  }
+  return closeParen;
 }

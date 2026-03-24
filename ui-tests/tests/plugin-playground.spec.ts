@@ -492,6 +492,12 @@ export default plugin;
     }
   );
 
+  await page.waitForFunction(() => {
+    const highlightedLines = document.querySelectorAll(
+      '.jp-FileEditor .jp-PluginPlayground-lineHighlight'
+    ).length;
+    return highlightedLines === 0;
+  });
   await importButton.click();
   await page.waitForFunction(
     ({ expectedImportStatement, expectedDependencyStatement }) => {
@@ -501,9 +507,13 @@ export default plugin;
       if (typeof source !== 'string') {
         return false;
       }
+      const highlightedLines = document.querySelectorAll(
+        '.jp-FileEditor .jp-PluginPlayground-lineHighlight'
+      ).length;
       return (
         source.split(expectedImportStatement).length - 1 === 1 &&
-        source.split(expectedDependencyStatement).length - 1 === 1
+        source.split(expectedDependencyStatement).length - 1 === 1 &&
+        highlightedLines >= 2
       );
     },
     {
