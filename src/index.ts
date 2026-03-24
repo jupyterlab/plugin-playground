@@ -1239,7 +1239,10 @@ class PluginPlayground {
     );
     if (dependencyResult.source !== source) {
       const changedLines = Array.from(
-        new Set([...importResult.changedLines, ...dependencyResult.changedLines])
+        new Set([
+          ...importResult.changedLines,
+          ...dependencyResult.changedLines
+        ])
       ).sort((left, right) => left - right);
       sourceModel.sharedModel.setSource(dependencyResult.source);
       if (changedLines.length > 0) {
@@ -1411,7 +1414,9 @@ class PluginPlayground {
       const variableBase = /^I[A-Z]/.test(tokenSymbol)
         ? tokenSymbol.slice(1)
         : tokenSymbol;
-      let parameterName = `${variableBase.charAt(0).toLowerCase()}${variableBase.slice(1)}`;
+      let parameterName = `${variableBase
+        .charAt(0)
+        .toLowerCase()}${variableBase.slice(1)}`;
       if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(parameterName)) {
         parameterName = 'service';
       }

@@ -28,7 +28,9 @@ const LINE_CHANGE_STATE = StateField.define<DecorationSet>({
         const positions = effect.value.pos;
         return positions.length
           ? highlights.update({
-              add: positions.map(position => LINE_CHANGE_DECORATION.range(position))
+              add: positions.map(position =>
+                LINE_CHANGE_DECORATION.range(position)
+              )
             })
           : Decoration.none;
       }
@@ -220,7 +222,9 @@ export function highlightEditorLines(
     return;
   }
 
-  const visibleLines = lines.filter(line => line >= 0 && line < editor.lineCount);
+  const visibleLines = lines.filter(
+    line => line >= 0 && line < editor.lineCount
+  );
   if (visibleLines.length === 0) {
     return;
   }
@@ -233,9 +237,11 @@ export function highlightEditorLines(
   const positions = visibleLines.map(line =>
     editor.getOffsetAt({ line, column: 0 })
   );
-  const cmEditor = (editor as CodeEditor.IEditor & {
-    editor?: { dispatch?: (spec: { effects: unknown }) => void };
-  }).editor;
+  const cmEditor = (
+    editor as CodeEditor.IEditor & {
+      editor?: { dispatch?: (spec: { effects: unknown }) => void };
+    }
+  ).editor;
   if (!cmEditor || typeof cmEditor.dispatch !== 'function') {
     return;
   }

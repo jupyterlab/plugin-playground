@@ -339,14 +339,12 @@
 @keyframes jp-PluginPlayground-lineChangePulse {
   0% {
     background-color: var(--jp-brand-color3);
-    box-shadow:
-      inset 3px 0 0 0 var(--jp-brand-color1),
+    box-shadow: inset 3px 0 0 0 var(--jp-brand-color1),
       inset 0 0 0 1px var(--jp-brand-color2);
   }
   45% {
     background-color: var(--jp-brand-color4, var(--jp-brand-color3));
-    box-shadow:
-      inset 3px 0 0 0 var(--jp-brand-color2),
+    box-shadow: inset 3px 0 0 0 var(--jp-brand-color2),
       inset 0 0 0 1px var(--jp-brand-color3);
   }
   100% {

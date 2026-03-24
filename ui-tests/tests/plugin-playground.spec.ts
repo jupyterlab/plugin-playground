@@ -85,9 +85,7 @@ async function findImportableToken(panel: Locator): Promise<string> {
 }
 
 function parameterNameFromToken(tokenSymbol: string): string {
-  const base = /^I[A-Z]/.test(tokenSymbol)
-    ? tokenSymbol.slice(1)
-    : tokenSymbol;
+  const base = /^I[A-Z]/.test(tokenSymbol) ? tokenSymbol.slice(1) : tokenSymbol;
   return `${base.charAt(0).toLowerCase()}${base.slice(1)}`;
 }
 
