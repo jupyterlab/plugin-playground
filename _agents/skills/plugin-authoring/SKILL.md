@@ -32,7 +32,7 @@ Produce working plugin code that can be loaded with `plugin-playground:load-as-e
 
 1. Prepare a TypeScript file
 
-- If the user does not already have a plugin file open or specified, run `plugin-playground:create-new-plugin` with a meaningful `path` argument (for example `app.commands.execute('plugin-playground:create-new-plugin', { path: 'status-indicator-plugin.ts' })`) instead of relying on untitled defaults.
+- If the user does not already have a plugin file open or specified, run `plugin-playground:create-new-plugin` with a meaningful `path` argument (for example `app.commands.execute('plugin-playground:create-new-plugin', { path: 'status-indicator.ts' })`) instead of relying on untitled defaults.
 - Start from the generated TypeScript scaffold and adapt it.
 - Focus on TypeScript/TSX plugin code. Do not scaffold Python projects (`pyproject.toml`, Python package layout) unless explicitly requested.
 
