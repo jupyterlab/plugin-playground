@@ -256,8 +256,8 @@ test('creates a plugin file with an explicit path argument', async ({
   );
 
   await page.evaluate(
-    ({ id, path }) => {
-      return window.jupyterapp.commands.execute(id, { path });
+    async ({ id, path }) => {
+      await window.jupyterapp.commands.execute(id, { path });
     },
     {
       id: CREATE_FILE_COMMAND,
