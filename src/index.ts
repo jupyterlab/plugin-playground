@@ -27,6 +27,7 @@ import { ILauncher } from '@jupyterlab/launcher';
 import { extensionIcon, IFrame, SidePanel } from '@jupyterlab/ui-components';
 
 import { IDocumentManager } from '@jupyterlab/docmanager';
+import { PathExt } from '@jupyterlab/coreutils';
 
 import { Contents } from '@jupyterlab/services';
 import { ICompletionProviderManager } from '@jupyterlab/completer';
@@ -166,6 +167,26 @@ const LIST_QUERY_ARGS_SCHEMA = {
     }
   }
 };
+const CREATE_PLUGIN_ARGS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    cwd: {
+      type: 'string',
+      description: 'Optional directory where the file should be created.'
+    },
+    name: {
+      type: 'string',
+      description:
+        'Optional file name (for example "my-plugin.ts"). If no extension is provided, ".ts" is appended.'
+    },
+    path: {
+      type: 'string',
+      description:
+        'Optional full file path. Takes precedence over "name". If no extension is provided, ".ts" is appended.'
+    }
+  }
+};
 const LOAD_ON_SAVE_TOGGLE_TOOLBAR_ITEM = 'plugin-playground-load-on-save';
 const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
 const LOAD_ON_SAVE_SETTING = 'loadOnSave';
@@ -277,17 +298,54 @@ class PluginPlayground {
     app.commands.addCommand(CommandIDs.createNewFile, {
       label: 'TypeScript File (Playground)',
       caption: 'Create a new TypeScript file',
-      describedBy: { args: null },
+      describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
       icon: extensionIcon,
       execute: async args => {
+        const cwd =
+          typeof args.cwd === 'string'
+            ? normalizeContentsPath(args.cwd.trim())
+            : '';
+        const pathArg =
+          typeof args.path === 'string'
+            ? normalizeContentsPath(args.path.trim())
+            : '';
+        const nameArg = typeof args.name === 'string' ? args.name.trim() : '';
+
+        let targetPath = '';
+        if (pathArg) {
+          targetPath = pathArg;
+        } else if (nameArg) {
+          targetPath = cwd ? PathExt.join(cwd, nameArg) : nameArg;
+          targetPath = normalizeContentsPath(targetPath);
+        }
+
+        if (targetPath && !/\.[^/]+$/.test(targetPath)) {
+          targetPath = `${targetPath}.ts`;
+        }
+
+        const parentDirectory = targetPath
+          ? normalizeContentsPath(PathExt.dirname(targetPath))
+          : cwd;
+        const untitledDirectory =
+          parentDirectory && parentDirectory !== '.'
+            ? parentDirectory
+            : undefined;
+
         const model = await app.commands.execute('docmanager:new-untitled', {
-          path: args['cwd'],
+          path: untitledDirectory,
           type: 'file',
           ext: 'ts'
         });
+
+        const openPath =
+          targetPath && targetPath !== model.path
+            ? (await app.serviceManager.contents.rename(model.path, targetPath))
+                .path
+            : model.path;
+
         const widget: IDocumentWidget<FileEditor> | undefined =
           await app.commands.execute('docmanager:open', {
-            path: model.path,
+            path: openPath,
             factory: 'Editor'
           });
         if (widget) {
