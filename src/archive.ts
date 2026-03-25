@@ -12,8 +12,6 @@ const UTF8_FILENAME_FLAG = 0x0800;
 const ZIP_VERSION = 20;
 
 const ZIP_MIME_TYPE = 'application/zip';
-const DATA_URL_PREFIX = `data:${ZIP_MIME_TYPE};base64,`;
-const MAX_DATA_URL_LENGTH = 1_900_000;
 
 const CRC32_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -145,20 +143,6 @@ function createZipBytes(entries: ReadonlyArray<IArchiveEntry>): Uint8Array {
   return archive;
 }
 
-function estimateBase64Length(bytesLength: number): number {
-  return Math.ceil(bytesLength / 3) * 4;
-}
-
-function encodeBase64(bytes: Uint8Array): string {
-  let binary = '';
-  const chunkSize = 0x8000;
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    const chunk = bytes.subarray(index, index + chunkSize);
-    binary += String.fromCharCode(...chunk);
-  }
-  return btoa(binary);
-}
-
 function triggerDownload(href: string, filename: string): void {
   const link = document.createElement('a');
   link.href = href;
@@ -175,15 +159,6 @@ export function downloadArchive(
   filename: string
 ): void {
   const zipped = createZipBytes(entries);
-  const encodedUrlLength =
-    DATA_URL_PREFIX.length + estimateBase64Length(zipped.length);
-
-  if (encodedUrlLength <= MAX_DATA_URL_LENGTH) {
-    const encoded = encodeBase64(zipped);
-    triggerDownload(`${DATA_URL_PREFIX}${encoded}`, filename);
-    return;
-  }
-
   const blob = new Blob([zipped], { type: ZIP_MIME_TYPE });
   const objectUrl = URL.createObjectURL(blob);
   triggerDownload(objectUrl, filename);
