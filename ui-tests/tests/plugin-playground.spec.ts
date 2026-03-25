@@ -4,6 +4,7 @@ import type { IJupyterLabPageFixture } from '@jupyterlab/galata';
 import type { Locator } from '@playwright/test';
 
 const LOAD_COMMAND = 'plugin-playground:load-as-extension';
+const EXPORT_COMMAND = 'plugin-playground:export-as-extension';
 const OPEN_PACKAGES_REFERENCE_COMMAND = 'plugin-playground:open-js-explorer';
 const INTERNAL_CONTEXT_INFO_COMMAND = '__internal:context-menu-info';
 const CREATE_FILE_COMMAND = 'plugin-playground:create-new-plugin';
@@ -127,6 +128,11 @@ test('registers plugin playground commands', async ({ page }) => {
   await page.waitForCondition(() =>
     page.evaluate((id: string) => {
       return window.jupyterapp.commands.hasCommand(id);
+    }, EXPORT_COMMAND)
+  );
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
     }, LIST_TOKENS_COMMAND)
   );
   await page.waitForCondition(() =>
@@ -150,6 +156,11 @@ test('registers plugin playground commands', async ({ page }) => {
     page.evaluate((id: string) => {
       return window.jupyterapp.commands.hasCommand(id);
     }, CREATE_FILE_COMMAND)
+  ).resolves.toBe(true);
+  await expect(
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, EXPORT_COMMAND)
   ).resolves.toBe(true);
   await expect(
     page.evaluate((id: string) => {
@@ -373,6 +384,65 @@ test('loads current editor file as a plugin extension', async ({
       return window.jupyterapp.commands.isToggled(id);
     }, TEST_TOGGLE_COMMAND)
   ).resolves.toBe(true);
+});
+
+test('exports active extension folder as a zip archive', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/export-command-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: 'export-command-test',
+        version: '0.1.0',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, EXPORT_COMMAND)
+  );
+
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__exportDownloadCount = 0;
+    if (!w.__originalCreateObjectURL) {
+      w.__originalCreateObjectURL = URL.createObjectURL.bind(URL);
+      URL.createObjectURL = ((blob: Blob) => {
+        w.__exportDownloadCount += 1;
+        return w.__originalCreateObjectURL(blob);
+      }) as typeof URL.createObjectURL;
+    }
+  });
+
+  const exportResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, EXPORT_COMMAND);
+
+  expect(exportResult.ok).toBe(true);
+  expect(exportResult.archiveName).toBe('export-command-test.zip');
+  expect(exportResult.fileCount).toBeGreaterThanOrEqual(2);
+
+  const downloadCount = await page.evaluate(() => {
+    return (window as any).__exportDownloadCount ?? 0;
+  });
+  expect(downloadCount).toBeGreaterThan(0);
 });
 
 test('opens token sidebar, shows tokens, and filters by exact token', async ({

@@ -79,7 +79,7 @@ export function contentsPathCandidates(path: string): string[] {
   // paths should be rooted. Try both forms so callers can use one code path.
   const trimmed = normalizeContentsPath(path);
   if (trimmed.length === 0) {
-    return [];
+    return ['', '/'];
   }
   return [trimmed, `/${trimmed}`];
 }

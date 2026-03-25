@@ -67,6 +67,7 @@
       {
         "name": "export-extension",
         "command": "plugin-playground:export-as-extension",
+        "label": "Export",
         "rank": 22
       }
     ]

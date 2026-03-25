@@ -10,6 +10,7 @@ import { ISettingRegistry } from '@jupyterlab/settingregistry';
 import {
   Dialog,
   MainAreaWidget,
+  Notification,
   showDialog,
   showErrorMessage,
   ICommandPalette,
@@ -210,6 +211,7 @@ const ARCHIVE_EXCLUDED_DIRECTORIES = new Set([
   '__pycache__',
   'node_modules'
 ]);
+const ARCHIVE_FILE_READ_CONCURRENCY = 8;
 
 export interface IPluginPlayground {
   registerKnownModule(known: IKnownModule): Promise<void>;
@@ -648,10 +650,8 @@ class PluginPlayground {
       );
       if (exportContext.archiveEntries.length === 0) {
         const message = `No files were found in "${exportContext.rootPath}".`;
-        await showDialog({
-          title: 'No files to export',
-          body: message,
-          buttons: [Dialog.okButton()]
+        Notification.warning(message, {
+          autoClose: 5000
         });
         return {
           ok: false,
@@ -667,15 +667,15 @@ class PluginPlayground {
         ? ' A minimal extension-template scaffold was generated from the active file.'
         : '';
 
-      await showDialog({
-        title: 'Extension exported',
-        body:
-          `Downloaded "${exportContext.archiveName}" with ` +
+      Notification.success(
+        `Downloaded "${exportContext.archiveName}" with ` +
           `${exportContext.archiveEntries.length} file` +
           `${exportContext.archiveEntries.length === 1 ? '' : 's'} from ` +
           `"${exportContext.rootPath}".${templateMessage}`,
-        buttons: [Dialog.okButton()]
-      });
+        {
+          autoClose: 5000
+        }
+      );
 
       return {
         ok: true,
@@ -685,7 +685,9 @@ class PluginPlayground {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await showErrorMessage('Extension export failed', message);
+      Notification.error(`Extension export failed: ${message}`, {
+        autoClose: false
+      });
       return {
         ok: false,
         archiveName: null,
@@ -701,7 +703,7 @@ class PluginPlayground {
     activeSource: string
   ): Promise<IResolvedExportContext> {
     const rootPath = await this._inferExportRoot(activePath);
-    if (rootPath) {
+    if (rootPath !== null) {
       const overrides = new Map<string, Uint8Array>([
         [
           normalizeContentsPath(activePath),
@@ -732,21 +734,24 @@ class PluginPlayground {
   private async _inferExportRoot(path: string): Promise<string | null> {
     const normalizedPath = normalizeContentsPath(path);
     const inferredRoot = this._inferRootFromSourcePath(normalizedPath);
-    if (inferredRoot) {
+    if (inferredRoot !== null) {
       const inferredRootDirectory = await getDirectoryModel(
         this.app.serviceManager,
         inferredRoot
       );
       if (inferredRootDirectory) {
-        return (
-          normalizeContentsPath(inferredRootDirectory.path) || inferredRoot
-        );
+        return normalizeContentsPath(inferredRootDirectory.path);
       }
     }
 
     const sourceDirectory = this._dirname(normalizedPath);
     if (!sourceDirectory) {
       return null;
+    }
+
+    const detectedRoot = await this._findExtensionRoot(sourceDirectory);
+    if (detectedRoot !== null) {
+      return detectedRoot;
     }
 
     const sourceDirectoryModel = await getDirectoryModel(
@@ -763,8 +768,11 @@ class PluginPlayground {
   private _inferRootFromSourcePath(path: string): string | null {
     const segments = normalizeContentsPath(path).split('/');
     const srcIndex = segments.indexOf('src');
-    if (srcIndex <= 0) {
+    if (srcIndex < 0) {
       return null;
+    }
+    if (srcIndex === 0) {
+      return '';
     }
     return segments.slice(0, srcIndex).join('/');
   }
@@ -800,6 +808,9 @@ class PluginPlayground {
       throw new Error(`Could not read directory "${directoryPath}".`);
     }
 
+    const nestedDirectories: string[] = [];
+    const filePaths: string[] = [];
+
     for (const item of directory.content) {
       if (item.type !== 'directory' && item.type !== 'file') {
         continue;
@@ -817,32 +828,64 @@ class PluginPlayground {
       }
 
       if (item.type === 'directory') {
-        await this._collectArchiveEntriesInDirectory(
-          rootPath,
-          itemPath,
-          archiveEntries,
-          overrides
-        );
-        continue;
+        nestedDirectories.push(itemPath);
+      } else {
+        filePaths.push(itemPath);
       }
-
-      const fileBytes =
-        overrides.get(itemPath) ??
-        fileModelToBytes(await getFileModel(this.app.serviceManager, itemPath));
-      if (!fileBytes) {
-        continue;
-      }
-
-      const relativePath = this._relativePath(rootPath, itemPath);
-      if (!relativePath) {
-        continue;
-      }
-
-      archiveEntries.push({
-        path: relativePath,
-        data: fileBytes
-      });
     }
+
+    for (const nestedDirectory of nestedDirectories) {
+      await this._collectArchiveEntriesInDirectory(
+        rootPath,
+        nestedDirectory,
+        archiveEntries,
+        overrides
+      );
+    }
+
+    const fileEntries = await this._mapWithConcurrency(
+      filePaths,
+      ARCHIVE_FILE_READ_CONCURRENCY,
+      async filePath =>
+        this._createArchiveEntryForFile(rootPath, filePath, overrides)
+    );
+    for (const entry of fileEntries) {
+      if (entry) {
+        archiveEntries.push(entry);
+      }
+    }
+  }
+
+  private async _createArchiveEntryForFile(
+    rootPath: string,
+    filePath: string,
+    overrides: ReadonlyMap<string, Uint8Array>
+  ): Promise<IArchiveEntry | null> {
+    const overrideBytes = overrides.get(filePath);
+    let fileBytes = overrideBytes ?? null;
+
+    if (!fileBytes) {
+      const fileModel = await getFileModel(this.app.serviceManager, filePath);
+      if (!fileModel) {
+        throw new Error(`Could not read file "${filePath}".`);
+      }
+      fileBytes = fileModelToBytes(fileModel);
+      if (!fileBytes) {
+        throw new Error(
+          `Could not export file "${filePath}" because it is not readable as text or bytes.`
+        );
+      }
+    }
+
+    const relativePath = this._relativePath(rootPath, filePath);
+    if (!relativePath) {
+      return null;
+    }
+
+    return {
+      path: relativePath,
+      data: fileBytes
+    };
   }
 
   private _relativePath(rootPath: string, path: string): string {
@@ -879,6 +922,57 @@ class PluginPlayground {
       return normalizedPath;
     }
     return normalizedPath.slice(index + 1);
+  }
+
+  private async _findExtensionRoot(
+    startDirectory: string
+  ): Promise<string | null> {
+    let current = normalizeContentsPath(startDirectory).replace(/\/+$/g, '');
+    while (true) {
+      const packageJsonPath = current
+        ? `${current}/package.json`
+        : 'package.json';
+      const packageJson = await getFileModel(
+        this.app.serviceManager,
+        packageJsonPath
+      );
+      if (packageJson) {
+        return current;
+      }
+      if (!current) {
+        return null;
+      }
+      const parent = this._dirname(current);
+      if (parent === current) {
+        return null;
+      }
+      current = parent;
+    }
+  }
+
+  private async _mapWithConcurrency<T, R>(
+    items: ReadonlyArray<T>,
+    concurrency: number,
+    mapper: (item: T) => Promise<R>
+  ): Promise<R[]> {
+    if (items.length === 0) {
+      return [];
+    }
+
+    const results = new Array<R>(items.length);
+    const workerCount = Math.max(1, Math.min(concurrency, items.length));
+    let nextIndex = 0;
+
+    const workers = Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await mapper(items[index]);
+      }
+    });
+
+    await Promise.all(workers);
+    return results;
   }
 
   private _shouldSkipArchiveDirectory(name: string): boolean {
