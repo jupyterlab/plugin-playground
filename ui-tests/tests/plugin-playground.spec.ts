@@ -245,8 +245,8 @@ test('creates a plugin file with an explicit path argument', async ({
   page,
   tmpPath
 }) => {
-  const requestedPath = `${tmpPath}/named-by-command`;
-  const expectedPath = `${requestedPath}.ts`;
+  const requestedPath = 'named-by-command';
+  const expectedPath = `${tmpPath}/${requestedPath}.ts`;
 
   await page.goto();
   await page.waitForCondition(() =>
@@ -255,22 +255,20 @@ test('creates a plugin file with an explicit path argument', async ({
     }, CREATE_FILE_COMMAND)
   );
 
-  await page.evaluate(
-    async ({ id, path }) => {
-      await window.jupyterapp.commands.execute(id, { path });
+  const openPath = await page.evaluate(
+    async ({ id, cwd, path }) => {
+      await window.jupyterapp.commands.execute(id, { cwd, path });
+      const current = window.jupyterapp.shell
+        .currentWidget as FileEditorWidget | null;
+      return current?.context?.path ?? null;
     },
     {
       id: CREATE_FILE_COMMAND,
+      cwd: tmpPath,
       path: requestedPath
     }
   );
-
-  await page.waitForFunction((pathToOpen: string) => {
-    const current = window.jupyterapp.shell
-      .currentWidget as FileEditorWidget | null;
-    const path = current?.context?.path;
-    return path === pathToOpen;
-  }, expectedPath);
+  expect(openPath).toBe(expectedPath);
 });
 
 test('lists tokens and searches commands via command APIs', async ({

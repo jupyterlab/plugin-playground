@@ -171,19 +171,10 @@ const CREATE_PLUGIN_ARGS_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    cwd: {
-      type: 'string',
-      description: 'Optional directory where the file should be created.'
-    },
-    name: {
-      type: 'string',
-      description:
-        'Optional file name (for example "my-plugin.ts"). If no extension is provided, ".ts" is appended.'
-    },
     path: {
       type: 'string',
       description:
-        'Optional full file path. Takes precedence over "name". If no extension is provided, ".ts" is appended.'
+        'Optional file path. Relative paths are resolved against cwd; paths starting with "/" are resolved from the workspace root. If no extension is provided, ".ts" is appended.'
     }
   }
 };
@@ -305,18 +296,14 @@ class PluginPlayground {
           typeof args.cwd === 'string'
             ? normalizeContentsPath(args.cwd.trim())
             : '';
-        const pathArg =
-          typeof args.path === 'string'
-            ? normalizeContentsPath(args.path.trim())
-            : '';
-        const nameArg = typeof args.name === 'string' ? args.name.trim() : '';
+        const rawPathArg =
+          typeof args.path === 'string' ? args.path.trim() : '';
+        const isRootRelativePath = rawPathArg.startsWith('/');
+        const normalizedPathArg = normalizeContentsPath(rawPathArg);
 
-        let targetPath = '';
-        if (pathArg) {
-          targetPath = pathArg;
-        } else if (nameArg) {
-          targetPath = cwd ? PathExt.join(cwd, nameArg) : nameArg;
-          targetPath = normalizeContentsPath(targetPath);
+        let targetPath = normalizedPathArg;
+        if (targetPath && !isRootRelativePath && cwd) {
+          targetPath = normalizeContentsPath(PathExt.join(cwd, targetPath));
         }
 
         if (targetPath && !/\.[^/]+$/.test(targetPath)) {
@@ -331,29 +318,44 @@ class PluginPlayground {
             ? parentDirectory
             : undefined;
 
-        const model = await app.commands.execute('docmanager:new-untitled', {
+        const model = await app.serviceManager.contents.newUntitled({
           path: untitledDirectory,
           type: 'file',
           ext: 'ts'
         });
 
-        const openPath =
-          targetPath && targetPath !== model.path
-            ? (await app.serviceManager.contents.rename(model.path, targetPath))
-                .path
-            : model.path;
+        let openPath = model.path;
+        if (targetPath && targetPath !== model.path) {
+          openPath = (
+            await app.serviceManager.contents.rename(model.path, targetPath)
+          ).path;
+        }
 
-        const widget: IDocumentWidget<FileEditor> | undefined =
-          await app.commands.execute('docmanager:open', {
-            path: openPath,
-            factory: 'Editor'
-          });
-        if (widget) {
-          widget.content.ready.then(() => {
-            widget.content.model.sharedModel.setSource(PLUGIN_TEMPLATE);
+        await app.commands.execute('docmanager:open', {
+          path: openPath,
+          factory: 'Editor'
+        });
+
+        const normalizedOpenPath = normalizeContentsPath(openPath);
+        let widget: IDocumentWidget<FileEditor> | null = null;
+        editorTracker.forEach(candidate => {
+          if (
+            !widget &&
+            normalizeContentsPath(candidate.context.path) === normalizedOpenPath
+          ) {
+            widget = candidate;
+          }
+        });
+        if (!widget) {
+          widget = editorTracker.currentWidget;
+        }
+        const activeWidget = widget;
+        if (activeWidget) {
+          activeWidget.content.ready.then(() => {
+            activeWidget.content.model.sharedModel.setSource(PLUGIN_TEMPLATE);
           });
         }
-        return widget;
+        return activeWidget;
       }
     });
 
