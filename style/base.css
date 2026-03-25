@@ -336,6 +336,10 @@
   color: var(--jp-ui-font-color2);
 }
 
+.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name='export-extension'] {
+  margin-left: auto;
+}
+
 @keyframes jp-PluginPlayground-lineChangePulse {
   0% {
     background-color: var(--jp-brand-color3);

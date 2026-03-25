@@ -64,7 +64,14 @@ Produce working plugin code that can be loaded with `plugin-playground:load-as-e
 - Check the command return value for `ok/status/message` to detect and report loading or autostart errors.
 - If reloading the same plugin ID repeatedly, ensure cleanup is handled via `deactivate()` where needed.
 
-6. Imports and module safety
+6. Export for standalone development
+
+- Run `plugin-playground:export-as-extension` to download a zip for local IDE + git workflows.
+- For deterministic automation (or when another file is focused), pass an explicit file path:
+  - `app.commands.execute('plugin-playground:export-as-extension', { path: 'my-extension/src/index.ts' })`
+- Read export result metadata (`ok`, `archiveName`, `rootPath`, `fileCount`, `message`) and report failures.
+
+7. Imports and module safety
 
 - Prefer JupyterLab/Lumino imports first.
 - For external packages, ensure AMD-compatible import targets are used.

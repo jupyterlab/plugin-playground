@@ -143,12 +143,17 @@ Plugin Playground now exposes command APIs that mirror sidebar data and support 
 - `plugin-playground:list-tokens`
 - `plugin-playground:list-commands`
 - `plugin-playground:list-extension-examples`
+- `plugin-playground:export-as-extension` (supports optional `{ path: string }`)
 
 Example:
 
 ```typescript
 await app.commands.execute('plugin-playground:list-tokens', {
   query: 'notebook'
+});
+
+await app.commands.execute('plugin-playground:export-as-extension', {
+  path: 'my-extension/src/index.ts'
 });
 ```
 
