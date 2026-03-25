@@ -73,11 +73,17 @@ import {
   fileModelToText,
   getDirectoryModel,
   getFileModel,
+  highlightEditorLines,
   IFileModel,
   normalizeExternalUrl,
   normalizeContentsPath,
   openExternalLink
 } from './contents';
+import {
+  insertImportStatement,
+  insertTokenDependency,
+  parseTokenReference
+} from './token-insertion';
 
 import { Token } from '@lumino/coreutils';
 
@@ -1256,8 +1262,8 @@ class PluginPlayground {
   }
 
   private async _insertTokenImport(tokenName: string): Promise<void> {
-    const statement = this._importStatement(tokenName);
-    if (!statement) {
+    const tokenReference = parseTokenReference(tokenName);
+    if (!tokenReference) {
       await showDialog({
         title: 'Cannot generate import statement',
         body: `Token "${tokenName}" does not follow the package:token format.`,
@@ -1287,31 +1293,26 @@ class PluginPlayground {
     }
 
     const source = sourceModel.sharedModel.getSource();
-    if (source.includes(statement)) {
-      return;
+    const importResult = insertImportStatement(source, tokenReference);
+    const dependencyResult = insertTokenDependency(
+      importResult.source,
+      tokenReference.tokenSymbol
+    );
+    const changedLines = Array.from(
+      new Set([...importResult.changedLines, ...dependencyResult.changedLines])
+    ).sort((left, right) => left - right);
+    if (dependencyResult.source !== source) {
+      sourceModel.sharedModel.setSource(dependencyResult.source);
     }
-    const separator = source.length > 0 ? '\n' : '';
-    sourceModel.sharedModel.setSource(`${statement}${separator}${source}`);
-  }
-
-  private _importStatement(tokenName: string): string | null {
-    const separatorIndex = tokenName.indexOf(':');
-    if (separatorIndex === -1) {
-      return null;
+    if (changedLines.length > 0) {
+      window.requestAnimationFrame(() => {
+        highlightEditorLines(editorWidget.content.editor, changedLines);
+      });
     }
-    const packageName = tokenName.slice(0, separatorIndex).trim();
-    const tokenSymbol = tokenName.slice(separatorIndex + 1).trim();
-    if (!packageName || !tokenSymbol) {
-      return null;
-    }
-    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(tokenSymbol)) {
-      return null;
-    }
-    return `import { ${tokenSymbol} } from '${packageName}';`;
   }
 
   private _canInsertImport(tokenName: string): boolean {
-    if (!this._importStatement(tokenName)) {
+    if (!parseTokenReference(tokenName)) {
       return false;
     }
 

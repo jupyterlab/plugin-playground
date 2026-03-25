@@ -1,3 +1,6 @@
+import { StateEffect, StateField } from '@codemirror/state';
+import { Decoration, DecorationSet, EditorView } from '@codemirror/view';
+import type { CodeEditor } from '@jupyterlab/codeeditor';
 import { Clipboard } from '@jupyterlab/apputils';
 import { Contents, ServiceManager } from '@jupyterlab/services';
 
@@ -11,6 +14,57 @@ export type IFileModel = Contents.IModel & {
   content: unknown;
   format?: string | null;
 };
+
+const LINE_CHANGE_DECORATION = Decoration.line({
+  class: 'jp-PluginPlayground-lineHighlight'
+});
+const LINE_HIGHLIGHT_EFFECT = StateEffect.define<{ pos: number[] }>({
+  map: (value, mapping) => ({
+    pos: value.pos.map(position => mapping.mapPos(position))
+  })
+});
+const LINE_CHANGE_STATE = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update: (highlights, transaction) => {
+    highlights = highlights.map(transaction.changes);
+    for (const effect of transaction.effects) {
+      if (effect.is(LINE_HIGHLIGHT_EFFECT)) {
+        const positions = effect.value.pos;
+        return positions.length
+          ? Decoration.set(
+              positions.map(position => LINE_CHANGE_DECORATION.range(position)),
+              true
+            )
+          : Decoration.none;
+      }
+    }
+    return highlights;
+  },
+  provide: field => EditorView.decorations.from(field)
+});
+const LINE_HIGHLIGHT_EDITORS = new WeakSet<CodeEditor.IEditor>();
+const LINE_HIGHLIGHT_TIMEOUTS = new WeakMap<CodeEditor.IEditor, number>();
+
+function dispatchLineHighlight(
+  editor: CodeEditor.IEditor,
+  positions: number[]
+): boolean {
+  if (editor.isDisposed) {
+    return false;
+  }
+  const cmEditor = (
+    editor as CodeEditor.IEditor & {
+      editor?: { dispatch?: (spec: { effects: unknown }) => void };
+    }
+  ).editor;
+  if (!cmEditor || typeof cmEditor.dispatch !== 'function') {
+    return false;
+  }
+  cmEditor.dispatch({
+    effects: LINE_HIGHLIGHT_EFFECT.of({ pos: positions })
+  });
+  return true;
+}
 
 export function normalizeContentsPath(path: string | null | undefined): string {
   return (path ?? '').replace(/^\/+/g, '');
@@ -181,4 +235,44 @@ export function openExternalLink(rawUrl: string): void {
     return;
   }
   window.open(safeUrl, '_blank', 'noopener,noreferrer');
+}
+
+export function highlightEditorLines(
+  editor: CodeEditor.IEditor,
+  lines: number[],
+  timeoutMs = 1200
+): void {
+  if (editor.isDisposed) {
+    return;
+  }
+
+  const visibleLines = lines.filter(
+    line => line >= 0 && line < editor.lineCount
+  );
+  if (visibleLines.length === 0) {
+    return;
+  }
+
+  if (!LINE_HIGHLIGHT_EDITORS.has(editor)) {
+    editor.injectExtension(LINE_CHANGE_STATE);
+    LINE_HIGHLIGHT_EDITORS.add(editor);
+  }
+
+  const positions = visibleLines.map(line =>
+    editor.getOffsetAt({ line, column: 0 })
+  );
+  if (!dispatchLineHighlight(editor, positions)) {
+    return;
+  }
+
+  const previousTimeout = LINE_HIGHLIGHT_TIMEOUTS.get(editor);
+  if (previousTimeout !== undefined) {
+    window.clearTimeout(previousTimeout);
+  }
+
+  const timeout = window.setTimeout(() => {
+    LINE_HIGHLIGHT_TIMEOUTS.delete(editor);
+    dispatchLineHighlight(editor, []);
+  }, timeoutMs);
+  LINE_HIGHLIGHT_TIMEOUTS.set(editor, timeout);
 }

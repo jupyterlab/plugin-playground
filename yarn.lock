@@ -326,7 +326,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@codemirror/view@npm:^6.0.0, @codemirror/view@npm:^6.17.0, @codemirror/view@npm:^6.23.0, @codemirror/view@npm:^6.27.0, @codemirror/view@npm:^6.35.0, @codemirror/view@npm:^6.37.0, @codemirror/view@npm:^6.39.14":
+"@codemirror/view@npm:^6.0.0, @codemirror/view@npm:^6.17.0, @codemirror/view@npm:^6.23.0, @codemirror/view@npm:^6.27.0, @codemirror/view@npm:^6.35.0, @codemirror/view@npm:^6.37.0, @codemirror/view@npm:^6.39.14, @codemirror/view@npm:^6.39.16":
   version: 6.39.16
   resolution: "@codemirror/view@npm:6.39.16"
   dependencies:
@@ -1521,6 +1521,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@jupyterlab/plugin-playground@workspace:."
   dependencies:
+    "@codemirror/state": ^6.5.4
+    "@codemirror/view": ^6.39.16
     "@eslint/js": ^9.39.3
     "@jupyter-notebook/application": ^7.0.0
     "@jupyter-widgets/base": ^6.0.0
@@ -1531,6 +1533,7 @@ __metadata:
     "@jupyterlab/apputils": ^4.6.5
     "@jupyterlab/builder": ^4.5.5
     "@jupyterlab/cell-toolbar": ^4.5.5
+    "@jupyterlab/codemirror": ^4.5.5
     "@jupyterlab/completer": ^4.5.5
     "@jupyterlab/console": ^4.5.5
     "@jupyterlab/csvviewer": ^4.5.5
