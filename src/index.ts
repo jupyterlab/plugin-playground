@@ -180,7 +180,7 @@ const CREATE_PLUGIN_ARGS_SCHEMA = {
     path: {
       type: 'string',
       description:
-        'Optional file path. Relative paths are resolved against cwd; paths starting with "/" are resolved from the workspace root. If no extension is provided, ".ts" is appended.'
+        'Optional file path. Relative paths are resolved from the current working directory; paths starting with "/" are resolved from the workspace root. If no extension is provided, ".ts" is appended.'
     }
   }
 };
@@ -298,43 +298,36 @@ class PluginPlayground {
       describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
       icon: extensionIcon,
       execute: async args => {
-        const cwd =
-          typeof args.cwd === 'string'
-            ? normalizeContentsPath(args.cwd.trim())
-            : '';
         const rawPathArg =
           typeof args.path === 'string' ? args.path.trim() : '';
         const isRootRelativePath = rawPathArg.startsWith('/');
-        const normalizedPathArg = normalizeContentsPath(rawPathArg);
-
-        let targetPath = normalizedPathArg;
-        if (targetPath && !isRootRelativePath && cwd) {
-          targetPath = normalizeContentsPath(PathExt.join(cwd, targetPath));
-        }
-
-        if (targetPath && !/\.[^/]+$/.test(targetPath)) {
-          targetPath = `${targetPath}.ts`;
-        }
-
-        const parentDirectory = targetPath
-          ? normalizeContentsPath(PathExt.dirname(targetPath))
-          : cwd;
-        const untitledDirectory =
-          parentDirectory && parentDirectory !== '.'
-            ? parentDirectory
-            : undefined;
 
         const model = await app.serviceManager.contents.newUntitled({
-          path: untitledDirectory,
           type: 'file',
           ext: 'ts'
         });
 
         let openPath = model.path;
-        if (targetPath && targetPath !== model.path) {
-          openPath = (
-            await app.serviceManager.contents.rename(model.path, targetPath)
-          ).path;
+        const normalizedPathArg = normalizeContentsPath(rawPathArg);
+        if (normalizedPathArg) {
+          const baseDirectory = normalizeContentsPath(
+            PathExt.dirname(model.path)
+          );
+          let targetPath = isRootRelativePath
+            ? normalizedPathArg
+            : normalizeContentsPath(
+                PathExt.join(baseDirectory, normalizedPathArg)
+              );
+
+          if (!/\.[^/]+$/.test(targetPath)) {
+            targetPath = `${targetPath}.ts`;
+          }
+
+          if (targetPath !== model.path) {
+            openPath = (
+              await app.serviceManager.contents.rename(model.path, targetPath)
+            ).path;
+          }
         }
 
         await app.commands.execute('docmanager:open', {
