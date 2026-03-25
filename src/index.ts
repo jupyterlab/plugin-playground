@@ -127,6 +127,9 @@ interface IPluginLoadResult {
   skippedAutoStartPluginIds?: string[];
 }
 
+/**
+ * Result metadata returned by export command executions.
+ */
 interface IPluginExportResult {
   ok: boolean;
   archiveName: string | null;
@@ -135,6 +138,9 @@ interface IPluginExportResult {
   message?: string;
 }
 
+/**
+ * Fully resolved context required to build an export archive.
+ */
 interface IResolvedExportContext {
   archiveName: string;
   rootPath: string;
@@ -195,6 +201,17 @@ const LIST_QUERY_ARGS_SCHEMA = {
       type: 'string',
       description:
         'Optional filter text. Matches records case-insensitively by visible text fields (such as id, label, caption, name, or description, depending on record type).'
+    }
+  }
+};
+const EXPORT_AS_EXTENSION_ARGS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    path: {
+      type: 'string',
+      description:
+        'Optional contents path of the file to export. When omitted, the active editor file is used.'
     }
   }
 };
@@ -269,12 +286,33 @@ class PluginPlayground {
     app.commands.addCommand(CommandIDs.exportAsExtension, {
       label: 'Export Plugin Folder As Extension',
       caption: 'Download the active plugin folder as an extension zip archive',
-      describedBy: { args: null },
+      describedBy: { args: EXPORT_AS_EXTENSION_ARGS_SCHEMA },
       icon: downloadIcon,
-      isEnabled: () =>
-        editorTracker.currentWidget !== null &&
-        editorTracker.currentWidget === app.shell.currentWidget,
-      execute: () => this._exportAsExtension()
+      isEnabled: () => this.documentManager !== null,
+      execute: async args => {
+        const requestedPath =
+          typeof args.path === 'string' ? normalizeContentsPath(args.path) : '';
+        if (requestedPath) {
+          return this._exportAsExtension(requestedPath);
+        }
+
+        const currentWidget = editorTracker.currentWidget;
+        if (!currentWidget || currentWidget !== app.shell.currentWidget) {
+          return {
+            ok: false,
+            archiveName: null,
+            rootPath: null,
+            fileCount: 0,
+            message:
+              'No active editor is available. Pass a path argument to export a specific file.'
+          } as IPluginExportResult;
+        }
+
+        return this._exportAsExtension(
+          normalizeContentsPath(currentWidget.context.path),
+          currentWidget.context.model.toString()
+        );
+      }
     });
 
     toolbarWidgetRegistry.addFactory<IDocumentWidget<FileEditor>>(
@@ -629,24 +667,28 @@ class PluginPlayground {
     return guardedNext;
   }
 
-  private async _exportAsExtension(): Promise<IPluginExportResult> {
-    const currentWidget = this.editorTracker.currentWidget;
-    if (!currentWidget || currentWidget !== this.app.shell.currentWidget) {
+  private async _exportAsExtension(
+    activePath: string,
+    activeSource?: string
+  ): Promise<IPluginExportResult> {
+    const normalizedActivePath = normalizeContentsPath(activePath);
+    if (!normalizedActivePath) {
       return {
         ok: false,
         archiveName: null,
         rootPath: null,
         fileCount: 0,
-        message: 'No active editor is available.'
+        message: 'Export path is empty.'
       };
     }
 
-    const activePath = normalizeContentsPath(currentWidget.context.path);
-    const activeSource = currentWidget.context.model.toString();
     try {
+      const source =
+        activeSource ??
+        (await this._readSourceFileForExport(normalizedActivePath));
       const exportContext = await this._resolveExportContext(
-        activePath,
-        activeSource
+        normalizedActivePath,
+        source
       );
       if (exportContext.archiveEntries.length === 0) {
         const message = `No files were found in "${exportContext.rootPath}".`;
@@ -691,11 +733,25 @@ class PluginPlayground {
       return {
         ok: false,
         archiveName: null,
-        rootPath: activePath || null,
+        rootPath: normalizedActivePath || null,
         fileCount: 0,
         message
       };
     }
+  }
+
+  private async _readSourceFileForExport(path: string): Promise<string> {
+    const fileModel = await getFileModel(this.app.serviceManager, path);
+    if (!fileModel) {
+      throw new Error(`Could not read file "${path}".`);
+    }
+    const source = fileModelToText(fileModel);
+    if (source === null) {
+      throw new Error(
+        `Could not export file "${path}" because it is not readable as text.`
+      );
+    }
+    return source;
   }
 
   private async _resolveExportContext(
