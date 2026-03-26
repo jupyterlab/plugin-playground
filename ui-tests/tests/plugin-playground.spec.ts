@@ -5,6 +5,7 @@ import type { Locator } from '@playwright/test';
 
 const LOAD_COMMAND = 'plugin-playground:load-as-extension';
 const EXPORT_COMMAND = 'plugin-playground:export-as-extension';
+const SHARE_COMMAND = 'plugin-playground:share-via-link';
 const OPEN_PACKAGES_REFERENCE_COMMAND = 'plugin-playground:open-js-explorer';
 const INTERNAL_CONTEXT_INFO_COMMAND = '__internal:context-menu-info';
 const CREATE_FILE_COMMAND = 'plugin-playground:create-new-plugin';
@@ -133,6 +134,11 @@ test('registers plugin playground commands', async ({ page }) => {
   await page.waitForCondition(() =>
     page.evaluate((id: string) => {
       return window.jupyterapp.commands.hasCommand(id);
+    }, SHARE_COMMAND)
+  );
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
     }, LIST_TOKENS_COMMAND)
   );
   await page.waitForCondition(() =>
@@ -161,6 +167,11 @@ test('registers plugin playground commands', async ({ page }) => {
     page.evaluate((id: string) => {
       return window.jupyterapp.commands.hasCommand(id);
     }, EXPORT_COMMAND)
+  ).resolves.toBe(true);
+  await expect(
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, SHARE_COMMAND)
   ).resolves.toBe(true);
   await expect(
     page.evaluate((id: string) => {
@@ -476,6 +487,123 @@ test('exports active extension folder as a zip archive', async ({
     return (window as any).__exportDownloadCount ?? 0;
   });
   expect(downloadCount).toBeGreaterThan(0);
+});
+
+test('shares active file via URL by default', async ({ page, tmpPath }) => {
+  const projectRoot = `${tmpPath}/share-command-test`;
+  const sourceFilename = 'share-entry.ts';
+  const sourcePath = `${projectRoot}/src/${sourceFilename}`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+  const sharedPluginSource = `
+const plugin = {
+  id: 'share-command-test:plugin',
+  autoStart: true,
+  activate: app => {
+    let toggled = false;
+    app.commands.addCommand('share-command-test:toggle', {
+      label: 'Share Command Toggle',
+      isToggled: () => toggled,
+      execute: () => {
+        toggled = !toggled;
+      }
+    });
+  }
+};
+
+export default plugin;
+`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: 'share-command-test',
+        version: '0.1.0',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(sharedPluginSource, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab(sourceFilename)).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, SHARE_COMMAND)
+  );
+
+  const shareResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, SHARE_COMMAND);
+
+  expect(shareResult.ok).toBe(true);
+  expect(typeof shareResult.link).toBe('string');
+  expect(shareResult.link).toContain('pp=');
+  expect(shareResult.sourcePath).toBe(sourcePath);
+  expect(shareResult.urlLength).toBeGreaterThan(0);
+
+  const parsed = new URL(shareResult.link);
+  const payloadToken = parsed.searchParams.get('pp');
+  expect(payloadToken).toBeTruthy();
+  expect(payloadToken ?? '').toMatch(/^1\.[gr]\.[A-Za-z0-9_-]+$/);
+});
+
+test('returns an error when sharing a directory path', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/share-folder-command-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: 'share-folder-command-test',
+        version: '0.1.0',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, SHARE_COMMAND)
+  );
+
+  const shareResult = await page.evaluate(
+    ({ id, path }) => {
+      return window.jupyterapp.commands.execute(id, { path });
+    },
+    {
+      id: SHARE_COMMAND,
+      path: projectRoot
+    }
+  );
+
+  expect(shareResult.ok).toBe(false);
+  expect(shareResult.link).toBeNull();
+  expect(shareResult.sourcePath).toBe(projectRoot);
+  expect(shareResult.urlLength).toBe(0);
+  expect(shareResult.message ?? '').toContain(
+    'Folder sharing is temporarily disabled'
+  );
 });
 
 test('opens token sidebar, shows tokens, and filters by exact token', async ({

@@ -112,6 +112,41 @@ export async function getDirectoryModel(
   return null;
 }
 
+export async function ensureContentsDirectory(
+  serviceManager: ServiceManager.IManager,
+  path: string
+): Promise<void> {
+  const normalizedPath = normalizeContentsPath(path).replace(/\/+$/g, '');
+  if (!normalizedPath) {
+    return;
+  }
+
+  const segments = normalizedPath.split('/');
+  let current = '';
+  for (const segment of segments) {
+    current = current ? `${current}/${segment}` : segment;
+    const existingDirectory = await getDirectoryModel(serviceManager, current);
+    if (existingDirectory) {
+      continue;
+    }
+
+    try {
+      await serviceManager.contents.save(current, {
+        type: 'directory'
+      });
+    } catch (error) {
+      const recheckedDirectory = await getDirectoryModel(
+        serviceManager,
+        current
+      );
+      if (!recheckedDirectory) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Could not create directory "${current}". ${message}`);
+      }
+    }
+  }
+}
+
 export async function getFileModel(
   serviceManager: ServiceManager.IManager,
   path: string

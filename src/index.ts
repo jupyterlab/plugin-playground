@@ -29,6 +29,7 @@ import {
   downloadIcon,
   extensionIcon,
   IFrame,
+  shareIcon,
   SidePanel
 } from '@jupyterlab/ui-components';
 
@@ -76,6 +77,8 @@ import {
 } from './command-completion';
 
 import {
+  copyValueToClipboard,
+  ensureContentsDirectory,
   fileModelToBytes,
   fileModelToText,
   getDirectoryModel,
@@ -94,6 +97,15 @@ import {
 
 import { downloadArchive, IArchiveEntry } from './archive';
 import { createTemplateArchive } from './export-template';
+import {
+  clearSharedPluginTokenFromLocation,
+  createSharedPluginUrl,
+  decodeSharedPluginPayload,
+  encodeSharedPluginPayload,
+  getSharedPluginTokenFromLocation,
+  ISharedPluginPayload,
+  sharedPluginFolderName
+} from './share-link';
 
 import { Token } from '@lumino/coreutils';
 
@@ -105,6 +117,7 @@ namespace CommandIDs {
   export const createNewFile = 'plugin-playground:create-new-plugin';
   export const loadCurrentAsExtension = 'plugin-playground:load-as-extension';
   export const exportAsExtension = 'plugin-playground:export-as-extension';
+  export const shareViaLink = 'plugin-playground:share-via-link';
   export const openJSImportExplorer = 'plugin-playground:open-js-explorer';
   export const listTokens = 'plugin-playground:list-tokens';
   export const listCommands = 'plugin-playground:list-commands';
@@ -147,6 +160,17 @@ interface IResolvedExportContext {
   rootPath: string;
   archiveEntries: IArchiveEntry[];
   usedTemplate: boolean;
+}
+
+/**
+ * Result metadata returned by share-link command executions.
+ */
+export interface IPluginShareResult {
+  ok: boolean;
+  link: string | null;
+  sourcePath: string | null;
+  urlLength: number;
+  message?: string;
 }
 
 const PLUGIN_TEMPLATE = `import {
@@ -218,6 +242,18 @@ const EXPORT_AS_EXTENSION_ARGS_SCHEMA = {
   }
 };
 
+const SHARE_VIA_LINK_ARGS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    path: {
+      type: 'string',
+      description:
+        'Optional contents path of the file to share. When omitted, the active editor file is used.'
+    }
+  }
+};
+
 const CREATE_PLUGIN_ARGS_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -243,9 +279,13 @@ const ARCHIVE_EXCLUDED_DIRECTORIES = new Set([
   'node_modules'
 ]);
 const ARCHIVE_FILE_READ_CONCURRENCY = 8;
+const SHARE_URL_WARN_LENGTH = 1800;
+const SHARE_URL_MAX_LENGTH = 8000;
+const SHARED_LINKS_ROOT = 'plugin-playground-shared';
 
 export interface IPluginPlayground {
   registerKnownModule(known: IKnownModule): Promise<void>;
+  shareViaLink(path?: string): Promise<IPluginShareResult>;
 }
 
 export const IPluginPlayground = new Token<IPluginPlayground>(
@@ -329,6 +369,18 @@ class PluginPlayground {
       }
     });
 
+    app.commands.addCommand(CommandIDs.shareViaLink, {
+      label: 'Copy Shareable Plugin Link',
+      caption: 'Create a URL for the active plugin file, then copy it',
+      describedBy: { args: SHARE_VIA_LINK_ARGS_SCHEMA },
+      icon: shareIcon,
+      execute: async args => {
+        const requestedPath =
+          typeof args.path === 'string' ? args.path : undefined;
+        return this.shareViaLink(requestedPath);
+      }
+    });
+
     toolbarWidgetRegistry.addFactory<IDocumentWidget<FileEditor>>(
       'Editor',
       LOAD_ON_SAVE_TOGGLE_TOOLBAR_ITEM,
@@ -362,6 +414,12 @@ class PluginPlayground {
 
     commandPalette.addItem({
       command: CommandIDs.exportAsExtension,
+      category: 'Plugin Playground',
+      args: {}
+    });
+
+    commandPalette.addItem({
+      command: CommandIDs.shareViaLink,
       category: 'Plugin Playground',
       args: {}
     });
@@ -571,6 +629,7 @@ class PluginPlayground {
       for (const t of plugins) {
         await this._loadPlugin(t, null);
       }
+      await this._loadSharedPluginFromUrl();
 
       settings.changed.connect(updatedSettings => {
         this.settings = updatedSettings;
@@ -792,6 +851,227 @@ class PluginPlayground {
         fileCount: 0,
         message
       };
+    }
+  }
+
+  /**
+   * Build a share URL for a single file and copy it to clipboard.
+   */
+  public async shareViaLink(path?: string): Promise<IPluginShareResult> {
+    const requestedPath =
+      typeof path === 'string' ? normalizeContentsPath(path) : '';
+    const currentWidget = this.editorTracker.currentWidget;
+    const currentPath = currentWidget
+      ? normalizeContentsPath(currentWidget.context.path)
+      : '';
+    const activeSource =
+      currentWidget && currentPath && currentPath === requestedPath
+        ? currentWidget.context.model.toString()
+        : undefined;
+
+    if (requestedPath) {
+      return this._shareViaLink(requestedPath, activeSource);
+    }
+
+    if (!currentWidget || currentWidget !== this.app.shell.currentWidget) {
+      return {
+        ok: false,
+        link: null,
+        sourcePath: null,
+        urlLength: 0,
+        message:
+          'No active editor is available. Pass a path argument to share a specific file.'
+      };
+    }
+
+    return this._shareViaLink(
+      normalizeContentsPath(currentWidget.context.path),
+      currentWidget.context.model.toString()
+    );
+  }
+
+  /**
+   * Build a share URL for a single file and copy it to clipboard.
+   */
+  private async _shareViaLink(
+    sourcePath: string,
+    activeSource?: string
+  ): Promise<IPluginShareResult> {
+    const normalizedSourcePath = normalizeContentsPath(sourcePath);
+    if (!normalizedSourcePath) {
+      return {
+        ok: false,
+        link: null,
+        sourcePath: null,
+        urlLength: 0,
+        message: 'Share path is empty.'
+      };
+    }
+
+    try {
+      const directory = await getDirectoryModel(
+        this.app.serviceManager,
+        normalizedSourcePath
+      );
+      if (directory) {
+        throw new Error(
+          'Folder sharing is temporarily disabled. Pass a file path instead.'
+        );
+      }
+      const source =
+        activeSource ??
+        (await this._readSourceFileForExport(normalizedSourcePath));
+      const fileName = this._basename(normalizedSourcePath) || 'plugin.ts';
+
+      const payload: ISharedPluginPayload = {
+        version: 1,
+        fileName,
+        source
+      };
+      const encodedPayload = await encodeSharedPluginPayload(payload);
+      const link = createSharedPluginUrl(encodedPayload);
+      const urlLength = link.length;
+
+      if (urlLength > SHARE_URL_MAX_LENGTH) {
+        const message =
+          `The generated link is ${urlLength} characters long, which exceeds the configured limit ` +
+          `(${SHARE_URL_MAX_LENGTH}). Share a smaller file or use "Export Plugin Folder As Extension".`;
+        Notification.error(message, {
+          autoClose: false
+        });
+        return {
+          ok: false,
+          link: null,
+          sourcePath: normalizedSourcePath,
+          urlLength,
+          message
+        };
+      }
+
+      await copyValueToClipboard(link);
+      const details =
+        `Copied a share link for file "${normalizedSourcePath}" ` +
+        `(${urlLength} characters).`;
+
+      if (urlLength > SHARE_URL_WARN_LENGTH) {
+        Notification.warning(
+          `${details} Some browsers may reject very long URLs.`,
+          {
+            autoClose: 7000
+          }
+        );
+      } else {
+        Notification.success(details, {
+          autoClose: 5000
+        });
+      }
+
+      return {
+        ok: true,
+        link,
+        sourcePath: normalizedSourcePath,
+        urlLength
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      Notification.error(`Plugin share link creation failed: ${message}`, {
+        autoClose: false
+      });
+      return {
+        ok: false,
+        link: null,
+        sourcePath: normalizedSourcePath,
+        urlLength: 0,
+        message
+      };
+    }
+  }
+
+  /**
+   * Restore a shared file from URL token into a workspace folder and open it.
+   * The file is not executed automatically.
+   */
+  private async _loadSharedPluginFromUrl(): Promise<void> {
+    const sharedToken = getSharedPluginTokenFromLocation();
+    if (!sharedToken) {
+      return;
+    }
+
+    try {
+      const payload = await decodeSharedPluginPayload(sharedToken);
+      const fileName = this._basename(payload.fileName) || 'plugin.ts';
+      const extension = PathExt.extname(fileName);
+      const rootName = extension
+        ? fileName.slice(0, -extension.length)
+        : fileName;
+      const rootFolder = sharedPluginFolderName(rootName, sharedToken);
+      const rootPath = normalizeContentsPath(
+        this._joinPath(SHARED_LINKS_ROOT, rootFolder)
+      );
+      await ensureContentsDirectory(this.app.serviceManager, rootPath);
+
+      const baseName = extension
+        ? fileName.slice(0, -extension.length)
+        : fileName;
+      let entryPath = '';
+      let shouldWrite = false;
+      const maxVariants = 1000;
+
+      for (let variant = 1; variant <= maxVariants; variant++) {
+        const candidateName =
+          variant === 1 ? fileName : `${baseName}-${variant}${extension}`;
+        const candidatePath = normalizeContentsPath(
+          this._joinPath(rootPath, candidateName)
+        );
+        const existingFile = await getFileModel(
+          this.app.serviceManager,
+          candidatePath
+        );
+
+        if (!existingFile) {
+          entryPath = candidatePath;
+          shouldWrite = true;
+          break;
+        }
+
+        const existingSource = fileModelToText(existingFile);
+        if (existingSource === payload.source) {
+          entryPath = candidatePath;
+          shouldWrite = false;
+          break;
+        }
+      }
+
+      if (!entryPath) {
+        throw new Error(
+          `Could not find a writable location for shared file "${fileName}" in "${rootPath}".`
+        );
+      }
+      if (shouldWrite) {
+        await this.app.serviceManager.contents.save(entryPath, {
+          type: 'file',
+          format: 'text',
+          content: payload.source
+        });
+      }
+
+      await this.app.commands.execute('docmanager:open', {
+        path: entryPath,
+        factory: 'Editor'
+      });
+      clearSharedPluginTokenFromLocation();
+      Notification.success(
+        `Opened shared plugin from URL at "${entryPath}" (1 file). ` +
+          'Use "Load Current File As Extension" to run it.',
+        {
+          autoClose: 6000
+        }
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      Notification.error(`Failed to load shared plugin from URL: ${message}`, {
+        autoClose: false
+      });
     }
   }
 
@@ -2006,6 +2286,32 @@ const plugin: JupyterFrontEndPlugin<IPluginPlayground> = {
     }
 
     let playground: PluginPlayground | null = null;
+
+    // In order to accommodate loading ipywidgets and other AMD modules, we
+    // load RequireJS before loading any custom extensions.
+    const requirejsLoader = new RequireJSLoader();
+
+    const playgroundReady = Promise.all([
+      settingRegistry.load(plugin.id),
+      requirejsLoader.load()
+    ]).then(([settings, requirejs]) => {
+      playground = new PluginPlayground(
+        app,
+        settingRegistry,
+        commandPalette,
+        editorTracker,
+        launcher,
+        documentManager,
+        settings,
+        requirejs,
+        toolbarWidgetRegistry
+      );
+      return playground;
+    });
+    void playgroundReady.catch(error => {
+      console.error('Plugin Playground initialization failed.', error);
+    });
+
     const api: IPluginPlayground = {
       registerKnownModule: async (known: IKnownModule) => {
         if (playground) {
@@ -2013,31 +2319,29 @@ const plugin: JupyterFrontEndPlugin<IPluginPlayground> = {
           return;
         }
         registerKnownModule(known);
+      },
+      shareViaLink: async (path?: string) => {
+        if (!playground) {
+          try {
+            await playgroundReady;
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            throw new Error(
+              `Plugin Playground failed to initialize. ${message}`
+            );
+          }
+        }
+        if (!playground) {
+          throw new Error('Plugin Playground is not ready yet. Try again.');
+        }
+        return playground.shareViaLink(path);
       }
     };
 
-    // In order to accommodate loading ipywidgets and other AMD modules, we
-    // load RequireJS before loading any custom extensions.
-
-    const requirejsLoader = new RequireJSLoader();
     // We could convert to `async` and use `await` but we don't, because a failure
     // would freeze JupyterLab on splash screen; this way if it fails to load,
     // only the plugin is affected, not the entire application.
-    Promise.all([settingRegistry.load(plugin.id), requirejsLoader.load()]).then(
-      ([settings, requirejs]) => {
-        playground = new PluginPlayground(
-          app,
-          settingRegistry,
-          commandPalette,
-          editorTracker,
-          launcher,
-          documentManager,
-          settings,
-          requirejs,
-          toolbarWidgetRegistry
-        );
-      }
-    );
 
     return api;
   }

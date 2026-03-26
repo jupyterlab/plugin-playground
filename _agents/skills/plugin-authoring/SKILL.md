@@ -12,6 +12,8 @@ metadata:
     - tsx
     - token
     - command
+    - share-link
+    - clipboard
 ---
 
 # Plugin Authoring Skill (Playground)
@@ -71,7 +73,14 @@ Produce working plugin code that can be loaded with `plugin-playground:load-as-e
   - `app.commands.execute('plugin-playground:export-as-extension', { path: 'my-extension/src/index.ts' })`
 - Read export result metadata (`ok`, `archiveName`, `rootPath`, `fileCount`, `message`) and report failures.
 
-7. Imports and module safety
+7. Share a file link for collaboration
+
+- Run `plugin-playground:share-via-link` to create a shareable URL for a single file.
+- It can target the active file or an explicit path:
+  - `app.commands.execute('plugin-playground:share-via-link', { path: 'my-extension/src/index.ts' })`
+- The command keeps the same flow: it copies the generated link to clipboard and also returns metadata (`ok`, `link`, `sourcePath`, `urlLength`, `message`).
+
+8. Imports and module safety
 
 - Prefer JupyterLab/Lumino imports first.
 - For external packages, ensure AMD-compatible import targets are used.
