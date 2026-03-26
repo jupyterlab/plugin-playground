@@ -544,12 +544,12 @@ export default plugin;
 
   expect(shareResult.ok).toBe(true);
   expect(typeof shareResult.link).toBe('string');
-  expect(shareResult.link).toContain('pp=');
+  expect(shareResult.link).toContain('plugin=');
   expect(shareResult.sourcePath).toBe(sourcePath);
   expect(shareResult.urlLength).toBeGreaterThan(0);
 
   const parsed = new URL(shareResult.link);
-  const payloadToken = parsed.searchParams.get('pp');
+  const payloadToken = parsed.searchParams.get('plugin');
   expect(payloadToken).toBeTruthy();
   expect(payloadToken ?? '').toMatch(/^1\.[gr]\.[A-Za-z0-9_-]+$/);
 });

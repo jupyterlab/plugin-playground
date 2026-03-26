@@ -5,7 +5,7 @@ import { codeIcon, markdownIcon } from '@jupyterlab/ui-components';
 import * as React from 'react';
 
 import { Message } from '@lumino/messaging';
-import { normalizeQuery } from './contents';
+import { ContentUtils } from './contents';
 
 export namespace ExampleSidebar {
   export interface IExampleRecord {
@@ -26,7 +26,7 @@ export function filterExampleRecords(
   examples: ReadonlyArray<ExampleSidebar.IExampleRecord>,
   query: string
 ): ReadonlyArray<ExampleSidebar.IExampleRecord> {
-  const normalizedQuery = normalizeQuery(query);
+  const normalizedQuery = ContentUtils.normalizeQuery(query);
   if (!normalizedQuery) {
     return examples;
   }

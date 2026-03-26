@@ -1,7 +1,3 @@
-interface IByteTransformStreamConstructor {
-  new (format: 'gzip'): TransformStream<Uint8Array, Uint8Array>;
-}
-
 async function readStreamBytes(
   stream: ReadableStream<Uint8Array>,
   maxOutputBytes?: number
@@ -86,18 +82,13 @@ export function stableStringHash(value: string): string {
 export async function gzipBytesIfSupported(
   bytes: Uint8Array
 ): Promise<Uint8Array | null> {
-  const StreamConstructor = (
-    globalThis as typeof globalThis & {
-      CompressionStream?: IByteTransformStreamConstructor;
-    }
-  ).CompressionStream;
-  if (!StreamConstructor) {
+  if (typeof CompressionStream === 'undefined') {
     return null;
   }
   try {
     const stream = new Blob([bytes])
       .stream()
-      .pipeThrough(new StreamConstructor('gzip'));
+      .pipeThrough(new CompressionStream('gzip'));
     return await readStreamBytes(stream);
   } catch {
     return null;
@@ -108,19 +99,14 @@ export async function gunzipBytes(
   bytes: Uint8Array,
   maxOutputBytes?: number
 ): Promise<Uint8Array> {
-  const StreamConstructor = (
-    globalThis as typeof globalThis & {
-      DecompressionStream?: IByteTransformStreamConstructor;
-    }
-  ).DecompressionStream;
-  if (!StreamConstructor) {
+  if (typeof DecompressionStream === 'undefined') {
     throw new Error('This browser cannot decompress shared payloads.');
   }
 
   try {
     const stream = new Blob([bytes])
       .stream()
-      .pipeThrough(new StreamConstructor('gzip'));
+      .pipeThrough(new DecompressionStream('gzip'));
     return await readStreamBytes(stream, maxOutputBytes);
   } catch (error) {
     if (

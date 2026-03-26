@@ -6,7 +6,7 @@
     "esModuleInterop": true,
     "incremental": true,
     "jsx": "react",
-    "lib": ["dom", "es2020", "es2020.intl", "esnext.asynciterable"],
+    "lib": ["dom", "es2022", "es2022.intl", "esnext.asynciterable"],
     "module": "esnext",
     "moduleResolution": "node",
     "noEmitOnError": true,
@@ -18,7 +18,7 @@
     "rootDir": "src",
     "strict": true,
     "strictNullChecks": true,
-    "target": "es2020",
+    "target": "es2022",
     "types": []
   },
   "include": ["src/*"]
