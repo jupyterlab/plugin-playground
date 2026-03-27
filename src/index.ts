@@ -1060,20 +1060,53 @@ class PluginPlayground {
           `Could not find a writable location for shared file "${fileName}" in "${rootPath}".`
         );
       }
+      let restoredPath = entryPath;
       if (shouldWrite) {
-        await this.app.serviceManager.contents.save(entryPath, {
+        const saved = await this.app.serviceManager.contents.save(entryPath, {
           type: 'file',
           format: 'text',
           content: payload.source
         });
+        if (!saved || saved.type !== 'file') {
+          throw new Error(
+            `Failed to save shared file "${fileName}" at "${entryPath}".`
+          );
+        }
+        const normalizedSavedPath = ContentUtils.normalizeContentsPath(
+          saved.path
+        );
+        if (normalizedSavedPath !== entryPath) {
+          throw new Error(
+            `Shared file was saved to unexpected path "${normalizedSavedPath}" instead of "${entryPath}".`
+          );
+        }
       }
+      let restoredFile = await ContentUtils.getFileModel(
+        this.app.serviceManager,
+        entryPath
+      );
+      for (let attempt = 0; !restoredFile && attempt < 8; attempt++) {
+        await new Promise<void>(resolve => {
+          window.setTimeout(resolve, 75);
+        });
+        restoredFile = await ContentUtils.getFileModel(
+          this.app.serviceManager,
+          entryPath
+        );
+      }
+      if (!restoredFile) {
+        throw new Error(
+          `Shared file "${entryPath}" could not be found after restore.`
+        );
+      }
+      restoredPath = ContentUtils.normalizeContentsPath(restoredFile.path);
 
       await this.app.commands.execute('docmanager:open', {
-        path: entryPath,
+        path: restoredPath,
         factory: 'Editor'
       });
       Notification.success(
-        `Opened shared plugin from URL at "${entryPath}" (1 file). ` +
+        `Opened shared plugin from URL at "${restoredPath}" (1 file). ` +
           'Use "Load Current File As Extension" to run it.',
         {
           autoClose: 6000

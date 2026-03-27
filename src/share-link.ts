@@ -42,8 +42,13 @@ function sanitizeFileName(fileName: string): string {
 }
 
 function getCanonicalAppUrl(): URL {
-  const appUrl = PageConfig.getOption('appUrl') || '/lab';
-  const url = new URL(appUrl, window.location.origin);
+  const url = new URL(
+    PageConfig.getUrl({
+      toShare: true,
+      treePath: ''
+    }),
+    window.location.origin
+  );
   url.search = '';
   url.hash = '';
   return url;
