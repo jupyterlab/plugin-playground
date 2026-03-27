@@ -1000,8 +1000,8 @@ class PluginPlayground {
     if (!sharedToken) {
       return;
     }
-    // Clear the token and normalize to the canonical app URL immediately to
-    // avoid route-driven creation/opening side effects during restore.
+    // Remove the token immediately so a refresh/back navigation does not
+    // repeatedly re-import the same shared payload.
     ShareLink.clearSharedPluginTokenFromLocation();
 
     try {

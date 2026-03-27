@@ -131,6 +131,7 @@ export namespace ContentUtils {
     const segments = normalizedPath.split('/');
     let current = '';
     for (const segment of segments) {
+      const parentPath = current;
       current = current ? `${current}/${segment}` : segment;
       const existingDirectory = await getDirectoryModel(
         serviceManager,
@@ -141,9 +142,14 @@ export namespace ContentUtils {
       }
 
       try {
-        await serviceManager.contents.save(current, {
+        const createdDirectory = await serviceManager.contents.newUntitled({
+          path: parentPath,
           type: 'directory'
         });
+        const createdPath = normalizeContentsPath(createdDirectory.path);
+        if (createdPath !== current) {
+          await serviceManager.contents.rename(createdDirectory.path, current);
+        }
       } catch (error) {
         const recheckedDirectory = await getDirectoryModel(
           serviceManager,
@@ -156,6 +162,11 @@ export namespace ContentUtils {
             `Could not create directory "${current}". ${message}`
           );
         }
+      }
+
+      const ensuredDirectory = await getDirectoryModel(serviceManager, current);
+      if (!ensuredDirectory) {
+        throw new Error(`Could not create directory "${current}".`);
       }
     }
   }
