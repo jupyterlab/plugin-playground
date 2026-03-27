@@ -5,6 +5,7 @@ import {
   gzipBytesIfSupported,
   stableStringHash
 } from './encoding';
+import { PageConfig } from '@jupyterlab/coreutils';
 import { ContentUtils } from './contents';
 
 const SHARE_TOKEN_VERSION = '1';
@@ -38,6 +39,14 @@ function sanitizeFileName(fileName: string): string {
     return '';
   }
   return segments[segments.length - 1] ?? '';
+}
+
+function getCanonicalAppUrl(): URL {
+  const appUrl = PageConfig.getOption('appUrl') || '/lab';
+  const url = new URL(appUrl, window.location.origin);
+  url.search = '';
+  url.hash = '';
+  return url;
 }
 
 export namespace ShareLink {
@@ -179,20 +188,21 @@ export namespace ShareLink {
   }
 
   export function createSharedPluginUrl(token: string): string {
-    const url = new URL(window.location.href);
-    url.search = '';
+    const url = getCanonicalAppUrl();
     url.searchParams.set(SHARE_URL_PARAM, token);
     return url.toString();
   }
 
   export function clearSharedPluginTokenFromLocation(): void {
     try {
-      const url = new URL(window.location.href);
-      if (!url.searchParams.has(SHARE_URL_PARAM)) {
+      const currentUrl = new URL(window.location.href);
+      if (!currentUrl.searchParams.has(SHARE_URL_PARAM)) {
         return;
       }
-      url.searchParams.delete(SHARE_URL_PARAM);
-      const next = `${url.pathname}${url.search}${url.hash}`;
+      currentUrl.searchParams.delete(SHARE_URL_PARAM);
+      const nextUrl = getCanonicalAppUrl();
+      nextUrl.search = currentUrl.search;
+      const next = `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`;
       window.history.replaceState(window.history.state, '', next);
     } catch {
       // Ignore URL/history failures in non-browser contexts.

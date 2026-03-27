@@ -552,6 +552,8 @@ export default plugin;
   const payloadToken = parsed.searchParams.get('plugin');
   expect(payloadToken).toBeTruthy();
   expect(payloadToken ?? '').toMatch(/^1\.[gr]\.[A-Za-z0-9_-]+$/);
+  expect(parsed.pathname.includes('/tree/')).toBe(false);
+  expect(parsed.hash.includes('/tree')).toBe(false);
 });
 
 test('loads a shared plugin from URL and clears query param', async ({
@@ -610,7 +612,7 @@ export default plugin;
   expect(shareResult.ok).toBe(true);
   expect(typeof shareResult.link).toBe('string');
 
-  // Use raw Playwright navigation to avoid Galata's app-readiness wait on shared tree URLs.
+  // Use raw Playwright navigation to avoid Galata app-readiness timing issues.
   const browserPage = (page as unknown as { page: PlaywrightPage }).page;
   await browserPage.goto(shareResult.link, { waitUntil: 'domcontentloaded' });
 
@@ -667,21 +669,63 @@ export default plugin;
     return typeof fileModel?.content === 'string' ? fileModel.content : null;
   }, restoredPath);
   const browserState = await page.evaluate(() => {
+    const currentUrl = new URL(window.location.href);
     return {
-      pluginQueryParam: new URL(window.location.href).searchParams.get(
-        'plugin'
-      ),
+      pluginQueryParam: currentUrl.searchParams.get('plugin'),
+      currentPathname: currentUrl.pathname,
+      currentHash: currentUrl.hash,
       hasLoadedToggleCommand: window.jupyterapp.commands.hasCommand(
         'share-load-command-test:toggle'
       )
     };
+  });
+  const hasUntitledFolderWithSameNamedFile = await page.evaluate(async () => {
+    const serviceManager = (window.jupyterapp as any).serviceManager;
+    const root = await serviceManager.contents.get('', {
+      content: true
+    });
+    if (!root || root.type !== 'directory' || !Array.isArray(root.content)) {
+      return false;
+    }
+    const untitledPattern = /^untitled/i;
+    for (const entry of root.content) {
+      if (
+        !entry ||
+        entry.type !== 'directory' ||
+        typeof entry.name !== 'string' ||
+        !untitledPattern.test(entry.name) ||
+        typeof entry.path !== 'string'
+      ) {
+        continue;
+      }
+      const directory = await serviceManager.contents.get(entry.path, {
+        content: true
+      });
+      if (
+        !directory ||
+        directory.type !== 'directory' ||
+        !Array.isArray(directory.content)
+      ) {
+        continue;
+      }
+      const matchingFile = directory.content.find(
+        (child: any) => child?.type === 'file' && child?.name === entry.name
+      );
+      if (matchingFile) {
+        return true;
+      }
+    }
+    return false;
   });
 
   expect(restoredPath.includes('plugin-playground-shared/')).toBe(true);
   expect(restoredPath.includes(`/${sourceFilename}`)).toBe(true);
   expect(restoredSource?.trim()).toBe(sharedPluginSource.trim());
   expect(browserState.pluginQueryParam).toBeNull();
+  expect(browserState.currentPathname.includes('/tree')).toBe(false);
+  expect(browserState.currentHash.includes('/tree')).toBe(false);
   expect(browserState.hasLoadedToggleCommand).toBe(false);
+  expect(hasUntitledFolderWithSameNamedFile).toBe(false);
 });
 
 test('returns an error when sharing a directory path', async ({

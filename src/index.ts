@@ -1000,6 +1000,9 @@ class PluginPlayground {
     if (!sharedToken) {
       return;
     }
+    // Clear the token and normalize to the canonical app URL immediately to
+    // avoid route-driven creation/opening side effects during restore.
+    ShareLink.clearSharedPluginTokenFromLocation();
 
     try {
       const payload = await ShareLink.decodeSharedPluginPayload(sharedToken);
@@ -1069,7 +1072,6 @@ class PluginPlayground {
         path: entryPath,
         factory: 'Editor'
       });
-      ShareLink.clearSharedPluginTokenFromLocation();
       Notification.success(
         `Opened shared plugin from URL at "${entryPath}" (1 file). ` +
           'Use "Load Current File As Extension" to run it.',
