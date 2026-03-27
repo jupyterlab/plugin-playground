@@ -67,11 +67,27 @@ export namespace ShareLink {
         source: payload.source
       })
     );
+    if (rawBytes.length > MAX_SHARED_PAYLOAD_BYTES) {
+      throw new Error(
+        `Shared payload is too large (max ${MAX_SHARED_PAYLOAD_BYTES} bytes).`
+      );
+    }
+
     const compressedBytes = await gzipBytesIfSupported(rawBytes);
     const useCompressed =
       !!compressedBytes && compressedBytes.length < rawBytes.length;
     const codec = useCompressed ? ShareCodec.Gzip : ShareCodec.Raw;
     const encodedBytes = useCompressed ? compressedBytes : rawBytes;
+
+    const paddingChars = (3 - (encodedBytes.length % 3)) % 3;
+    const encodedPayloadChars =
+      Math.ceil(encodedBytes.length / 3) * 4 - paddingChars;
+    if (encodedPayloadChars > MAX_SHARED_TOKEN_PAYLOAD_CHARS) {
+      throw new Error(
+        `Shared payload token is too large (max ${MAX_SHARED_TOKEN_PAYLOAD_CHARS} characters).`
+      );
+    }
+
     return `${SHARE_TOKEN_VERSION}.${codec}.${bytesToBase64Url(encodedBytes)}`;
   }
 
@@ -79,7 +95,7 @@ export namespace ShareLink {
     token: string
   ): Promise<ISharedPluginPayload> {
     const trimmed = token.trim();
-    const parts = trimmed.split('.', 3);
+    const parts = trimmed.split('.');
     if (parts.length !== 3) {
       throw new Error('Shared payload token format is invalid.');
     }

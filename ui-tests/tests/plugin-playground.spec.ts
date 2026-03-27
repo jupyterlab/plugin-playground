@@ -1,7 +1,7 @@
 import { expect, galata, test } from '@jupyterlab/galata';
 import type { FileEditorWidget } from '@jupyterlab/fileeditor';
 import type { IJupyterLabPageFixture } from '@jupyterlab/galata';
-import type { Locator } from '@playwright/test';
+import type { Locator, Page as PlaywrightPage } from '@playwright/test';
 
 const LOAD_COMMAND = 'plugin-playground:load-as-extension';
 const EXPORT_COMMAND = 'plugin-playground:export-as-extension';
@@ -552,6 +552,136 @@ export default plugin;
   const payloadToken = parsed.searchParams.get('plugin');
   expect(payloadToken).toBeTruthy();
   expect(payloadToken ?? '').toMatch(/^1\.[gr]\.[A-Za-z0-9_-]+$/);
+});
+
+test('loads a shared plugin from URL and clears query param', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/share-load-command-test`;
+  const sourceFilename = 'share-load-entry.ts';
+  const sourcePath = `${projectRoot}/src/${sourceFilename}`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+  const sharedPluginSource = `
+const plugin = {
+  id: 'share-load-command-test:plugin',
+  autoStart: true,
+  activate: app => {
+    app.commands.addCommand('share-load-command-test:toggle', {
+      label: 'Share Load Toggle',
+      execute: () => {
+        return undefined;
+      }
+    });
+  }
+};
+
+export default plugin;
+`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: 'share-load-command-test',
+        version: '0.1.0',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(sharedPluginSource, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab(sourceFilename)).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, SHARE_COMMAND)
+  );
+
+  const shareResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, SHARE_COMMAND);
+  expect(shareResult.ok).toBe(true);
+  expect(typeof shareResult.link).toBe('string');
+
+  // Use raw Playwright navigation to avoid Galata's app-readiness wait on shared tree URLs.
+  const browserPage = (page as unknown as { page: PlaywrightPage }).page;
+  await browserPage.goto(shareResult.link, { waitUntil: 'domcontentloaded' });
+
+  let restoredPath = '';
+  await page.waitForCondition(async () => {
+    const root = await page.contents.getContentMetadata(
+      'plugin-playground-shared',
+      'directory'
+    );
+    if (!root || root.type !== 'directory' || !Array.isArray(root.content)) {
+      return false;
+    }
+
+    for (const folder of root.content) {
+      if (folder.type !== 'directory') {
+        continue;
+      }
+      const directory = await page.contents.getContentMetadata(
+        folder.path,
+        'directory'
+      );
+      if (
+        !directory ||
+        directory.type !== 'directory' ||
+        !Array.isArray(directory.content)
+      ) {
+        continue;
+      }
+      const restoredFile = directory.content.find(
+        entry => entry.type === 'file' && entry.name === sourceFilename
+      );
+      if (!restoredFile) {
+        continue;
+      }
+      restoredPath = restoredFile.path;
+      return true;
+    }
+
+    return false;
+  }, 30000);
+
+  expect(restoredPath).not.toBe('');
+  if (!restoredPath) {
+    throw new Error(
+      'Shared file was not restored under plugin-playground-shared.'
+    );
+  }
+  const restoredSource = await page.evaluate(async (path: string) => {
+    const serviceManager = (window.jupyterapp as any).serviceManager;
+    const fileModel = await serviceManager.contents.get(path, {
+      content: true,
+      format: 'text'
+    });
+    return typeof fileModel?.content === 'string' ? fileModel.content : null;
+  }, restoredPath);
+  const browserState = await page.evaluate(() => {
+    return {
+      pluginQueryParam: new URL(window.location.href).searchParams.get(
+        'plugin'
+      ),
+      hasLoadedToggleCommand: window.jupyterapp.commands.hasCommand(
+        'share-load-command-test:toggle'
+      )
+    };
+  });
+
+  expect(restoredPath.includes('plugin-playground-shared/')).toBe(true);
+  expect(restoredPath.includes(`/${sourceFilename}`)).toBe(true);
+  expect(restoredSource?.trim()).toBe(sharedPluginSource.trim());
+  expect(browserState.pluginQueryParam).toBeNull();
+  expect(browserState.hasLoadedToggleCommand).toBe(false);
 });
 
 test('returns an error when sharing a directory path', async ({
