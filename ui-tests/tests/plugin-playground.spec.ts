@@ -1,7 +1,8 @@
 import { expect, galata, test } from '@jupyterlab/galata';
 import type { FileEditorWidget } from '@jupyterlab/fileeditor';
 import type { IJupyterLabPageFixture } from '@jupyterlab/galata';
-import type { Locator, Page as PlaywrightPage } from '@playwright/test';
+import type { Contents } from '@jupyterlab/services';
+import type { Locator } from '@playwright/test';
 
 const LOAD_COMMAND = 'plugin-playground:load-as-extension';
 const EXPORT_COMMAND = 'plugin-playground:export-as-extension';
@@ -22,6 +23,11 @@ const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
 const TOKEN_SECTION_ID = 'jp-plugin-token-sidebar';
 const EXAMPLE_SECTION_ID = 'jp-plugin-example-sidebar';
 const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
+
+interface IWindowWithExportCounter extends Window {
+  __exportDownloadCount?: number;
+  __originalCreateObjectURL?: typeof URL.createObjectURL;
+}
 
 test.use({ autoGoto: false });
 
@@ -464,13 +470,14 @@ test('exports active extension folder as a zip archive', async ({
   );
 
   await page.evaluate(() => {
-    const w = window as any;
-    w.__exportDownloadCount = 0;
-    if (!w.__originalCreateObjectURL) {
-      w.__originalCreateObjectURL = URL.createObjectURL.bind(URL);
+    const win = window as IWindowWithExportCounter;
+    win.__exportDownloadCount = 0;
+    if (!win.__originalCreateObjectURL) {
+      win.__originalCreateObjectURL = URL.createObjectURL.bind(URL);
+      const originalCreateObjectURL = win.__originalCreateObjectURL;
       URL.createObjectURL = ((blob: Blob) => {
-        w.__exportDownloadCount += 1;
-        return w.__originalCreateObjectURL(blob);
+        win.__exportDownloadCount = (win.__exportDownloadCount ?? 0) + 1;
+        return originalCreateObjectURL(blob);
       }) as typeof URL.createObjectURL;
     }
   });
@@ -484,7 +491,7 @@ test('exports active extension folder as a zip archive', async ({
   expect(exportResult.fileCount).toBeGreaterThanOrEqual(2);
 
   const downloadCount = await page.evaluate(() => {
-    return (window as any).__exportDownloadCount ?? 0;
+    return (window as IWindowWithExportCounter).__exportDownloadCount ?? 0;
   });
   expect(downloadCount).toBeGreaterThan(0);
 });
@@ -612,8 +619,7 @@ export default plugin;
   expect(shareResult.ok).toBe(true);
   expect(typeof shareResult.link).toBe('string');
 
-  // Use raw Playwright navigation to avoid Galata app-readiness timing issues.
-  const browserPage = (page as unknown as { page: PlaywrightPage }).page;
+  const browserPage = page.context().pages()[0];
   await browserPage.goto(shareResult.link, { waitUntil: 'domcontentloaded' });
 
   let restoredPath = '';
@@ -661,12 +667,14 @@ export default plugin;
     );
   }
   const restoredSource = await page.evaluate(async (path: string) => {
-    const serviceManager = (window.jupyterapp as any).serviceManager;
-    const fileModel = await serviceManager.contents.get(path, {
-      content: true,
-      format: 'text'
-    });
-    return typeof fileModel?.content === 'string' ? fileModel.content : null;
+    const fileModel = await window.jupyterapp.serviceManager.contents.get(
+      path,
+      {
+        content: true,
+        format: 'text'
+      }
+    );
+    return typeof fileModel.content === 'string' ? fileModel.content : null;
   }, restoredPath);
   const browserState = await page.evaluate(() => {
     const currentUrl = new URL(window.location.href);
@@ -680,17 +688,16 @@ export default plugin;
     };
   });
   const hasUntitledFolderWithSameNamedFile = await page.evaluate(async () => {
-    const serviceManager = (window.jupyterapp as any).serviceManager;
-    const root = await serviceManager.contents.get('', {
+    const root = await window.jupyterapp.serviceManager.contents.get('', {
       content: true
     });
     if (!root || root.type !== 'directory' || !Array.isArray(root.content)) {
       return false;
     }
     const untitledPattern = /^untitled/i;
-    for (const entry of root.content) {
+    const entries = root.content as Contents.IModel[];
+    for (const entry of entries) {
       if (
-        !entry ||
         entry.type !== 'directory' ||
         typeof entry.name !== 'string' ||
         !untitledPattern.test(entry.name) ||
@@ -698,9 +705,12 @@ export default plugin;
       ) {
         continue;
       }
-      const directory = await serviceManager.contents.get(entry.path, {
-        content: true
-      });
+      const directory = await window.jupyterapp.serviceManager.contents.get(
+        entry.path,
+        {
+          content: true
+        }
+      );
       if (
         !directory ||
         directory.type !== 'directory' ||
@@ -708,8 +718,9 @@ export default plugin;
       ) {
         continue;
       }
-      const matchingFile = directory.content.find(
-        (child: any) => child?.type === 'file' && child?.name === entry.name
+      const children = directory.content as Contents.IModel[];
+      const matchingFile = children.some(
+        child => child.type === 'file' && child.name === entry.name
       );
       if (matchingFile) {
         return true;

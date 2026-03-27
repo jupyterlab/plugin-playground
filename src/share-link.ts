@@ -40,6 +40,17 @@ function sanitizeFileName(fileName: string): string {
   return segments[segments.length - 1] ?? '';
 }
 
+function removeTreeRoute(pathname: string): string {
+  const treeSegmentIndex = pathname.indexOf('/tree/');
+  if (treeSegmentIndex >= 0) {
+    return pathname.slice(0, treeSegmentIndex);
+  }
+  if (pathname.endsWith('/tree')) {
+    return pathname.slice(0, -'/tree'.length);
+  }
+  return pathname;
+}
+
 export namespace ShareLink {
   export const SHARE_URL_PARAM = 'plugin';
 
@@ -180,6 +191,9 @@ export namespace ShareLink {
 
   export function createSharedPluginUrl(token: string): string {
     const url = new URL(window.location.href);
+    url.pathname = removeTreeRoute(url.pathname);
+    url.search = '';
+    url.hash = '';
     url.searchParams.set(SHARE_URL_PARAM, token);
     return url.toString();
   }
@@ -191,6 +205,8 @@ export namespace ShareLink {
         return;
       }
       currentUrl.searchParams.delete(SHARE_URL_PARAM);
+      currentUrl.pathname = removeTreeRoute(currentUrl.pathname);
+      currentUrl.hash = '';
       const next = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
       window.history.replaceState(window.history.state, '', next);
     } catch {
