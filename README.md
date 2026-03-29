@@ -138,36 +138,71 @@ Plugin Playground supports AI-assisted extension prototyping in both JupyterLite
 
 ### Commands for AI Agents and Automation
 
-Plugin Playground now exposes command APIs that mirror sidebar data and support optional `query` filtering:
+Plugin Playground now exposes command APIs that mirror sidebar data.
+Discovery commands support optional `query` filtering:
 
 - `plugin-playground:list-tokens`
 - `plugin-playground:list-commands`
 - `plugin-playground:list-extension-examples`
+- `plugin-playground:discover-plugin-docs` (supports optional `{ query?: string, package?: string, detailLevel?: 1 | 2 | 3 }`)
 - `plugin-playground:export-as-extension` (supports optional `{ path: string }`)
+- `plugin-playground:fetch-plugin-doc` (requires `{ path: string }`, supports optional `{ maxChars: number }`)
 
 Example:
 
 ```typescript
-await app.commands.execute('plugin-playground:list-tokens', {
-  query: 'notebook'
-});
+const docs = await app.commands.execute(
+  'plugin-playground:discover-plugin-docs',
+  { query: 'skill', detailLevel: 1 }
+);
+
+const docContent = await app.commands.execute(
+  'plugin-playground:fetch-plugin-doc',
+  {
+    path: docs.items[0].path,
+    maxChars: 8000
+  }
+);
 
 await app.commands.execute('plugin-playground:export-as-extension', {
   path: 'my-extension/src/index.ts'
 });
 ```
 
-Each command returns a JSON object with:
+Discovery commands (`list-*`, `discover-*`) return:
 
 - `query`: the filter text that was applied
 - `total`: total number of available records
 - `count`: number of records returned after filtering
 - `items`: matching records
 
+`discover-plugin-docs` also returns:
+
+- `package`: the package filter text that was applied
+- `detailLevel`: resolved detail level used for discovery
+- `remaining`: how many matches were omitted at current detail level
+- `hasMore`: whether additional matches are available
+- `hint`: guidance for fetching more context (for low detail responses)
+
+For `discover-plugin-docs`, `package` matches inferred package context for each doc (for example `plugin-playground`, extension example name, or skill name).
+
+`plugin-playground:fetch-plugin-doc` returns:
+
+- `ok`: whether the fetch succeeded
+- `path`: fetched documentation file path
+- `title`: human-readable document title
+- `source`: where the document came from
+- `content`: fetched text content (possibly truncated)
+- `contentLength`: original full text length
+- `truncated`: whether `content` was truncated by `maxChars`
+
+By default, `fetch-plugin-doc` uses the `docFetchMaxChars` setting (default `20000`) and also caps any larger `maxChars` argument to that value.
+
 ## Advanced Settings
 
-The Advanced Settings for the Plugin Playground enable you to configure plugins to load every time JupyterLab starts up. Automatically loaded plugins can be configured in two ways:
+The Advanced Settings for the Plugin Playground enable you to configure plugins to load every time JupyterLab starts up. Automatically loaded plugins can be configured in several ways:
 
+- `docFetchMaxChars` sets the default and maximum character budget for `plugin-playground:fetch-plugin-doc`.
 - `urls` is a list of URLs that will be fetched and loaded as plugins automatically when JupyterLab starts up. For example, you can point to a GitHub gist or a file you host on a local server that serves text files like the above examples.
 - `plugins` is a list of strings of plugin text, like the examples above, that are loaded automatically when JupyterLab starts up. Since JSON strings cannot have multiple lines, you will need to encode any newlines in your plugin text directly as `\n\` (the second backslash is to allow the string to continue on the next line). For example, here is a user setting to encode a small plugin to run at startup:
   ```json5

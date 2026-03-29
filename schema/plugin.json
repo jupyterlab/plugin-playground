@@ -37,6 +37,14 @@
       "default": false,
       "type": "boolean"
     },
+    "docFetchMaxChars": {
+      "title": "Max characters for doc fetch",
+      "description": "Maximum number of characters returned by plugin-playground:fetch-plugin-doc. Also used as the default when maxChars is omitted.",
+      "default": 20000,
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200000
+    },
     "plugins": {
       "title": "Plugins",
       "description": "List of strings of plugin text to load automatically. Line breaks are encoded as '\\n'",

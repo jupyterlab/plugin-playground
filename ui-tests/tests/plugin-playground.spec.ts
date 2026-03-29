@@ -12,6 +12,8 @@ const PLAYGROUND_PLUGIN_ID = '@jupyterlab/plugin-playground:plugin';
 const LIST_TOKENS_COMMAND = 'plugin-playground:list-tokens';
 const LIST_COMMANDS_COMMAND = 'plugin-playground:list-commands';
 const LIST_EXAMPLES_COMMAND = 'plugin-playground:list-extension-examples';
+const DISCOVER_DOCS_COMMAND = 'plugin-playground:discover-plugin-docs';
+const FETCH_DOC_COMMAND = 'plugin-playground:fetch-plugin-doc';
 const TEST_PLUGIN_ID = 'playground-integration-test:plugin';
 const TEST_TOGGLE_COMMAND = 'playground-integration-test:toggle';
 const TEST_FILE = 'playground-integration-test.ts';
@@ -21,6 +23,8 @@ const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
 const TOKEN_SECTION_ID = 'jp-plugin-token-sidebar';
 const EXAMPLE_SECTION_ID = 'jp-plugin-example-sidebar';
 const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
+const DOC_FETCH_MAX_CHARS_SETTING = 'docFetchMaxChars';
+const DOC_FETCH_MAX_CHARS_TEST_LIMIT = 24;
 
 test.use({ autoGoto: false });
 
@@ -145,6 +149,16 @@ test('registers plugin playground commands', async ({ page }) => {
       return window.jupyterapp.commands.hasCommand(id);
     }, LIST_EXAMPLES_COMMAND)
   );
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, DISCOVER_DOCS_COMMAND)
+  );
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, FETCH_DOC_COMMAND)
+  );
 
   await expect(
     page.evaluate((id: string) => {
@@ -176,6 +190,16 @@ test('registers plugin playground commands', async ({ page }) => {
     page.evaluate((id: string) => {
       return window.jupyterapp.commands.hasCommand(id);
     }, LIST_EXAMPLES_COMMAND)
+  ).resolves.toBe(true);
+  await expect(
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, DISCOVER_DOCS_COMMAND)
+  ).resolves.toBe(true);
+  await expect(
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, FETCH_DOC_COMMAND)
   ).resolves.toBe(true);
 });
 
@@ -331,6 +355,138 @@ test('lists tokens and searches commands via command APIs', async ({
       (item: { id: string }) => item.id === LOAD_COMMAND
     )
   ).toBe(true);
+});
+
+test.describe('doc command APIs', () => {
+  test.use({
+    mockSettings: {
+      ...galata.DEFAULT_SETTINGS,
+      [PLAYGROUND_PLUGIN_ID]: {
+        [DOC_FETCH_MAX_CHARS_SETTING]: DOC_FETCH_MAX_CHARS_TEST_LIMIT
+      }
+    }
+  });
+
+  test('discovers and fetches plugin docs via command APIs', async ({
+    page
+  }) => {
+    const content = '# Playground Docs\n\nLocal test documentation.\n';
+    await page.contents.uploadContent(content, 'text', 'README.md');
+    await page.contents.uploadContent(
+      '# Docs Index\n\nNavigation page.\n',
+      'text',
+      'docs/index.md'
+    );
+    await page.contents.uploadContent(
+      '# Plugin Authoring Skill\n\nGuidance.\n',
+      'text',
+      '_agents/skills/plugin-authoring/SKILL.md'
+    );
+    await page.contents.uploadContent(
+      '# Private Notes\n\nNot part of plugin docs discovery.\n',
+      'text',
+      'notes.md'
+    );
+    await page.goto();
+    await page.waitForCondition(() =>
+      page.evaluate((id: string) => {
+        return window.jupyterapp.commands.hasCommand(id);
+      }, DISCOVER_DOCS_COMMAND)
+    );
+    await page.waitForCondition(() =>
+      page.evaluate((id: string) => {
+        return window.jupyterapp.commands.hasCommand(id);
+      }, FETCH_DOC_COMMAND)
+    );
+
+    const lowDetailResult = await page.evaluate((id: string) => {
+      return window.jupyterapp.commands.execute(id, {
+        detailLevel: 1
+      });
+    }, DISCOVER_DOCS_COMMAND);
+    expect(lowDetailResult.count).toBe(2);
+    expect(lowDetailResult.hasMore).toBe(true);
+    expect(lowDetailResult.remaining).toBeGreaterThan(0);
+    expect(lowDetailResult.count + lowDetailResult.remaining).toBeGreaterThan(
+      2
+    );
+    expect(typeof lowDetailResult.hint).toBe('string');
+
+    const packageFilteredResult = await page.evaluate((id: string) => {
+      return window.jupyterapp.commands.execute(id, {
+        package: 'plugin-authoring',
+        detailLevel: 3
+      });
+    }, DISCOVER_DOCS_COMMAND);
+    expect(packageFilteredResult.count).toBeGreaterThanOrEqual(1);
+    expect(
+      packageFilteredResult.items.some((item: { path: string }) =>
+        item.path.includes('plugin-authoring/SKILL.md')
+      )
+    ).toBe(true);
+
+    const docsResult = await page.evaluate(
+      ({ id, query }) => {
+        return window.jupyterapp.commands.execute(id, { query });
+      },
+      {
+        id: DISCOVER_DOCS_COMMAND,
+        query: 'readme'
+      }
+    );
+    expect(docsResult.count).toBeGreaterThan(0);
+    expect(docsResult.total).toBeGreaterThan(0);
+
+    const readmeDoc = docsResult.items.find(
+      (item: { path: string }) => item.path === 'README.md'
+    ) as { path: string } | undefined;
+    expect(readmeDoc).toBeDefined();
+    const docToFetch = readmeDoc as { path: string };
+
+    const defaultFetchResult = await page.evaluate((id: string) => {
+      return window.jupyterapp.commands.execute(id, { path: 'README.md' });
+    }, FETCH_DOC_COMMAND);
+    expect(defaultFetchResult.ok).toBe(true);
+    expect(defaultFetchResult.path).toBe('README.md');
+    expect(defaultFetchResult.contentLength).toBe(content.length);
+    expect(defaultFetchResult.content).toBe(
+      content.slice(0, DOC_FETCH_MAX_CHARS_TEST_LIMIT)
+    );
+    expect(defaultFetchResult.truncated).toBe(
+      content.length > DOC_FETCH_MAX_CHARS_TEST_LIMIT
+    );
+
+    const cappedFetchResult = await page.evaluate(
+      ({ id, path, maxChars }) => {
+        return window.jupyterapp.commands.execute(id, { path, maxChars });
+      },
+      {
+        id: FETCH_DOC_COMMAND,
+        path: docToFetch.path,
+        maxChars: 128
+      }
+    );
+    expect(cappedFetchResult.ok).toBe(true);
+    expect(cappedFetchResult.path).toBe(docToFetch.path);
+    expect(typeof cappedFetchResult.content).toBe('string');
+    expect(cappedFetchResult.content).toContain('Playground Docs');
+    expect(cappedFetchResult.content.length).toBeLessThanOrEqual(128);
+    expect(cappedFetchResult.content.length).toBeLessThanOrEqual(
+      DOC_FETCH_MAX_CHARS_TEST_LIMIT
+    );
+    expect(cappedFetchResult.contentLength).toBeGreaterThan(0);
+    expect(cappedFetchResult.truncated).toBe(
+      cappedFetchResult.contentLength > cappedFetchResult.content.length
+    );
+
+    const missingResult = await page.evaluate((id: string) => {
+      return window.jupyterapp.commands.execute(id, {
+        path: 'notes.md'
+      });
+    }, FETCH_DOC_COMMAND);
+    expect(missingResult.ok).toBe(false);
+    expect(missingResult.message).toContain('not a discoverable plugin doc');
+  });
 });
 
 test('open packages reference command switches to packages view', async ({

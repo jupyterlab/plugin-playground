@@ -84,6 +84,7 @@ import {
   IFileModel,
   normalizeExternalUrl,
   normalizeContentsPath,
+  normalizeQuery,
   openExternalLink
 } from './contents';
 import {
@@ -110,6 +111,8 @@ namespace CommandIDs {
   export const listCommands = 'plugin-playground:list-commands';
   export const listExtensionExamples =
     'plugin-playground:list-extension-examples';
+  export const discoverPluginDocs = 'plugin-playground:discover-plugin-docs';
+  export const fetchPluginDoc = 'plugin-playground:fetch-plugin-doc';
 }
 
 type PluginLoadStatus =
@@ -147,6 +150,34 @@ interface IResolvedExportContext {
   rootPath: string;
   archiveEntries: IArchiveEntry[];
   usedTemplate: boolean;
+}
+
+/**
+ * Metadata for a documentation entry returned by
+ * `plugin-playground:discover-plugin-docs`.
+ */
+interface IPluginDocRecord {
+  title: string;
+  path: string;
+  source: string;
+  description: string;
+}
+
+/**
+ * Result payload returned by `plugin-playground:fetch-plugin-doc`.
+ *
+ * When `ok` is `false`, `message` describes the read failure.
+ * When `ok` is `true`, `content` may still be truncated depending on `maxChars`.
+ */
+interface IPluginDocFetchResult {
+  ok: boolean;
+  path: string | null;
+  title: string | null;
+  source: string | null;
+  content: string | null;
+  contentLength: number;
+  truncated: boolean;
+  message?: string;
 }
 
 const PLUGIN_TEMPLATE = `import {
@@ -194,6 +225,13 @@ interface IPrivatePluginData {
 }
 
 const EXTENSION_EXAMPLES_ROOT = 'extension-examples';
+const ROOT_README_PATH = 'README.md';
+const DOCS_INDEX_PATH = 'docs/index.md';
+const PLUGIN_AUTHORING_SKILL_PATH = '_agents/skills/plugin-authoring/SKILL.md';
+const DOC_FETCH_MAX_CHARS_SETTING = 'docFetchMaxChars';
+const DOC_DISCOVERY_DETAIL_DEFAULT = 2;
+const DOC_DISCOVERY_DETAIL_MIN = 1;
+const DOC_DISCOVERY_DETAIL_MAX = 3;
 const LIST_QUERY_ARGS_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -202,6 +240,29 @@ const LIST_QUERY_ARGS_SCHEMA = {
       type: 'string',
       description:
         'Optional filter text. Matches records case-insensitively by visible text fields (such as id, label, caption, name, or description, depending on record type).'
+    }
+  }
+};
+
+const DISCOVER_PLUGIN_DOCS_ARGS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    query: {
+      type: 'string',
+      description:
+        'Optional filter text. Matches records case-insensitively by doc title, path, source, and description.'
+    },
+    package: {
+      type: 'string',
+      description:
+        'Optional package filter text. Matches inferred package context for each doc (for example plugin-playground, extension example name, or skill name).'
+    },
+    detailLevel: {
+      type: 'integer',
+      minimum: DOC_DISCOVERY_DETAIL_MIN,
+      maximum: DOC_DISCOVERY_DETAIL_MAX,
+      description: `Optional detail level. 1 returns a small preview with a "hasMore" hint, 2 returns a larger slice, and 3 returns all matches. Defaults to ${DOC_DISCOVERY_DETAIL_DEFAULT}.`
     }
   }
 };
@@ -226,6 +287,24 @@ const CREATE_PLUGIN_ARGS_SCHEMA = {
       type: 'string',
       description:
         'Optional file path. Relative paths are resolved from the current working directory; paths starting with "/" are resolved from the workspace root. If no extension is provided, ".ts" is appended.'
+    }
+  }
+};
+
+const FETCH_PLUGIN_DOC_ARGS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['path'],
+  properties: {
+    path: {
+      type: 'string',
+      description:
+        'Contents path of a discovered documentation file. Use plugin-playground:discover-plugin-docs to list available paths.'
+    },
+    maxChars: {
+      type: 'integer',
+      minimum: 1,
+      description: `Optional maximum number of characters to return. Defaults to and is capped by the "${DOC_FETCH_MAX_CHARS_SETTING}" setting.`
     }
   }
 };
@@ -496,6 +575,141 @@ class PluginPlayground {
           count: items.length,
           items: [...items]
         };
+      }
+    });
+
+    app.commands.addCommand(CommandIDs.discoverPluginDocs, {
+      label: 'Discover Plugin Docs (Playground)',
+      caption: 'List plugin documentation files available to AI tooling',
+      describedBy: { args: DISCOVER_PLUGIN_DOCS_ARGS_SCHEMA },
+      execute: async args => {
+        const query = typeof args.query === 'string' ? args.query.trim() : '';
+        const packageQuery =
+          typeof args.package === 'string' ? args.package.trim() : '';
+        const normalizedQuery = normalizeQuery(query);
+        const normalizedPackageQuery = normalizeQuery(packageQuery);
+        const detailLevelRaw =
+          typeof args.detailLevel === 'number' &&
+          Number.isFinite(args.detailLevel)
+            ? Math.floor(args.detailLevel)
+            : DOC_DISCOVERY_DETAIL_DEFAULT;
+        const detailLevel = Math.max(
+          DOC_DISCOVERY_DETAIL_MIN,
+          Math.min(DOC_DISCOVERY_DETAIL_MAX, detailLevelRaw)
+        );
+        const docs = await this._discoverPluginDocs();
+        const matching = docs.filter(doc => {
+          if (normalizedQuery) {
+            const searchableText =
+              `${doc.title} ${doc.path} ${doc.source} ${doc.description}`.toLowerCase();
+            if (!searchableText.includes(normalizedQuery)) {
+              return false;
+            }
+          }
+          if (normalizedPackageQuery) {
+            const pathSegments = doc.path.split('/');
+            let packageContext =
+              'plugin-playground @jupyterlab/plugin-playground';
+            if (pathSegments[0] === 'extension-examples' && pathSegments[1]) {
+              packageContext = `${pathSegments[1]} @jupyterlab-examples/${pathSegments[1]}`;
+            } else if (
+              pathSegments[0] === '_agents' &&
+              pathSegments[1] === 'skills' &&
+              pathSegments[2]
+            ) {
+              packageContext = `${pathSegments[2]} skill`;
+            }
+            if (
+              !normalizeQuery(packageContext).includes(normalizedPackageQuery)
+            ) {
+              return false;
+            }
+          }
+          return true;
+        });
+        const maxItems =
+          detailLevel === 1 ? 2 : detailLevel === 2 ? 10 : matching.length;
+        const items = matching.slice(0, maxItems);
+        const remaining = Math.max(0, matching.length - items.length);
+        return {
+          query,
+          package: packageQuery,
+          detailLevel,
+          total: docs.length,
+          count: items.length,
+          remaining,
+          hasMore: remaining > 0,
+          hint:
+            remaining > 0
+              ? `Increase detailLevel or narrow query/package to inspect ${remaining} additional matching reference(s).`
+              : null,
+          items: [...items]
+        };
+      }
+    });
+
+    app.commands.addCommand(CommandIDs.fetchPluginDoc, {
+      label: 'Fetch Plugin Doc (Playground)',
+      caption: 'Fetch text content from a discovered plugin documentation file',
+      describedBy: { args: FETCH_PLUGIN_DOC_ARGS_SCHEMA },
+      execute: async args => {
+        const rawPath = typeof args.path === 'string' ? args.path.trim() : '';
+        const path = normalizeContentsPath(rawPath);
+        if (!path) {
+          return {
+            ok: false,
+            path: null,
+            title: null,
+            source: null,
+            content: null,
+            contentLength: 0,
+            truncated: false,
+            message:
+              'Path argument is required. Use plugin-playground:discover-plugin-docs to list valid documentation paths.'
+          } as IPluginDocFetchResult;
+        }
+        const discoveredDocs = await this._discoverPluginDocs();
+        const isDiscoveredPath = discoveredDocs.some(doc => doc.path === path);
+        if (!isDiscoveredPath) {
+          return {
+            ok: false,
+            path,
+            title: null,
+            source: null,
+            content: null,
+            contentLength: 0,
+            truncated: false,
+            message: `Path "${path}" is not a discoverable plugin doc. Use plugin-playground:discover-plugin-docs first.`
+          } as IPluginDocFetchResult;
+        }
+        const rawConfiguredMaxChars = this.settings.get(
+          DOC_FETCH_MAX_CHARS_SETTING
+        ).composite;
+        if (
+          typeof rawConfiguredMaxChars !== 'number' ||
+          !Number.isFinite(rawConfiguredMaxChars) ||
+          rawConfiguredMaxChars < 1
+        ) {
+          return {
+            ok: false,
+            path,
+            title: null,
+            source: null,
+            content: null,
+            contentLength: 0,
+            truncated: false,
+            message: `Invalid "${DOC_FETCH_MAX_CHARS_SETTING}" setting value. Expected a positive integer.`
+          } as IPluginDocFetchResult;
+        }
+        const configuredMaxChars = Math.floor(rawConfiguredMaxChars);
+        const requestedMaxChars =
+          typeof args.maxChars === 'number' &&
+          Number.isFinite(args.maxChars) &&
+          args.maxChars > 0
+            ? Math.floor(args.maxChars)
+            : configuredMaxChars;
+        const maxChars = Math.min(requestedMaxChars, configuredMaxChars);
+        return this._fetchPluginDoc(path, maxChars);
       }
     });
 
@@ -1525,6 +1739,131 @@ class PluginPlayground {
     return discovered.sort((left, right) =>
       left.name.localeCompare(right.name)
     );
+  }
+
+  private async _discoverPluginDocs(): Promise<
+    ReadonlyArray<IPluginDocRecord>
+  > {
+    const discovered: IPluginDocRecord[] = [];
+    const seenPaths = new Set<string>();
+
+    const addIfAvailable = async (record: IPluginDocRecord): Promise<void> => {
+      const normalizedPath = normalizeContentsPath(record.path);
+      if (!normalizedPath || seenPaths.has(normalizedPath)) {
+        return;
+      }
+      const fileModel = await getFileModel(
+        this.app.serviceManager,
+        normalizedPath
+      );
+      if (!fileModel || fileModelToText(fileModel) === null) {
+        return;
+      }
+      seenPaths.add(normalizedPath);
+      discovered.push({
+        ...record,
+        path: normalizedPath
+      });
+    };
+
+    await addIfAvailable({
+      title: 'Plugin Playground README',
+      path: ROOT_README_PATH,
+      source: 'project-readme',
+      description: 'Overview and usage guide for Plugin Playground.'
+    });
+
+    await addIfAvailable({
+      title: 'Plugin Playground Docs Index',
+      path: DOCS_INDEX_PATH,
+      source: 'project-docs',
+      description: 'Published documentation landing page for this project.'
+    });
+
+    await addIfAvailable({
+      title: 'Plugin Authoring Skill',
+      path: PLUGIN_AUTHORING_SKILL_PATH,
+      source: 'agent-skill',
+      description: 'AI agent workflow reference for authoring plugins.'
+    });
+
+    const examples = await this._discoverExtensionExamples();
+    for (const example of examples) {
+      await addIfAvailable({
+        title: `${example.name} README`,
+        path: example.readmePath,
+        source: 'extension-example',
+        description: example.description || this._fallbackExampleDescription
+      });
+    }
+
+    return discovered.sort(
+      (left, right) =>
+        left.title.localeCompare(right.title) ||
+        left.path.localeCompare(right.path)
+    );
+  }
+
+  private async _fetchPluginDoc(
+    path: string,
+    maxChars: number
+  ): Promise<IPluginDocFetchResult> {
+    const normalizedPath = normalizeContentsPath(path);
+    if (!normalizedPath) {
+      return {
+        ok: false,
+        path: null,
+        title: null,
+        source: null,
+        content: null,
+        contentLength: 0,
+        truncated: false,
+        message: 'Documentation path is empty.'
+      };
+    }
+
+    const fileModel = await getFileModel(
+      this.app.serviceManager,
+      normalizedPath
+    );
+    if (!fileModel) {
+      return {
+        ok: false,
+        path: normalizedPath,
+        title: null,
+        source: null,
+        content: null,
+        contentLength: 0,
+        truncated: false,
+        message: `Could not read documentation file "${normalizedPath}".`
+      };
+    }
+
+    const rawContent = fileModelToText(fileModel);
+    if (rawContent === null) {
+      return {
+        ok: false,
+        path: normalizedPath,
+        title: null,
+        source: null,
+        content: null,
+        contentLength: 0,
+        truncated: false,
+        message: `Documentation file "${normalizedPath}" is not readable as text.`
+      };
+    }
+
+    const content = rawContent.slice(0, maxChars);
+    const truncated = content.length < rawContent.length;
+    return {
+      ok: true,
+      path: normalizedPath,
+      title: this._basename(normalizedPath) || normalizedPath,
+      source: 'file',
+      content,
+      contentLength: rawContent.length,
+      truncated
+    };
   }
 
   private async _findExampleEntrypoint(

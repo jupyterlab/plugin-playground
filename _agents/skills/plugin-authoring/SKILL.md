@@ -44,11 +44,15 @@ Produce working plugin code that can be loaded with `plugin-playground:load-as-e
   - `app.commands.execute('plugin-playground:list-tokens', { query: 'status' })`
   - `app.commands.execute('plugin-playground:list-commands', { query: 'notebook' })`
 
-3. Discover reference examples
+3. Discover reference examples and docs
 
 - Run `plugin-playground:list-extension-examples`.
 - Filter by topic with `query` (for example `toolbar`, `commands`, `widget`, `notebook`).
 - Open selected example source/README from the sidebar for implementation details.
+- Run `plugin-playground:discover-plugin-docs` to find relevant docs (`README`, skill docs, example READMEs).
+- Use `query`, `package`, and `detailLevel` (`1`/`2`/`3`) to control precision and context size.
+- Run `plugin-playground:fetch-plugin-doc` with a discovered `path` to retrieve doc text for grounded implementation details.
+- Use the `docFetchMaxChars` setting to control the default/maximum doc context size.
 
 4. Implement plugin code
 
