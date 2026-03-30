@@ -1923,8 +1923,10 @@ class PluginPlayground {
         return true;
       }
       try {
-        return new URL(source, window.location.href).origin ===
-          window.location.origin;
+        return (
+          new URL(source, window.location.href).origin ===
+          window.location.origin
+        );
       } catch {
         return true;
       }
