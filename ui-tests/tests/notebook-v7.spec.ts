@@ -29,7 +29,9 @@ test('Notebook v7 shows plugin playground sidebar next to an opened file', async
 
   const panel = page.locator(`#${PLAYGROUND_SIDEBAR_ID}`);
   await expect(panel).toBeAttached({ timeout: 10_000 });
-  const sidebarTab = page.locator(`[data-id="${PLAYGROUND_SIDEBAR_ID}"]`).first();
+  const sidebarTab = page
+    .locator(`[data-id="${PLAYGROUND_SIDEBAR_ID}"]`)
+    .first();
   if (!(await panel.isVisible()) && (await sidebarTab.count()) > 0) {
     await sidebarTab.click();
   }
