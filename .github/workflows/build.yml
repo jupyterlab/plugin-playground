@@ -143,6 +143,63 @@ jobs:
           ui-tests/test-results
           ui-tests/playwright-report
 
+  integration_tests_notebook_v7:
+    name: Integration tests (Notebook v7)
+    needs: build
+    runs-on: ubuntu-latest
+
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/pw-browsers
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Base Setup
+      uses: jupyterlab/maintainer-tools/.github/actions/base-setup@v1
+
+    - name: Download extension package
+      uses: actions/download-artifact@v4
+      with:
+        name: extension-artifacts
+
+    - name: Install Notebook v7 and extension
+      run: |
+        set -eux
+        python -m pip install "notebook>=7,<8" jupyterlab_plugin_playground*.whl
+
+    - name: Install ui-tests dependencies
+      working-directory: ui-tests
+      run: jlpm install
+
+    - name: Set up browser cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ github.workspace }}/pw-browsers
+        key: ${{ runner.os }}-${{ hashFiles('ui-tests/yarn.lock') }}-notebook-v7
+
+    - name: Install browser
+      working-directory: ui-tests
+      run: |
+        set -eux
+        jlpm playwright install chromium
+
+    - name: Execute Notebook v7 integration tests
+      working-directory: ui-tests
+      run: |
+        set -eux
+        jlpm test:notebook
+
+    - name: Upload Notebook v7 Playwright Test report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-tests-notebook-v7
+        path: |
+          ui-tests/test-results
+          ui-tests/playwright-report
+
   check_links:
     name: Check Links
     runs-on: ubuntu-latest
