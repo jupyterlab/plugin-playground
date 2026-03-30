@@ -1106,8 +1106,7 @@ class PluginPlayground {
         factory: 'Editor'
       });
       Notification.success(
-        `Opened shared plugin from URL at "${restoredPath}" (1 file). ` +
-          'Use "Load Current File As Extension" to run it.',
+        `Opened shared plugin from URL at "${restoredPath}" (1 file). `,
         {
           autoClose: 6000
         }
