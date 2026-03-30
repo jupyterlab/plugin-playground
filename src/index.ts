@@ -1917,13 +1917,33 @@ class PluginPlayground {
       updateBadge();
     };
 
+    // Track logs only when they come from this JupyterLab origin.
+    const isRelevantSource = (source?: string): boolean => {
+      if (!source || source.startsWith('webpack://')) {
+        return true;
+      }
+      try {
+        return new URL(source, window.location.href).origin ===
+          window.location.origin;
+      } catch {
+        return true;
+      }
+    };
+
     // Intercepts — count, buffer, then forward to the previous handler.
     const wrap = (
       method: (...args: any[]) => void,
       level: 'error' | 'warning' | 'info'
     ): ((...args: any[]) => void) => {
       return (...args: any[]): void => {
-        onLog(level, method, args);
+        const source = new Error().stack
+          ?.split('\n')
+          .slice(2)
+          .join('\n')
+          .match(/(?:https?:\/\/|blob:|webpack:\/\/)[^\s)]+/)?.[0];
+        if (!source || isRelevantSource(source)) {
+          onLog(level, method, args);
+        }
         method.apply(console, args);
       };
     };
@@ -1937,7 +1957,7 @@ class PluginPlayground {
     window.onerror = ((): (typeof window)['onerror'] => {
       const prev = window.onerror;
       return (msg, url, line, col, error): boolean => {
-        if (!replaying) {
+        if (!replaying && isRelevantSource(url ?? undefined)) {
           unreadCount++;
           hasError = true;
           if (logBuffer.length < MAX_BUFFER) {
