@@ -1,7 +1,7 @@
 name: Preview Badges
 on:
   pull_request_target:
-    types: [opened]
+    types: [opened, synchronize, reopened]
 
 jobs:
   previews:
@@ -19,8 +19,10 @@ jobs:
             const prNumber = context.payload.pull_request.number;
             const docsSlug =
               `${context.repo.owner}-${context.repo.repo}`.toLowerCase();
-            const jupyterliteUrl = `https://${docsSlug}--${prNumber}.org.readthedocs.build/en/${prNumber}/lite/lab/`;
-            const jupyterliteBadge = `[![JupyterLite](https://jupyterlite.rtfd.io/en/latest/_static/badge-launch.svg)](${jupyterliteUrl})`;
+            const jupyterliteLabUrl = `https://${docsSlug}--${prNumber}.org.readthedocs.build/en/${prNumber}/lite/lab/`;
+            const jupyterliteNotebookUrl = `https://${docsSlug}--${prNumber}.org.readthedocs.build/en/${prNumber}/lite/notebooks/`;
+            const jupyterliteBadge = `[![JupyterLite](https://jupyterlite.rtfd.io/en/latest/_static/badge-launch.svg)](${jupyterliteLabUrl})`;
+            const jupyterliteNotebookBadge = `[![JupyterLite Notebook v7](https://jupyterlite.rtfd.io/en/latest/_static/badge-launch.svg)](${jupyterliteNotebookUrl})`;
             const marker = " :point_left:";
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
@@ -33,14 +35,41 @@ jobs:
               .find(comment => comment.body.includes("![Binder]("));
             if (
               !binderComment ||
-              binderComment.body.includes("![JupyterLite](") ||
               !binderComment.body.includes(marker)
             ) {
+              return;
+            }
+            const binderMatch = binderComment.body.match(/\[!\[Binder\]\([^)]+\)\]\(([^)]+)\)/);
+            if (!binderMatch) {
+              return;
+            }
+
+            const binderUrl = binderMatch[1];
+            const binderNotebookUrl = binderUrl.includes("urlpath=")
+              ? binderUrl.replace(/urlpath=[^&)]+/, "urlpath=tree")
+              : `${binderUrl}${binderUrl.includes("?") ? "&" : "?"}urlpath=tree`;
+            const binderNotebookBadge = `[![Binder Notebook v7](https://mybinder.org/badge_logo.svg)](${binderNotebookUrl})`;
+
+            const missingBadges = [];
+            if (!binderComment.body.includes("![Binder Notebook v7](")) {
+              missingBadges.push(binderNotebookBadge);
+            }
+            if (!binderComment.body.includes("![JupyterLite](")) {
+              missingBadges.push(jupyterliteBadge);
+            }
+            if (!binderComment.body.includes("![JupyterLite Notebook v7](")) {
+              missingBadges.push(jupyterliteNotebookBadge);
+            }
+
+            if (missingBadges.length === 0) {
               return;
             }
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: binderComment.id,
-              body: binderComment.body.replace(marker, ` ${jupyterliteBadge}${marker}`)
+              body: binderComment.body.replace(
+                marker,
+                ` ${missingBadges.join(" ")}${marker}`
+              )
             });
