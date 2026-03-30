@@ -144,6 +144,7 @@ Plugin Playground now exposes command APIs that mirror sidebar data and support 
 - `plugin-playground:list-commands`
 - `plugin-playground:list-extension-examples`
 - `plugin-playground:export-as-extension` (supports optional `{ path: string }`)
+- `plugin-playground:share-via-link` (supports optional `{ path: string }`)
 
 Example:
 
@@ -155,14 +156,31 @@ await app.commands.execute('plugin-playground:list-tokens', {
 await app.commands.execute('plugin-playground:export-as-extension', {
   path: 'my-extension/src/index.ts'
 });
+
+await app.commands.execute('plugin-playground:share-via-link', {
+  path: 'my-extension/src/index.ts'
+});
 ```
 
-Each command returns a JSON object with:
+`plugin-playground:share-via-link` shares a single file. If no `path` is
+provided, it shares the active file.
+The same action is also available from the `IPluginPlayground` API via
+`shareViaLink(path?)`.
+
+When opening a shared URL, Plugin Playground restores and opens the shared
+file but does not execute it automatically. Run `Load Current File As
+Extension` when you are ready.
+
+List commands (`list-tokens`, `list-commands`, `list-extension-examples`)
+return a JSON object with:
 
 - `query`: the filter text that was applied
 - `total`: total number of available records
 - `count`: number of records returned after filtering
 - `items`: matching records
+
+`export-as-extension` and `share-via-link` return operation-specific metadata
+(for example, success status, paths, counts, URL length, and optional message).
 
 ## Advanced Settings
 

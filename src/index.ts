@@ -26,9 +26,11 @@ import { FileEditor, IEditorTracker } from '@jupyterlab/fileeditor';
 import { ILauncher } from '@jupyterlab/launcher';
 
 import {
+  checkIcon,
   downloadIcon,
   extensionIcon,
   IFrame,
+  shareIcon,
   SidePanel
 } from '@jupyterlab/ui-components';
 
@@ -75,17 +77,7 @@ import {
   getCommandRecords
 } from './command-completion';
 
-import {
-  fileModelToBytes,
-  fileModelToText,
-  getDirectoryModel,
-  getFileModel,
-  highlightEditorLines,
-  IFileModel,
-  normalizeExternalUrl,
-  normalizeContentsPath,
-  openExternalLink
-} from './contents';
+import { ContentUtils } from './contents';
 import {
   insertImportStatement,
   insertTokenDependency,
@@ -94,6 +86,7 @@ import {
 
 import { downloadArchive, IArchiveEntry } from './archive';
 import { createTemplateArchive } from './export-template';
+import { ShareLink } from './share-link';
 
 import { Token } from '@lumino/coreutils';
 
@@ -105,6 +98,7 @@ namespace CommandIDs {
   export const createNewFile = 'plugin-playground:create-new-plugin';
   export const loadCurrentAsExtension = 'plugin-playground:load-as-extension';
   export const exportAsExtension = 'plugin-playground:export-as-extension';
+  export const shareViaLink = 'plugin-playground:share-via-link';
   export const openJSImportExplorer = 'plugin-playground:open-js-explorer';
   export const listTokens = 'plugin-playground:list-tokens';
   export const listCommands = 'plugin-playground:list-commands';
@@ -147,6 +141,17 @@ interface IResolvedExportContext {
   rootPath: string;
   archiveEntries: IArchiveEntry[];
   usedTemplate: boolean;
+}
+
+/**
+ * Result metadata returned by share-link command executions.
+ */
+export interface IPluginShareResult {
+  ok: boolean;
+  link: string | null;
+  sourcePath: string | null;
+  urlLength: number;
+  message?: string;
 }
 
 const PLUGIN_TEMPLATE = `import {
@@ -218,6 +223,18 @@ const EXPORT_AS_EXTENSION_ARGS_SCHEMA = {
   }
 };
 
+const SHARE_VIA_LINK_ARGS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    path: {
+      type: 'string',
+      description:
+        'Optional contents path of the file to share. When omitted, the active editor file is used.'
+    }
+  }
+};
+
 const CREATE_PLUGIN_ARGS_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -243,9 +260,13 @@ const ARCHIVE_EXCLUDED_DIRECTORIES = new Set([
   'node_modules'
 ]);
 const ARCHIVE_FILE_READ_CONCURRENCY = 8;
+const SHARE_URL_WARN_LENGTH = 1800;
+const SHARE_URL_MAX_LENGTH = 8000;
+const SHARED_LINKS_ROOT = 'plugin-playground-shared';
 
 export interface IPluginPlayground {
   registerKnownModule(known: IKnownModule): Promise<void>;
+  shareViaLink(path?: string): Promise<IPluginShareResult>;
 }
 
 export const IPluginPlayground = new Token<IPluginPlayground>(
@@ -305,7 +326,9 @@ class PluginPlayground {
       isEnabled: () => this.documentManager !== null,
       execute: async args => {
         const requestedPath =
-          typeof args.path === 'string' ? normalizeContentsPath(args.path) : '';
+          typeof args.path === 'string'
+            ? ContentUtils.normalizeContentsPath(args.path)
+            : '';
         if (requestedPath) {
           return this._exportAsExtension(requestedPath);
         }
@@ -323,9 +346,24 @@ class PluginPlayground {
         }
 
         return this._exportAsExtension(
-          normalizeContentsPath(currentWidget.context.path),
+          ContentUtils.normalizeContentsPath(currentWidget.context.path),
           currentWidget.context.model.toString()
         );
+      }
+    });
+
+    app.commands.addCommand(CommandIDs.shareViaLink, {
+      label: 'Copy Shareable Plugin Link',
+      caption: 'Create a URL for the active plugin file, then copy it',
+      describedBy: { args: SHARE_VIA_LINK_ARGS_SCHEMA },
+      icon: () =>
+        this._copiedCommandId === CommandIDs.shareViaLink
+          ? checkIcon
+          : shareIcon,
+      execute: async args => {
+        const requestedPath =
+          typeof args.path === 'string' ? args.path : undefined;
+        return this.shareViaLink(requestedPath);
       }
     });
 
@@ -341,7 +379,9 @@ class PluginPlayground {
           _context: DocumentRegistry.Context,
           state: DocumentRegistry.SaveState
         ) => {
-          const normalizedPath = normalizeContentsPath(widget.context.path);
+          const normalizedPath = ContentUtils.normalizeContentsPath(
+            widget.context.path
+          );
           if (state === 'completed' && this._shouldLoadOnSave(normalizedPath)) {
             const currentText = widget.context.model.toString();
             void this._queuePluginLoad(currentText, widget.context.path);
@@ -362,6 +402,12 @@ class PluginPlayground {
 
     commandPalette.addItem({
       command: CommandIDs.exportAsExtension,
+      category: 'Plugin Playground',
+      args: {}
+    });
+
+    commandPalette.addItem({
+      command: CommandIDs.shareViaLink,
       category: 'Plugin Playground',
       args: {}
     });
@@ -398,14 +444,15 @@ class PluginPlayground {
         });
 
         let openPath = model.path;
-        const normalizedPathArg = normalizeContentsPath(rawPathArg);
+        const normalizedPathArg =
+          ContentUtils.normalizeContentsPath(rawPathArg);
         if (normalizedPathArg) {
-          const baseDirectory = normalizeContentsPath(
+          const baseDirectory = ContentUtils.normalizeContentsPath(
             PathExt.dirname(model.path)
           );
           let targetPath = isRootRelativePath
             ? normalizedPathArg
-            : normalizeContentsPath(
+            : ContentUtils.normalizeContentsPath(
                 PathExt.join(baseDirectory, normalizedPathArg)
               );
 
@@ -425,12 +472,13 @@ class PluginPlayground {
           factory: 'Editor'
         });
 
-        const normalizedOpenPath = normalizeContentsPath(openPath);
+        const normalizedOpenPath = ContentUtils.normalizeContentsPath(openPath);
         let widget: IDocumentWidget<FileEditor> | null = null;
         editorTracker.forEach(candidate => {
           if (
             !widget &&
-            normalizeContentsPath(candidate.context.path) === normalizedOpenPath
+            ContentUtils.normalizeContentsPath(candidate.context.path) ===
+              normalizedOpenPath
           ) {
             widget = candidate;
           }
@@ -571,6 +619,7 @@ class PluginPlayground {
       for (const t of plugins) {
         await this._loadPlugin(t, null);
       }
+      await this._loadSharedPluginFromUrl();
 
       settings.changed.connect(updatedSettings => {
         this.settings = updatedSettings;
@@ -621,7 +670,7 @@ class PluginPlayground {
     const toggleWidget = new Widget({ node: toggleNode });
     toggleWidget.addClass('jp-PluginPlayground-loadOnSaveWidget');
 
-    let currentPath = normalizeContentsPath(widget.context.path);
+    let currentPath = ContentUtils.normalizeContentsPath(widget.context.path);
     const refresh = () => {
       if (this._isGlobalLoadOnSaveEnabled()) {
         checkbox.disabled = true;
@@ -632,7 +681,7 @@ class PluginPlayground {
       }
       toggleWidget.show();
       checkbox.removeAttribute('aria-hidden');
-      currentPath = normalizeContentsPath(widget.context.path);
+      currentPath = ContentUtils.normalizeContentsPath(widget.context.path);
       const enabled = this._isSupportedLoadOnSaveFile(currentPath);
       checkbox.disabled = !enabled;
       checkbox.setAttribute('aria-disabled', String(!enabled));
@@ -662,7 +711,7 @@ class PluginPlayground {
       _context: DocumentRegistry.Context,
       newPath: string
     ) => {
-      const newNormalizedPath = normalizeContentsPath(newPath);
+      const newNormalizedPath = ContentUtils.normalizeContentsPath(newPath);
       if (newNormalizedPath !== currentPath) {
         if (
           this._loadOnSaveByFile.has(currentPath) &&
@@ -702,7 +751,7 @@ class PluginPlayground {
     pluginSource: string,
     path: string
   ): Promise<IPluginLoadResult> {
-    const normalizedPath = normalizeContentsPath(path);
+    const normalizedPath = ContentUtils.normalizeContentsPath(path);
     const previous = this._inFlightLoads.get(normalizedPath);
     const next = previous
       ? previous
@@ -726,7 +775,7 @@ class PluginPlayground {
     activePath: string,
     activeSource?: string
   ): Promise<IPluginExportResult> {
-    const normalizedActivePath = normalizeContentsPath(activePath);
+    const normalizedActivePath = ContentUtils.normalizeContentsPath(activePath);
     if (!normalizedActivePath) {
       return {
         ok: false,
@@ -795,12 +844,290 @@ class PluginPlayground {
     }
   }
 
+  /**
+   * Build a share URL for a single file and copy it to clipboard.
+   */
+  public async shareViaLink(path?: string): Promise<IPluginShareResult> {
+    const requestedPath =
+      typeof path === 'string' ? ContentUtils.normalizeContentsPath(path) : '';
+    const currentWidget = this.editorTracker.currentWidget;
+    const currentPath = currentWidget
+      ? ContentUtils.normalizeContentsPath(currentWidget.context.path)
+      : '';
+    const activeSource =
+      currentWidget && currentPath && currentPath === requestedPath
+        ? currentWidget.context.model.toString()
+        : undefined;
+
+    if (requestedPath) {
+      return this._shareViaLink(requestedPath, activeSource);
+    }
+
+    if (!currentWidget || currentWidget !== this.app.shell.currentWidget) {
+      return {
+        ok: false,
+        link: null,
+        sourcePath: null,
+        urlLength: 0,
+        message:
+          'No active editor is available. Pass a path argument to share a specific file.'
+      };
+    }
+
+    return this._shareViaLink(
+      ContentUtils.normalizeContentsPath(currentWidget.context.path),
+      currentWidget.context.model.toString()
+    );
+  }
+
+  /**
+   * Build a share URL for a single file and copy it to clipboard.
+   */
+  private async _shareViaLink(
+    sourcePath: string,
+    activeSource?: string
+  ): Promise<IPluginShareResult> {
+    const normalizedSourcePath = ContentUtils.normalizeContentsPath(sourcePath);
+    if (!normalizedSourcePath) {
+      return {
+        ok: false,
+        link: null,
+        sourcePath: null,
+        urlLength: 0,
+        message: 'Share path is empty.'
+      };
+    }
+
+    try {
+      const directory = await ContentUtils.getDirectoryModel(
+        this.app.serviceManager,
+        normalizedSourcePath
+      );
+      if (directory) {
+        throw new Error(
+          'Folder sharing is temporarily disabled. Pass a file path instead.'
+        );
+      }
+      const source =
+        activeSource ??
+        (await this._readSourceFileForExport(normalizedSourcePath));
+      const fileName = this._basename(normalizedSourcePath) || 'plugin.ts';
+
+      const payload: ShareLink.ISharedPluginPayload = {
+        version: 1,
+        fileName,
+        source
+      };
+      const encodedPayload = await ShareLink.encodeSharedPluginPayload(payload);
+      const link = ShareLink.createSharedPluginUrl(encodedPayload);
+      const urlLength = link.length;
+
+      if (urlLength > SHARE_URL_MAX_LENGTH) {
+        const message =
+          `The generated link is ${urlLength} characters long, which exceeds the configured limit ` +
+          `(${SHARE_URL_MAX_LENGTH}). Share a smaller file or use "Export Plugin Folder As Extension".`;
+        Notification.error(message, {
+          autoClose: false
+        });
+        return {
+          ok: false,
+          link: null,
+          sourcePath: normalizedSourcePath,
+          urlLength,
+          message
+        };
+      }
+
+      await ContentUtils.copyValueToClipboard(link);
+      ContentUtils.setCopiedStateWithTimeout(
+        CommandIDs.shareViaLink,
+        this._copiedCommandTimer,
+        timer => {
+          this._copiedCommandTimer = timer;
+        },
+        copiedCommandId => {
+          this._copiedCommandId = copiedCommandId;
+        },
+        () => {
+          this.app.commands.notifyCommandChanged(CommandIDs.shareViaLink);
+        },
+        1400
+      );
+      const details =
+        `Copied a share link for file "${normalizedSourcePath}" ` +
+        `(${urlLength} characters).`;
+
+      if (urlLength > SHARE_URL_WARN_LENGTH) {
+        Notification.warning(
+          `${details} Some browsers may reject very long URLs.`,
+          {
+            autoClose: 7000
+          }
+        );
+      } else {
+        Notification.success(details, {
+          autoClose: 5000
+        });
+      }
+
+      return {
+        ok: true,
+        link,
+        sourcePath: normalizedSourcePath,
+        urlLength
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      Notification.error(`Plugin share link creation failed: ${message}`, {
+        autoClose: false
+      });
+      return {
+        ok: false,
+        link: null,
+        sourcePath: normalizedSourcePath,
+        urlLength: 0,
+        message
+      };
+    }
+  }
+
+  /**
+   * Restore a shared file from URL token into a workspace folder and open it.
+   * The file is not executed automatically.
+   */
+  private async _loadSharedPluginFromUrl(): Promise<void> {
+    const sharedToken = ShareLink.getSharedPluginTokenFromLocation();
+    if (!sharedToken) {
+      return;
+    }
+    // Remove the token immediately so a refresh/back navigation does not
+    // repeatedly re-import the same shared payload.
+    ShareLink.clearSharedPluginTokenFromLocation();
+
+    try {
+      const payload = await ShareLink.decodeSharedPluginPayload(sharedToken);
+      const fileName = this._basename(payload.fileName) || 'plugin.ts';
+      const extension = PathExt.extname(fileName);
+      const rootName = extension
+        ? fileName.slice(0, -extension.length)
+        : fileName;
+      const rootFolder = ShareLink.sharedPluginFolderName(
+        rootName,
+        sharedToken
+      );
+      const rootPath = ContentUtils.normalizeContentsPath(
+        this._joinPath(SHARED_LINKS_ROOT, rootFolder)
+      );
+      await ContentUtils.ensureContentsDirectory(
+        this.app.serviceManager,
+        rootPath
+      );
+
+      const baseName = extension
+        ? fileName.slice(0, -extension.length)
+        : fileName;
+      let entryPath = '';
+      let shouldWrite = false;
+      const maxVariants = 1000;
+
+      for (let variant = 1; variant <= maxVariants; variant++) {
+        const candidateName =
+          variant === 1 ? fileName : `${baseName}-${variant}${extension}`;
+        const candidatePath = ContentUtils.normalizeContentsPath(
+          this._joinPath(rootPath, candidateName)
+        );
+        const existingFile = await ContentUtils.getFileModel(
+          this.app.serviceManager,
+          candidatePath
+        );
+
+        if (!existingFile) {
+          entryPath = candidatePath;
+          shouldWrite = true;
+          break;
+        }
+
+        const existingSource = ContentUtils.fileModelToText(existingFile);
+        if (existingSource === payload.source) {
+          entryPath = candidatePath;
+          shouldWrite = false;
+          break;
+        }
+      }
+
+      if (!entryPath) {
+        throw new Error(
+          `Could not find a writable location for shared file "${fileName}" in "${rootPath}".`
+        );
+      }
+      let restoredPath = entryPath;
+      if (shouldWrite) {
+        const saved = await this.app.serviceManager.contents.save(entryPath, {
+          type: 'file',
+          format: 'text',
+          content: payload.source
+        });
+        if (!saved || saved.type !== 'file') {
+          throw new Error(
+            `Failed to save shared file "${fileName}" at "${entryPath}".`
+          );
+        }
+        const normalizedSavedPath = ContentUtils.normalizeContentsPath(
+          saved.path
+        );
+        if (normalizedSavedPath !== entryPath) {
+          throw new Error(
+            `Shared file was saved to unexpected path "${normalizedSavedPath}" instead of "${entryPath}".`
+          );
+        }
+      }
+      let restoredFile = await ContentUtils.getFileModel(
+        this.app.serviceManager,
+        entryPath
+      );
+      for (let attempt = 0; !restoredFile && attempt < 8; attempt++) {
+        await new Promise<void>(resolve => {
+          window.setTimeout(resolve, 75);
+        });
+        restoredFile = await ContentUtils.getFileModel(
+          this.app.serviceManager,
+          entryPath
+        );
+      }
+      if (!restoredFile) {
+        throw new Error(
+          `Shared file "${entryPath}" could not be found after restore.`
+        );
+      }
+      restoredPath = ContentUtils.normalizeContentsPath(restoredFile.path);
+
+      await this.app.commands.execute('docmanager:open', {
+        path: restoredPath,
+        factory: 'Editor'
+      });
+      Notification.success(
+        `Opened shared plugin from URL at "${restoredPath}" (1 file). `,
+        {
+          autoClose: 6000
+        }
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      Notification.error(`Failed to load shared plugin from URL: ${message}`, {
+        autoClose: false
+      });
+    }
+  }
+
   private async _readSourceFileForExport(path: string): Promise<string> {
-    const fileModel = await getFileModel(this.app.serviceManager, path);
+    const fileModel = await ContentUtils.getFileModel(
+      this.app.serviceManager,
+      path
+    );
     if (!fileModel) {
       throw new Error(`Could not read file "${path}".`);
     }
-    const source = fileModelToText(fileModel);
+    const source = ContentUtils.fileModelToText(fileModel);
     if (source === null) {
       throw new Error(
         `Could not export file "${path}" because it is not readable as text.`
@@ -817,7 +1144,7 @@ class PluginPlayground {
     if (rootPath !== null) {
       const overrides = new Map<string, Uint8Array>([
         [
-          normalizeContentsPath(activePath),
+          ContentUtils.normalizeContentsPath(activePath),
           new TextEncoder().encode(activeSource)
         ]
       ]);
@@ -843,15 +1170,15 @@ class PluginPlayground {
   }
 
   private async _inferExportRoot(path: string): Promise<string | null> {
-    const normalizedPath = normalizeContentsPath(path);
+    const normalizedPath = ContentUtils.normalizeContentsPath(path);
     const inferredRoot = this._inferRootFromSourcePath(normalizedPath);
     if (inferredRoot !== null) {
-      const inferredRootDirectory = await getDirectoryModel(
+      const inferredRootDirectory = await ContentUtils.getDirectoryModel(
         this.app.serviceManager,
         inferredRoot
       );
       if (inferredRootDirectory) {
-        return normalizeContentsPath(inferredRootDirectory.path);
+        return ContentUtils.normalizeContentsPath(inferredRootDirectory.path);
       }
     }
 
@@ -865,7 +1192,7 @@ class PluginPlayground {
       return detectedRoot;
     }
 
-    const sourceDirectoryModel = await getDirectoryModel(
+    const sourceDirectoryModel = await ContentUtils.getDirectoryModel(
       this.app.serviceManager,
       sourceDirectory
     );
@@ -873,11 +1200,14 @@ class PluginPlayground {
       throw new Error(`Could not access folder "${sourceDirectory}".`);
     }
 
-    return normalizeContentsPath(sourceDirectoryModel.path) || sourceDirectory;
+    return (
+      ContentUtils.normalizeContentsPath(sourceDirectoryModel.path) ||
+      sourceDirectory
+    );
   }
 
   private _inferRootFromSourcePath(path: string): string | null {
-    const segments = normalizeContentsPath(path).split('/');
+    const segments = ContentUtils.normalizeContentsPath(path).split('/');
     const srcIndex = segments.indexOf('src');
     if (srcIndex < 0) {
       return null;
@@ -892,7 +1222,7 @@ class PluginPlayground {
     rootPath: string,
     overrides: ReadonlyMap<string, Uint8Array> = new Map()
   ): Promise<IArchiveEntry[]> {
-    const normalizedRootPath = normalizeContentsPath(rootPath);
+    const normalizedRootPath = ContentUtils.normalizeContentsPath(rootPath);
     const archiveEntries: IArchiveEntry[] = [];
     await this._collectArchiveEntriesInDirectory(
       normalizedRootPath,
@@ -911,7 +1241,7 @@ class PluginPlayground {
     archiveEntries: IArchiveEntry[],
     overrides: ReadonlyMap<string, Uint8Array>
   ): Promise<void> {
-    const directory = await getDirectoryModel(
+    const directory = await ContentUtils.getDirectoryModel(
       this.app.serviceManager,
       directoryPath
     );
@@ -933,7 +1263,7 @@ class PluginPlayground {
         continue;
       }
 
-      const itemPath = normalizeContentsPath(item.path);
+      const itemPath = ContentUtils.normalizeContentsPath(item.path);
       if (!itemPath) {
         continue;
       }
@@ -976,11 +1306,14 @@ class PluginPlayground {
     let fileBytes = overrideBytes ?? null;
 
     if (!fileBytes) {
-      const fileModel = await getFileModel(this.app.serviceManager, filePath);
+      const fileModel = await ContentUtils.getFileModel(
+        this.app.serviceManager,
+        filePath
+      );
       if (!fileModel) {
         throw new Error(`Could not read file "${filePath}".`);
       }
-      fileBytes = fileModelToBytes(fileModel);
+      fileBytes = ContentUtils.fileModelToBytes(fileModel);
       if (!fileBytes) {
         throw new Error(
           `Could not export file "${filePath}" because it is not readable as text or bytes.`
@@ -1000,11 +1333,10 @@ class PluginPlayground {
   }
 
   private _relativePath(rootPath: string, path: string): string {
-    const normalizedRootPath = normalizeContentsPath(rootPath).replace(
-      /\/+$/g,
-      ''
-    );
-    const normalizedPath = normalizeContentsPath(path);
+    const normalizedRootPath = ContentUtils.normalizeContentsPath(
+      rootPath
+    ).replace(/\/+$/g, '');
+    const normalizedPath = ContentUtils.normalizeContentsPath(path);
     if (!normalizedRootPath) {
       return normalizedPath;
     }
@@ -1015,7 +1347,10 @@ class PluginPlayground {
   }
 
   private _dirname(path: string): string {
-    const normalizedPath = normalizeContentsPath(path).replace(/\/+$/g, '');
+    const normalizedPath = ContentUtils.normalizeContentsPath(path).replace(
+      /\/+$/g,
+      ''
+    );
     const index = normalizedPath.lastIndexOf('/');
     if (index <= 0) {
       return '';
@@ -1024,7 +1359,10 @@ class PluginPlayground {
   }
 
   private _basename(path: string): string {
-    const normalizedPath = normalizeContentsPath(path).replace(/\/+$/g, '');
+    const normalizedPath = ContentUtils.normalizeContentsPath(path).replace(
+      /\/+$/g,
+      ''
+    );
     if (!normalizedPath) {
       return '';
     }
@@ -1038,12 +1376,15 @@ class PluginPlayground {
   private async _findExtensionRoot(
     startDirectory: string
   ): Promise<string | null> {
-    let current = normalizeContentsPath(startDirectory).replace(/\/+$/g, '');
+    let current = ContentUtils.normalizeContentsPath(startDirectory).replace(
+      /\/+$/g,
+      ''
+    );
     while (true) {
       const packageJsonPath = current
         ? `${current}/package.json`
         : 'package.json';
-      const packageJson = await getFileModel(
+      const packageJson = await ContentUtils.getFileModel(
         this.app.serviceManager,
         packageJsonPath
       );
@@ -1316,7 +1657,7 @@ class PluginPlayground {
     moduleName: string,
     openInBrowserTab: boolean
   ): void {
-    const safeUrl = normalizeExternalUrl(url);
+    const safeUrl = ContentUtils.normalizeExternalUrl(url);
     if (!safeUrl) {
       void showDialog({
         title: 'Invalid documentation URL',
@@ -1327,7 +1668,7 @@ class PluginPlayground {
     }
 
     if (openInBrowserTab) {
-      openExternalLink(safeUrl);
+      ContentUtils.openExternalLink(safeUrl);
       return;
     }
 
@@ -1483,7 +1824,7 @@ class PluginPlayground {
 
   private async _openExampleFile(path: string): Promise<void> {
     await this.app.commands.execute('docmanager:open', {
-      path: normalizeContentsPath(path),
+      path: ContentUtils.normalizeContentsPath(path),
       factory: 'Editor'
     });
   }
@@ -1491,7 +1832,7 @@ class PluginPlayground {
   private async _discoverExtensionExamples(): Promise<
     ReadonlyArray<ExampleSidebar.IExampleRecord>
   > {
-    const rootDirectory = await getDirectoryModel(
+    const rootDirectory = await ContentUtils.getDirectoryModel(
       this.app.serviceManager,
       EXTENSION_EXAMPLES_ROOT
     );
@@ -1499,7 +1840,8 @@ class PluginPlayground {
       return [];
     }
     const rootPath =
-      normalizeContentsPath(rootDirectory.path) || EXTENSION_EXAMPLES_ROOT;
+      ContentUtils.normalizeContentsPath(rootDirectory.path) ||
+      EXTENSION_EXAMPLES_ROOT;
 
     const discovered: ExampleSidebar.IExampleRecord[] = [];
     for (const item of rootDirectory.content) {
@@ -1515,7 +1857,7 @@ class PluginPlayground {
       discovered.push({
         name: item.name,
         path: entrypoint,
-        readmePath: normalizeContentsPath(
+        readmePath: ContentUtils.normalizeContentsPath(
           this._joinPath(exampleDirectory, 'README.md')
         ),
         description
@@ -1530,7 +1872,7 @@ class PluginPlayground {
   private async _findExampleEntrypoint(
     directoryPath: string
   ): Promise<string | null> {
-    const srcDirectory = await getDirectoryModel(
+    const srcDirectory = await ContentUtils.getDirectoryModel(
       this.app.serviceManager,
       this._joinPath(directoryPath, 'src')
     );
@@ -1545,7 +1887,7 @@ class PluginPlayground {
     if (!entrypoint) {
       return null;
     }
-    return normalizeContentsPath(
+    return ContentUtils.normalizeContentsPath(
       this._joinPath(srcDirectory.path, entrypoint.name)
     );
   }
@@ -1554,7 +1896,7 @@ class PluginPlayground {
     directoryPath: string
   ): Promise<string> {
     const packageJsonPath = this._joinPath(directoryPath, 'package.json');
-    const packageJson = await getFileModel(
+    const packageJson = await ContentUtils.getFileModel(
       this.app.serviceManager,
       packageJsonPath
     );
@@ -1575,7 +1917,7 @@ class PluginPlayground {
 
   private _joinPath(base: string, child: string): string {
     const normalizedBase = base.replace(/\/+$/g, '');
-    const normalizedChild = normalizeContentsPath(child);
+    const normalizedChild = ContentUtils.normalizeContentsPath(child);
     if (!normalizedBase) {
       return normalizedChild;
     }
@@ -1583,9 +1925,9 @@ class PluginPlayground {
   }
 
   private _parseJsonObject(
-    fileModel: IFileModel
+    fileModel: ContentUtils.IFileModel
   ): { description?: unknown } | null {
-    const raw = fileModelToText(fileModel);
+    const raw = ContentUtils.fileModelToText(fileModel);
     if (raw === null) {
       return null;
     }
@@ -1757,7 +2099,10 @@ class PluginPlayground {
     }
     if (changedLines.length > 0) {
       window.requestAnimationFrame(() => {
-        highlightEditorLines(editorWidget.content.editor, changedLines);
+        ContentUtils.highlightEditorLines(
+          editorWidget.content.editor,
+          changedLines
+        );
       });
     }
   }
@@ -1996,6 +2341,8 @@ class PluginPlayground {
     string,
     MainAreaWidget<IFrame>
   >();
+  private _copiedCommandId: string | null = null;
+  private _copiedCommandTimer: number | null = null;
   private _playgroundSidebar: SidePanel | null = null;
   private _tokenSidebar: TokenSidebar | null = null;
   private _documentationWidgetId = 0;
@@ -2032,6 +2379,32 @@ const plugin: JupyterFrontEndPlugin<IPluginPlayground> = {
     }
 
     let playground: PluginPlayground | null = null;
+
+    // In order to accommodate loading ipywidgets and other AMD modules, we
+    // load RequireJS before loading any custom extensions.
+    const requirejsLoader = new RequireJSLoader();
+
+    const playgroundReady = Promise.all([
+      settingRegistry.load(plugin.id),
+      requirejsLoader.load()
+    ]).then(([settings, requirejs]) => {
+      playground = new PluginPlayground(
+        app,
+        settingRegistry,
+        commandPalette,
+        editorTracker,
+        launcher,
+        documentManager,
+        settings,
+        requirejs,
+        toolbarWidgetRegistry
+      );
+      return playground;
+    });
+    void playgroundReady.catch(error => {
+      console.error('Plugin Playground initialization failed.', error);
+    });
+
     const api: IPluginPlayground = {
       registerKnownModule: async (known: IKnownModule) => {
         if (playground) {
@@ -2039,31 +2412,29 @@ const plugin: JupyterFrontEndPlugin<IPluginPlayground> = {
           return;
         }
         registerKnownModule(known);
+      },
+      shareViaLink: async (path?: string) => {
+        if (!playground) {
+          try {
+            await playgroundReady;
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            throw new Error(
+              `Plugin Playground failed to initialize. ${message}`
+            );
+          }
+        }
+        if (!playground) {
+          throw new Error('Plugin Playground is not ready yet. Try again.');
+        }
+        return playground.shareViaLink(path);
       }
     };
 
-    // In order to accommodate loading ipywidgets and other AMD modules, we
-    // load RequireJS before loading any custom extensions.
-
-    const requirejsLoader = new RequireJSLoader();
     // We could convert to `async` and use `await` but we don't, because a failure
     // would freeze JupyterLab on splash screen; this way if it fails to load,
     // only the plugin is affected, not the entire application.
-    Promise.all([settingRegistry.load(plugin.id), requirejsLoader.load()]).then(
-      ([settings, requirejs]) => {
-        playground = new PluginPlayground(
-          app,
-          settingRegistry,
-          commandPalette,
-          editorTracker,
-          launcher,
-          documentManager,
-          settings,
-          requirejs,
-          toolbarWidgetRegistry
-        );
-      }
-    );
 
     return api;
   }

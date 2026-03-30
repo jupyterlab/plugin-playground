@@ -1,5 +1,5 @@
 import type { IArchiveEntry } from './archive';
-import { normalizeContentsPath } from './contents';
+import { ContentUtils } from './contents';
 
 export interface ITemplateArchive {
   projectRoot: string;
@@ -22,7 +22,10 @@ function removeFileExtension(path: string): string {
 }
 
 function basename(path: string): string {
-  const normalizedPath = normalizeContentsPath(path).replace(/\/+$/g, '');
+  const normalizedPath = ContentUtils.normalizeContentsPath(path).replace(
+    /\/+$/g,
+    ''
+  );
   if (!normalizedPath) {
     return '';
   }

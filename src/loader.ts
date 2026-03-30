@@ -11,7 +11,7 @@ import { IRequireJS } from './requirejs';
 
 import { IModule, IModuleMember } from './types';
 
-import { getDirectoryModel, readContentsFileAsText } from './contents';
+import { ContentUtils } from './contents';
 
 export namespace PluginLoader {
   export interface IOptions {
@@ -88,7 +88,7 @@ export class PluginLoader {
       return schemas;
     }
 
-    const schema = await readContentsFileAsText(
+    const schema = await ContentUtils.readContentsFileAsText(
       serviceManager,
       PathExt.join(sourceDirectory, 'plugin.json')
     );
@@ -108,7 +108,7 @@ export class PluginLoader {
       return schemas;
     }
 
-    const packageJson = await readContentsFileAsText(
+    const packageJson = await ContentUtils.readContentsFileAsText(
       serviceManager,
       packageJsonPath
     );
@@ -136,7 +136,7 @@ export class PluginLoader {
       return schemas;
     }
 
-    const schemaDirectory = await getDirectoryModel(
+    const schemaDirectory = await ContentUtils.getDirectoryModel(
       serviceManager,
       schemaDirectoryPath
     );
@@ -160,7 +160,7 @@ export class PluginLoader {
       if (!schemaFile) {
         return schemas;
       }
-      const schema = await readContentsFileAsText(
+      const schema = await ContentUtils.readContentsFileAsText(
         serviceManager,
         PathExt.join(schemaDirectory.path, schemaFile.name)
       );
@@ -188,7 +188,10 @@ export class PluginLoader {
       if (!schemaPath) {
         continue;
       }
-      const schema = await readContentsFileAsText(serviceManager, schemaPath);
+      const schema = await ContentUtils.readContentsFileAsText(
+        serviceManager,
+        schemaPath
+      );
       if (schema !== null) {
         schemas[plugin.id] = schema;
       }
