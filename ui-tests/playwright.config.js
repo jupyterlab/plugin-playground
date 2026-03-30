@@ -5,6 +5,7 @@ const baseConfig = require('@jupyterlab/galata/lib/playwright-config');
 
 module.exports = {
   ...baseConfig,
+  testIgnore: /notebook-v7\.spec\.ts/,
   webServer: {
     command: 'jlpm start',
     url: 'http://localhost:8888/lab',

@@ -5,6 +5,7 @@ const baseConfig = require('./playwright.config');
 
 module.exports = {
   ...baseConfig,
+  testIgnore: [],
   testMatch: /notebook-v7\.spec\.ts/,
   webServer: {
     command: 'jlpm start:notebook',

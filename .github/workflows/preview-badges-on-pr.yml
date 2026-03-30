@@ -20,7 +20,7 @@ jobs:
             const docsSlug =
               `${context.repo.owner}-${context.repo.repo}`.toLowerCase();
             const jupyterliteLabUrl = `https://${docsSlug}--${prNumber}.org.readthedocs.build/en/${prNumber}/lite/lab/`;
-            const jupyterliteNotebookUrl = `https://${docsSlug}--${prNumber}.org.readthedocs.build/en/${prNumber}/lite/notebooks/`;
+            const jupyterliteNotebookUrl = `https://${docsSlug}--${prNumber}.org.readthedocs.build/en/${prNumber}/lite/tree/`;
             const jupyterliteBadge = `[![JupyterLite](https://jupyterlite.rtfd.io/en/latest/_static/badge-launch.svg)](${jupyterliteLabUrl})`;
             const jupyterliteNotebookBadge = `[![JupyterLite Notebook v7](https://jupyterlite.rtfd.io/en/latest/_static/badge-launch.svg)](${jupyterliteNotebookUrl})`;
             const marker = " :point_left:";
