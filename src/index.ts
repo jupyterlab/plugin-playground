@@ -1922,11 +1922,15 @@ class PluginPlayground {
       if (!source || source.startsWith('webpack://')) {
         return true;
       }
+      if (source.includes('@jupyterlite/')) {
+        return false;
+      }
       try {
-        return (
-          new URL(source, window.location.href).origin ===
-          window.location.origin
-        );
+        const parsed = new URL(source, window.location.href);
+        if (parsed.origin !== window.location.origin) {
+          return false;
+        }
+        return !parsed.pathname.includes('@jupyterlite/');
       } catch {
         return true;
       }
