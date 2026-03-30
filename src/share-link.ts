@@ -192,9 +192,9 @@ export namespace ShareLink {
   export function createSharedPluginUrl(token: string): string {
     const url = new URL(window.location.href);
     url.pathname = removeTreeRoute(url.pathname);
-    url.search = '';
-    url.hash = '';
+    url.searchParams.delete(SHARE_URL_PARAM);
     url.searchParams.set(SHARE_URL_PARAM, token);
+    url.hash = '';
     return url.toString();
   }
 

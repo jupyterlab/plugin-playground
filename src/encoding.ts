@@ -39,16 +39,13 @@ async function readStreamBytes(
 }
 
 export function bytesToBase64Url(bytes: Uint8Array): string {
-  let binary = '';
   const chunkSize = 0x8000;
+  const chunkStrings: string[] = [];
   for (let start = 0; start < bytes.length; start += chunkSize) {
     const chunk = bytes.subarray(start, start + chunkSize);
-    let chunkBinary = '';
-    for (let index = 0; index < chunk.length; index++) {
-      chunkBinary += String.fromCharCode(chunk[index]);
-    }
-    binary += chunkBinary;
+    chunkStrings.push(String.fromCharCode(...chunk));
   }
+  const binary = chunkStrings.join('');
   return btoa(binary)
     .replace(/\+/g, '-')
     .replace(/\//g, '_')

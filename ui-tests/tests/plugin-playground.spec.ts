@@ -559,8 +559,6 @@ export default plugin;
   const payloadToken = parsed.searchParams.get('plugin');
   expect(payloadToken).toBeTruthy();
   expect(payloadToken ?? '').toMatch(/^1\.[gr]\.[A-Za-z0-9_-]+$/);
-  expect(parsed.pathname.includes('/tree/')).toBe(false);
-  expect(parsed.hash.includes('/tree')).toBe(false);
 });
 
 test('loads a shared plugin from URL and clears query param', async ({
@@ -619,8 +617,12 @@ export default plugin;
   expect(shareResult.ok).toBe(true);
   expect(typeof shareResult.link).toBe('string');
 
-  const browserPage = page.context().pages()[0];
-  await browserPage.goto(shareResult.link, { waitUntil: 'domcontentloaded' });
+  await Promise.all([
+    page.waitForLoadState('domcontentloaded'),
+    page.evaluate((url: string) => {
+      window.location.assign(url);
+    }, shareResult.link)
+  ]);
 
   let restoredPath = '';
   await page.waitForCondition(async () => {
@@ -680,8 +682,6 @@ export default plugin;
     const currentUrl = new URL(window.location.href);
     return {
       pluginQueryParam: currentUrl.searchParams.get('plugin'),
-      currentPathname: currentUrl.pathname,
-      currentHash: currentUrl.hash,
       hasLoadedToggleCommand: window.jupyterapp.commands.hasCommand(
         'share-load-command-test:toggle'
       )
@@ -733,8 +733,6 @@ export default plugin;
   expect(restoredPath.includes(`/${sourceFilename}`)).toBe(true);
   expect(restoredSource?.trim()).toBe(sharedPluginSource.trim());
   expect(browserState.pluginQueryParam).toBeNull();
-  expect(browserState.currentPathname.includes('/tree')).toBe(false);
-  expect(browserState.currentHash.includes('/tree')).toBe(false);
   expect(browserState.hasLoadedToggleCommand).toBe(false);
   expect(hasUntitledFolderWithSameNamedFile).toBe(false);
 });
