@@ -30,7 +30,6 @@ SKIPPED_DIRECTORY_NAMES = {
 }
 SKIPPED_FILE_PREFIXES = ("playwright.config.",)
 SKIPPED_FILE_SUFFIXES = (".pyc", ".pyo")
-SKIPPED_MEDIA_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4")
 
 
 class SyncStats(NamedTuple):
@@ -173,8 +172,6 @@ def _should_skip(relative_path: Path, *, is_dir: bool) -> bool:
     if name in LOCKFILE_FILENAMES:
         return True
     if any(name.startswith(prefix) for prefix in SKIPPED_FILE_PREFIXES):
-        return True
-    if name.lower().endswith(SKIPPED_MEDIA_SUFFIXES):
         return True
     if name.endswith(SKIPPED_FILE_SUFFIXES):
         return True
