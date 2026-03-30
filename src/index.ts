@@ -1938,12 +1938,12 @@ class PluginPlayground {
       level: 'error' | 'warning' | 'info'
     ): ((...args: any[]) => void) => {
       return (...args: any[]): void => {
-        const source = new Error().stack
+        const stackSources = new Error().stack
           ?.split('\n')
           .slice(2)
           .join('\n')
-          .match(/(?:https?:\/\/|blob:|webpack:\/\/)[^\s)]+/)?.[0];
-        if (!source || isRelevantSource(source)) {
+          .match(/(?:https?:\/\/|blob:|webpack:\/\/)[^\s)]+/g);
+        if (!stackSources || stackSources.every(isRelevantSource)) {
           onLog(level, method, args);
         }
         method.apply(console, args);
