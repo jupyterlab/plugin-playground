@@ -14,6 +14,22 @@ test('Notebook v7 New dropdown can create a plugin file and open sidebar', async
     waitUntil: 'domcontentloaded'
   });
 
+  const fileMenu = page
+    .locator('.lm-MenuBar-itemLabel:text-is("File")')
+    .first();
+  await expect(fileMenu).toBeVisible();
+  await fileMenu.click();
+  const fileNewEntry = page
+    .locator('.lm-Menu-itemLabel:text-is("New")')
+    .first();
+  await expect(fileNewEntry).toBeVisible();
+  await fileNewEntry.hover();
+  const pluginInFileNewMenu = page
+    .locator(`.lm-Menu-itemLabel:text-is("${TREE_CREATE_COMMAND_LABEL}")`)
+    .first();
+  await expect(pluginInFileNewMenu).toBeVisible();
+  await page.keyboard.press('Escape');
+
   const newDropdown = page.getByRole('menuitem', { name: 'New' }).first();
   await expect(newDropdown).toBeVisible();
   await newDropdown.click();

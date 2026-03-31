@@ -24,6 +24,7 @@ import { DocumentRegistry, IDocumentWidget } from '@jupyterlab/docregistry';
 import { FileEditor, IEditorTracker } from '@jupyterlab/fileeditor';
 
 import { ILauncher } from '@jupyterlab/launcher';
+import { IMainMenu } from '@jupyterlab/mainmenu';
 
 import {
   checkIcon,
@@ -269,6 +270,7 @@ const NOTEBOOK_FILE_BROWSER_FACTORY = 'FileBrowser';
 const NOTEBOOK_NEW_DROPDOWN_TOOLBAR_ITEM = 'new-dropdown';
 const NOTEBOOK_TREE_OPEN_SIDEBAR_KEY =
   'plugin-playground:open-sidebar-from-tree';
+const JUPYTERLITE_BASE_PATH_SEGMENT = '/lite/';
 const NOTEBOOK_SHELL_PLUGIN_ID =
   '@jupyter-notebook/application-extension:shell';
 const NOTEBOOK_TREE_WIDGET_PLUGIN_ID =
@@ -606,7 +608,9 @@ class PluginPlayground {
         );
         if (shouldOpenFromTree === '1') {
           window.sessionStorage.removeItem(NOTEBOOK_TREE_OPEN_SIDEBAR_KEY);
-          this.app.shell.activateById(playgroundSidebar.id);
+          if (!playgroundSidebar.isVisible) {
+            this.app.shell.activateById(playgroundSidebar.id);
+          }
         }
       }
 
@@ -2472,53 +2476,75 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
   id: '@jupyterlab/plugin-playground:notebook-tree',
   description: 'Adds a Plugin Playground entry to Notebook tree New dropdown.',
   autoStart: true,
-  optional: [IToolbarWidgetRegistry],
+  optional: [IToolbarWidgetRegistry, IMainMenu],
   activate: (
     app: JupyterFrontEnd,
-    toolbarWidgetRegistry: IToolbarWidgetRegistry | null
+    toolbarWidgetRegistry: IToolbarWidgetRegistry | null,
+    mainMenu: IMainMenu | null
   ): void => {
     if (
-      !toolbarWidgetRegistry ||
-      (!app.hasPlugin(NOTEBOOK_SHELL_PLUGIN_ID) &&
-        !app.hasPlugin(NOTEBOOK_TREE_WIDGET_PLUGIN_ID))
+      !app.hasPlugin(NOTEBOOK_SHELL_PLUGIN_ID) &&
+      !app.hasPlugin(NOTEBOOK_TREE_WIDGET_PLUGIN_ID)
     ) {
       return;
     }
 
-    app.commands.addCommand(CommandIDs.createNewFileFromNotebookTree, {
-      label: 'Plugin (Playground)',
-      caption:
-        'Create a new TypeScript plugin file and open the playground sidebar',
-      describedBy: { args: null },
-      icon: extensionIcon,
-      execute: async () => {
-        const model = await app.serviceManager.contents.newUntitled({
-          type: 'file',
-          ext: 'ts'
-        });
-        const openPath = model.path;
+    if (!app.commands.hasCommand(CommandIDs.createNewFileFromNotebookTree)) {
+      app.commands.addCommand(CommandIDs.createNewFileFromNotebookTree, {
+        label: 'Plugin (Playground)',
+        caption:
+          'Create a new TypeScript plugin file and open the playground sidebar',
+        describedBy: { args: null },
+        icon: extensionIcon,
+        execute: async () => {
+          const model = await app.serviceManager.contents.newUntitled({
+            type: 'file',
+            ext: 'ts'
+          });
+          const openPath = model.path;
 
-        await app.serviceManager.contents.save(openPath, {
-          type: 'file',
-          format: 'text',
-          content: PLUGIN_TEMPLATE
-        });
+          await app.serviceManager.contents.save(openPath, {
+            type: 'file',
+            format: 'text',
+            content: PLUGIN_TEMPLATE
+          });
 
-        if (typeof window !== 'undefined') {
-          window.sessionStorage.setItem(NOTEBOOK_TREE_OPEN_SIDEBAR_KEY, '1');
-          const baseUrl = app.serviceManager.serverSettings.baseUrl.replace(
-            /\/?$/,
-            '/'
-          );
-          const encodedPath = openPath
-            .split('/')
-            .map(segment => encodeURIComponent(segment))
-            .join('/');
-          window.location.assign(`${baseUrl}edit/${encodedPath}`);
+          if (typeof window !== 'undefined') {
+            window.sessionStorage.setItem(NOTEBOOK_TREE_OPEN_SIDEBAR_KEY, '1');
+            const baseUrl = app.serviceManager.serverSettings.baseUrl.replace(
+              /\/?$/,
+              '/'
+            );
+            const encodedPath = openPath
+              .split('/')
+              .map(segment => encodeURIComponent(segment))
+              .join('/');
+            const targetUrl = baseUrl.includes(JUPYTERLITE_BASE_PATH_SEGMENT)
+              ? `${baseUrl}edit/?path=${encodeURIComponent(openPath)}`
+              : `${baseUrl}edit/${encodedPath}`;
+            window.location.assign(targetUrl);
+          }
+          return openPath;
         }
-        return openPath;
+      });
+    }
+
+    if (mainMenu) {
+      const hasPluginEntryInFileNewMenu = mainMenu.fileMenu.newMenu.items.some(
+        item =>
+          item.type === 'command' &&
+          item.command === CommandIDs.createNewFileFromNotebookTree
+      );
+      if (!hasPluginEntryInFileNewMenu) {
+        mainMenu.fileMenu.newMenu.addItem({
+          command: CommandIDs.createNewFileFromNotebookTree
+        });
       }
-    });
+    }
+
+    if (!toolbarWidgetRegistry) {
+      return;
+    }
 
     let baseNewDropdownFactory: ((browser: Widget) => Widget) | undefined;
     let isInstallingNewDropdownFactory = false;
