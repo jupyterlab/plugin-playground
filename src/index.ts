@@ -2267,15 +2267,12 @@ class PluginPlayground {
       if (!source || source.startsWith('webpack://')) {
         return true;
       }
-      if (source.includes('@jupyterlite/')) {
-        return false;
-      }
       try {
         const parsed = new URL(source, window.location.href);
         if (parsed.origin !== window.location.origin) {
           return false;
         }
-        return !parsed.pathname.includes('@jupyterlite/');
+        return true;
       } catch {
         return true;
       }
@@ -2287,6 +2284,18 @@ class PluginPlayground {
       level: 'error' | 'warning' | 'info'
     ): ((...args: any[]) => void) => {
       return (...args: any[]): void => {
+        const isIgnoredMessage = args.some(
+          arg =>
+            typeof arg === 'string' &&
+            (arg.includes('Observed element mutated') ||
+              arg.includes("don't worry, about SyntaxError") ||
+              arg.includes('/lite/api/all.json'))
+        );
+        if (isIgnoredMessage) {
+          method.apply(console, args);
+          return;
+        }
+
         const stackSources = new Error().stack
           ?.split('\n')
           .slice(2)
