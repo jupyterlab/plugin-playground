@@ -269,7 +269,10 @@ const NOTEBOOK_FILE_BROWSER_FACTORY = 'FileBrowser';
 const NOTEBOOK_NEW_DROPDOWN_TOOLBAR_ITEM = 'new-dropdown';
 const NOTEBOOK_TREE_OPEN_SIDEBAR_KEY =
   'plugin-playground:open-sidebar-from-tree';
-const NOTEBOOK_APP_NAME = 'Jupyter Notebook';
+const NOTEBOOK_SHELL_PLUGIN_ID =
+  '@jupyter-notebook/application-extension:shell';
+const NOTEBOOK_TREE_WIDGET_PLUGIN_ID =
+  '@jupyter-notebook/tree-extension:widget';
 
 export interface IPluginPlayground {
   registerKnownModule(known: IKnownModule): Promise<void>;
@@ -2474,7 +2477,11 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
     app: JupyterFrontEnd,
     toolbarWidgetRegistry: IToolbarWidgetRegistry | null
   ): void => {
-    if (app.name !== NOTEBOOK_APP_NAME || !toolbarWidgetRegistry) {
+    if (
+      !toolbarWidgetRegistry ||
+      (!app.hasPlugin(NOTEBOOK_SHELL_PLUGIN_ID) &&
+        !app.hasPlugin(NOTEBOOK_TREE_WIDGET_PLUGIN_ID))
+    ) {
       return;
     }
 
