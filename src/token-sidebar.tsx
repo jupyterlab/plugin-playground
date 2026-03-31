@@ -15,12 +15,7 @@ import {
   formatCommandDescription,
   type ICommandRecord
 } from './command-completion';
-import {
-  copyValueToClipboard,
-  normalizeQuery,
-  openExternalLink,
-  setCopiedStateWithTimeout
-} from './contents';
+import { ContentUtils } from './contents';
 import {
   docsLinkIcon,
   gitRepositoryIcon,
@@ -69,7 +64,7 @@ export function filterTokenRecords(
   tokens: ReadonlyArray<TokenSidebar.ITokenRecord>,
   query: string
 ): ReadonlyArray<TokenSidebar.ITokenRecord> {
-  const normalizedQuery = normalizeQuery(query);
+  const normalizedQuery = ContentUtils.normalizeQuery(query);
   if (!normalizedQuery) {
     return tokens;
   }
@@ -84,7 +79,7 @@ export function filterCommandRecords(
   commands: ReadonlyArray<ICommandRecord>,
   query: string
 ): ReadonlyArray<ICommandRecord> {
-  const normalizedQuery = normalizeQuery(query);
+  const normalizedQuery = ContentUtils.normalizeQuery(query);
   if (!normalizedQuery) {
     return commands;
   }
@@ -175,7 +170,7 @@ export class TokenSidebar extends ReactWidget {
       filteredCommands = filterCommandRecords(commands, this._query);
     } else {
       knownModules = this._getKnownModules();
-      const normalizedQuery = normalizeQuery(this._query);
+      const normalizedQuery = ContentUtils.normalizeQuery(this._query);
       filteredKnownModules =
         normalizedQuery.length > 0
           ? knownModules.filter(known => {
@@ -483,7 +478,7 @@ export class TokenSidebar extends ReactWidget {
                                 );
                                 return;
                               }
-                              openExternalLink(link.url);
+                              ContentUtils.openExternalLink(link.url);
                             }}
                             aria-label={`${link.ariaLabel} for ${known.name}`}
                             title={link.title}
@@ -776,8 +771,8 @@ export class TokenSidebar extends ReactWidget {
 
   private async _copyValue(value: string, valueKind: string): Promise<void> {
     try {
-      await copyValueToClipboard(value);
-      setCopiedStateWithTimeout(
+      await ContentUtils.copyValueToClipboard(value);
+      ContentUtils.setCopiedStateWithTimeout(
         value,
         this._copiedTimer,
         timer => {

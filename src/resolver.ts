@@ -16,7 +16,7 @@ import { ISettingRegistry } from '@jupyterlab/settingregistry';
 
 import { formatCDNConsentDialog } from './dialogs';
 
-import { fileModelToText, getFileModel } from './contents';
+import { ContentUtils } from './contents';
 
 function handleImportError(error: Error, module: string) {
   return showDialog({
@@ -221,13 +221,16 @@ export class ImportResolver {
     const candidatePaths = this._localImportCandidates(base, module);
 
     for (const candidatePath of candidatePaths) {
-      const file = await getFileModel(serviceManager, candidatePath);
+      const file = await ContentUtils.getFileModel(
+        serviceManager,
+        candidatePath
+      );
       if (!file) {
         continue;
       }
 
       console.log(`Resolved ${module} to ${file.path}`);
-      const content = fileModelToText(file);
+      const content = ContentUtils.fileModelToText(file);
       if (content === null) {
         continue;
       }

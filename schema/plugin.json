@@ -69,6 +69,12 @@
         "command": "plugin-playground:export-as-extension",
         "label": "Export",
         "rank": 22
+      },
+      {
+        "name": "share-extension-link",
+        "command": "plugin-playground:share-via-link",
+        "label": "Share",
+        "rank": 23
       }
     ]
   },

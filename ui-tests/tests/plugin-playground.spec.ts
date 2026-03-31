@@ -1,10 +1,12 @@
 import { expect, galata, test } from '@jupyterlab/galata';
 import type { FileEditorWidget } from '@jupyterlab/fileeditor';
 import type { IJupyterLabPageFixture } from '@jupyterlab/galata';
+import type { Contents } from '@jupyterlab/services';
 import type { Locator } from '@playwright/test';
 
 const LOAD_COMMAND = 'plugin-playground:load-as-extension';
 const EXPORT_COMMAND = 'plugin-playground:export-as-extension';
+const SHARE_COMMAND = 'plugin-playground:share-via-link';
 const OPEN_PACKAGES_REFERENCE_COMMAND = 'plugin-playground:open-js-explorer';
 const INTERNAL_CONTEXT_INFO_COMMAND = '__internal:context-menu-info';
 const CREATE_FILE_COMMAND = 'plugin-playground:create-new-plugin';
@@ -21,6 +23,11 @@ const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
 const TOKEN_SECTION_ID = 'jp-plugin-token-sidebar';
 const EXAMPLE_SECTION_ID = 'jp-plugin-example-sidebar';
 const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
+
+interface IWindowWithExportCounter extends Window {
+  __exportDownloadCount?: number;
+  __originalCreateObjectURL?: typeof URL.createObjectURL;
+}
 
 test.use({ autoGoto: false });
 
@@ -133,6 +140,11 @@ test('registers plugin playground commands', async ({ page }) => {
   await page.waitForCondition(() =>
     page.evaluate((id: string) => {
       return window.jupyterapp.commands.hasCommand(id);
+    }, SHARE_COMMAND)
+  );
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
     }, LIST_TOKENS_COMMAND)
   );
   await page.waitForCondition(() =>
@@ -161,6 +173,11 @@ test('registers plugin playground commands', async ({ page }) => {
     page.evaluate((id: string) => {
       return window.jupyterapp.commands.hasCommand(id);
     }, EXPORT_COMMAND)
+  ).resolves.toBe(true);
+  await expect(
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, SHARE_COMMAND)
   ).resolves.toBe(true);
   await expect(
     page.evaluate((id: string) => {
@@ -453,13 +470,14 @@ test('exports active extension folder as a zip archive', async ({
   );
 
   await page.evaluate(() => {
-    const w = window as any;
-    w.__exportDownloadCount = 0;
-    if (!w.__originalCreateObjectURL) {
-      w.__originalCreateObjectURL = URL.createObjectURL.bind(URL);
+    const win = window as IWindowWithExportCounter;
+    win.__exportDownloadCount = 0;
+    if (!win.__originalCreateObjectURL) {
+      win.__originalCreateObjectURL = URL.createObjectURL.bind(URL);
+      const originalCreateObjectURL = win.__originalCreateObjectURL;
       URL.createObjectURL = ((blob: Blob) => {
-        w.__exportDownloadCount += 1;
-        return w.__originalCreateObjectURL(blob);
+        win.__exportDownloadCount = (win.__exportDownloadCount ?? 0) + 1;
+        return originalCreateObjectURL(blob);
       }) as typeof URL.createObjectURL;
     }
   });
@@ -473,9 +491,302 @@ test('exports active extension folder as a zip archive', async ({
   expect(exportResult.fileCount).toBeGreaterThanOrEqual(2);
 
   const downloadCount = await page.evaluate(() => {
-    return (window as any).__exportDownloadCount ?? 0;
+    return (window as IWindowWithExportCounter).__exportDownloadCount ?? 0;
   });
   expect(downloadCount).toBeGreaterThan(0);
+});
+
+test('shares active file via URL by default', async ({ page, tmpPath }) => {
+  const projectRoot = `${tmpPath}/share-command-test`;
+  const sourceFilename = 'share-entry.ts';
+  const sourcePath = `${projectRoot}/src/${sourceFilename}`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+  const sharedPluginSource = `
+const plugin = {
+  id: 'share-command-test:plugin',
+  autoStart: true,
+  activate: app => {
+    let toggled = false;
+    app.commands.addCommand('share-command-test:toggle', {
+      label: 'Share Command Toggle',
+      isToggled: () => toggled,
+      execute: () => {
+        toggled = !toggled;
+      }
+    });
+  }
+};
+
+export default plugin;
+`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: 'share-command-test',
+        version: '0.1.0',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(sharedPluginSource, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab(sourceFilename)).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, SHARE_COMMAND)
+  );
+
+  const shareResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, SHARE_COMMAND);
+
+  expect(shareResult.ok).toBe(true);
+  expect(typeof shareResult.link).toBe('string');
+  expect(shareResult.link).toContain('plugin=');
+  expect(shareResult.sourcePath).toBe(sourcePath);
+  expect(shareResult.urlLength).toBeGreaterThan(0);
+
+  const parsed = new URL(shareResult.link);
+  const payloadToken = parsed.searchParams.get('plugin');
+  expect(payloadToken).toBeTruthy();
+  expect(payloadToken ?? '').toMatch(/^1\.[gr]\.[A-Za-z0-9_-]+$/);
+});
+
+test('loads a shared plugin from URL and clears query param', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/share-load-command-test`;
+  const sourceFilename = 'share-load-entry.ts';
+  const sourcePath = `${projectRoot}/src/${sourceFilename}`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+  const sharedPluginSource = `
+const plugin = {
+  id: 'share-load-command-test:plugin',
+  autoStart: true,
+  activate: app => {
+    app.commands.addCommand('share-load-command-test:toggle', {
+      label: 'Share Load Toggle',
+      execute: () => {
+        return undefined;
+      }
+    });
+  }
+};
+
+export default plugin;
+`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: 'share-load-command-test',
+        version: '0.1.0',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(sharedPluginSource, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab(sourceFilename)).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, SHARE_COMMAND)
+  );
+
+  const shareResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, SHARE_COMMAND);
+  expect(shareResult.ok).toBe(true);
+  expect(typeof shareResult.link).toBe('string');
+
+  await Promise.all([
+    page.waitForLoadState('domcontentloaded'),
+    page.evaluate((url: string) => {
+      window.location.assign(url);
+    }, shareResult.link)
+  ]);
+
+  let restoredPath = '';
+  await page.waitForCondition(async () => {
+    const root = await page.contents.getContentMetadata(
+      'plugin-playground-shared',
+      'directory'
+    );
+    if (!root || root.type !== 'directory' || !Array.isArray(root.content)) {
+      return false;
+    }
+
+    for (const folder of root.content) {
+      if (folder.type !== 'directory') {
+        continue;
+      }
+      const directory = await page.contents.getContentMetadata(
+        folder.path,
+        'directory'
+      );
+      if (
+        !directory ||
+        directory.type !== 'directory' ||
+        !Array.isArray(directory.content)
+      ) {
+        continue;
+      }
+      const restoredFile = directory.content.find(
+        entry => entry.type === 'file' && entry.name === sourceFilename
+      );
+      if (!restoredFile) {
+        continue;
+      }
+      restoredPath = restoredFile.path;
+      return true;
+    }
+
+    return false;
+  }, 30000);
+
+  expect(restoredPath).not.toBe('');
+  if (!restoredPath) {
+    throw new Error(
+      'Shared file was not restored under plugin-playground-shared.'
+    );
+  }
+  const restoredSource = await page.evaluate(async (path: string) => {
+    const fileModel = await window.jupyterapp.serviceManager.contents.get(
+      path,
+      {
+        content: true,
+        format: 'text'
+      }
+    );
+    return typeof fileModel.content === 'string' ? fileModel.content : null;
+  }, restoredPath);
+  const browserState = await page.evaluate(() => {
+    const currentUrl = new URL(window.location.href);
+    return {
+      pluginQueryParam: currentUrl.searchParams.get('plugin'),
+      hasLoadedToggleCommand: window.jupyterapp.commands.hasCommand(
+        'share-load-command-test:toggle'
+      )
+    };
+  });
+  const hasUntitledFolderWithSameNamedFile = await page.evaluate(async () => {
+    const root = await window.jupyterapp.serviceManager.contents.get('', {
+      content: true
+    });
+    if (!root || root.type !== 'directory' || !Array.isArray(root.content)) {
+      return false;
+    }
+    const untitledPattern = /^untitled/i;
+    const entries = root.content as Contents.IModel[];
+    for (const entry of entries) {
+      if (
+        entry.type !== 'directory' ||
+        typeof entry.name !== 'string' ||
+        !untitledPattern.test(entry.name) ||
+        typeof entry.path !== 'string'
+      ) {
+        continue;
+      }
+      const directory = await window.jupyterapp.serviceManager.contents.get(
+        entry.path,
+        {
+          content: true
+        }
+      );
+      if (
+        !directory ||
+        directory.type !== 'directory' ||
+        !Array.isArray(directory.content)
+      ) {
+        continue;
+      }
+      const children = directory.content as Contents.IModel[];
+      const matchingFile = children.some(
+        child => child.type === 'file' && child.name === entry.name
+      );
+      if (matchingFile) {
+        return true;
+      }
+    }
+    return false;
+  });
+
+  expect(restoredPath.includes('plugin-playground-shared/')).toBe(true);
+  expect(restoredPath.includes(`/${sourceFilename}`)).toBe(true);
+  expect(restoredSource?.trim()).toBe(sharedPluginSource.trim());
+  expect(browserState.pluginQueryParam).toBeNull();
+  expect(browserState.hasLoadedToggleCommand).toBe(false);
+  expect(hasUntitledFolderWithSameNamedFile).toBe(false);
+});
+
+test('returns an error when sharing a directory path', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/share-folder-command-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: 'share-folder-command-test',
+        version: '0.1.0',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, SHARE_COMMAND)
+  );
+
+  const shareResult = await page.evaluate(
+    ({ id, path }) => {
+      return window.jupyterapp.commands.execute(id, { path });
+    },
+    {
+      id: SHARE_COMMAND,
+      path: projectRoot
+    }
+  );
+
+  expect(shareResult.ok).toBe(false);
+  expect(shareResult.link).toBeNull();
+  expect(shareResult.sourcePath).toBe(projectRoot);
+  expect(shareResult.urlLength).toBe(0);
+  expect(shareResult.message ?? '').toContain(
+    'Folder sharing is temporarily disabled'
+  );
 });
 
 test('opens token sidebar, shows tokens, and filters by exact token', async ({

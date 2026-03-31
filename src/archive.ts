@@ -1,4 +1,4 @@
-import { normalizeContentsPath } from './contents';
+import { ContentUtils } from './contents';
 
 export interface IArchiveEntry {
   path: string;
@@ -46,7 +46,7 @@ function createZipBytes(entries: ReadonlyArray<IArchiveEntry>): Uint8Array {
   let entryCount = 0;
 
   for (const entry of entries) {
-    const normalizedPath = normalizeContentsPath(
+    const normalizedPath = ContentUtils.normalizeContentsPath(
       entry.path.replace(/\\/g, '/')
     );
     if (!normalizedPath) {
