@@ -2262,13 +2262,48 @@ class PluginPlayground {
       updateBadge();
     };
 
+    // Track logs only when they come from this JupyterLab origin.
+    const isRelevantSource = (source?: string): boolean => {
+      if (!source || source.startsWith('webpack://')) {
+        return true;
+      }
+      try {
+        const parsed = new URL(source, window.location.href);
+        if (parsed.origin !== window.location.origin) {
+          return false;
+        }
+        return true;
+      } catch {
+        return true;
+      }
+    };
+
     // Intercepts — count, buffer, then forward to the previous handler.
     const wrap = (
       method: (...args: any[]) => void,
       level: 'error' | 'warning' | 'info'
     ): ((...args: any[]) => void) => {
       return (...args: any[]): void => {
-        onLog(level, method, args);
+        const isIgnoredMessage = args.some(
+          arg =>
+            typeof arg === 'string' &&
+            (arg.includes('Observed element mutated') ||
+              arg.includes("don't worry, about SyntaxError") ||
+              arg.includes('/lite/api/all.json'))
+        );
+        if (isIgnoredMessage) {
+          method.apply(console, args);
+          return;
+        }
+
+        const stackSources = new Error().stack
+          ?.split('\n')
+          .slice(2)
+          .join('\n')
+          .match(/(?:https?:\/\/|blob:|webpack:\/\/)[^\s)]+/g);
+        if (!stackSources || stackSources.every(isRelevantSource)) {
+          onLog(level, method, args);
+        }
         method.apply(console, args);
       };
     };
@@ -2282,7 +2317,7 @@ class PluginPlayground {
     window.onerror = ((): (typeof window)['onerror'] => {
       const prev = window.onerror;
       return (msg, url, line, col, error): boolean => {
-        if (!replaying) {
+        if (!replaying && isRelevantSource(url ?? undefined)) {
           unreadCount++;
           hasError = true;
           if (logBuffer.length < MAX_BUFFER) {
