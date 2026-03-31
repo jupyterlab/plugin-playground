@@ -49,27 +49,28 @@ jobs:
               ? binderUrl.replace(/urlpath=[^&)]+/, "urlpath=tree")
               : `${binderUrl}${binderUrl.includes("?") ? "&" : "?"}urlpath=tree`;
             const binderNotebookBadge = `[![Binder Notebook v7](https://mybinder.org/badge_logo.svg)](${binderNotebookUrl})`;
-
-            const missingBadges = [];
-            if (!binderComment.body.includes("![Binder Notebook v7](")) {
-              missingBadges.push(binderNotebookBadge);
-            }
-            if (!binderComment.body.includes("![JupyterLite](")) {
-              missingBadges.push(jupyterliteBadge);
-            }
-            if (!binderComment.body.includes("![JupyterLite Notebook v7](")) {
-              missingBadges.push(jupyterliteNotebookBadge);
-            }
-
-            if (missingBadges.length === 0) {
+            const tableHeader = "| Preview | Lab | Notebook v7 |";
+            if (binderComment.body.includes(tableHeader)) {
               return;
             }
+
+            const previewTable = [
+              tableHeader,
+              "| --- | --- | --- |",
+              `| Binder | [![Binder](https://mybinder.org/badge_logo.svg)](${binderUrl}) | ${binderNotebookBadge} |`,
+              `| JupyterLite | ${jupyterliteBadge} | ${jupyterliteNotebookBadge} |`
+            ].join("\n");
+            const cleanedBody = binderComment.body
+              .replace(/\s*\[!\[Binder Notebook v7\]\([^)]+\)\]\([^)]+\)/g, "")
+              .replace(/\s*\[!\[JupyterLite\]\([^)]+\)\]\([^)]+\)/g, "")
+              .replace(/\s*\[!\[JupyterLite Notebook v7\]\([^)]+\)\]\([^)]+\)/g, "");
+            const updatedBody = cleanedBody.replace(
+              marker,
+              `\n\n${previewTable}\n${marker}`
+            );
             await github.rest.issues.updateComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               comment_id: binderComment.id,
-              body: binderComment.body.replace(
-                marker,
-                ` ${missingBadges.join(" ")}${marker}`
-              )
+              body: updatedBody
             });
