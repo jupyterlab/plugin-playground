@@ -270,7 +270,6 @@ const NOTEBOOK_FILE_BROWSER_FACTORY = 'FileBrowser';
 const NOTEBOOK_NEW_DROPDOWN_TOOLBAR_ITEM = 'new-dropdown';
 const NOTEBOOK_TREE_OPEN_SIDEBAR_KEY =
   'plugin-playground:open-sidebar-from-tree';
-const JUPYTERLITE_BASE_PATH_SEGMENT = '/lite/';
 const NOTEBOOK_SHELL_PLUGIN_ID =
   '@jupyter-notebook/application-extension:shell';
 const NOTEBOOK_TREE_WIDGET_PLUGIN_ID =
@@ -2511,19 +2510,10 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
 
           if (typeof window !== 'undefined') {
             window.sessionStorage.setItem(NOTEBOOK_TREE_OPEN_SIDEBAR_KEY, '1');
-            const baseUrl = app.serviceManager.serverSettings.baseUrl.replace(
-              /\/?$/,
-              '/'
-            );
-            const encodedPath = openPath
-              .split('/')
-              .map(segment => encodeURIComponent(segment))
-              .join('/');
-            const targetUrl = baseUrl.includes(JUPYTERLITE_BASE_PATH_SEGMENT)
-              ? `${baseUrl}edit/?path=${encodeURIComponent(openPath)}`
-              : `${baseUrl}edit/${encodedPath}`;
-            window.location.assign(targetUrl);
           }
+          await app.commands.execute('docmanager:open', {
+            path: openPath
+          });
           return openPath;
         }
       });

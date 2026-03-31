@@ -38,14 +38,24 @@ test('Notebook v7 New dropdown can create a plugin file and open sidebar', async
     .getByRole('menuitem', { name: TREE_CREATE_COMMAND_LABEL })
     .first();
   await expect(pluginMenuItem).toBeVisible();
+  const popupPromise = page
+    .waitForEvent('popup', { timeout: 5_000 })
+    .catch(() => null);
   await pluginMenuItem.click();
+  const popup = await popupPromise;
+  const editorPage = popup ?? page;
+  if (popup) {
+    await popup.waitForLoadState('domcontentloaded');
+  }
 
-  await expect(page).toHaveURL(/\/edit\/.*\.ts(?:\?.*)?$/);
-  await expect(page.getByText(TEMPLATE_PLUGIN_ID).first()).toBeVisible({
+  await expect
+    .poll(() => editorPage.url())
+    .toMatch(/\/edit\/(?:[^?]*\.ts(?:\?.*)?|\?path=.*\.ts(?:&.*)?)$/);
+  await expect(editorPage.getByText(TEMPLATE_PLUGIN_ID).first()).toBeVisible({
     timeout: 10_000
   });
 
-  const panel = page.locator(`#${PLAYGROUND_SIDEBAR_ID}`);
+  const panel = editorPage.locator(`#${PLAYGROUND_SIDEBAR_ID}`);
   await expect(panel).toBeAttached({ timeout: 10_000 });
   await expect(panel).toBeVisible({ timeout: 10_000 });
   await expect(panel.locator(`#${TOKEN_SECTION_ID}`)).toBeVisible();
