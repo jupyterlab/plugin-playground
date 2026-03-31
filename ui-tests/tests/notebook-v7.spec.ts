@@ -1,48 +1,37 @@
 import { expect, test } from '@playwright/test';
 
 const BASE_URL = 'http://localhost:8888';
+const TREE_CREATE_COMMAND_LABEL = 'Plugin (Playground)';
 const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
 const TOKEN_SECTION_ID = 'jp-plugin-token-sidebar';
 const EXAMPLE_SECTION_ID = 'jp-plugin-example-sidebar';
+const TEMPLATE_PLUGIN_ID = /hello-world:plugin/;
 
-test('Notebook v7 shows plugin playground sidebar next to an opened file', async ({
-  page,
-  request
+test('Notebook v7 New dropdown can create a plugin file and open sidebar', async ({
+  page
 }) => {
-  const sourcePath = 'notebook-v7-sidebar-smoke.ts';
-  const createResponse = await request.put(
-    `${BASE_URL}/api/contents/${sourcePath}`,
-    {
-      data: {
-        type: 'file',
-        format: 'text',
-        content:
-          "const plugin = { id: 'notebook-v7-sidebar-smoke:plugin', autoStart: true, activate: () => undefined }; export default plugin;\n"
-      }
-    }
-  );
-  expect(createResponse.ok()).toBe(true);
-
-  await page.goto(`${BASE_URL}/edit/${sourcePath}`, {
+  await page.goto(`${BASE_URL}/tree`, {
     waitUntil: 'domcontentloaded'
+  });
+
+  const newDropdown = page.getByRole('menuitem', { name: 'New' }).first();
+  await expect(newDropdown).toBeVisible();
+  await newDropdown.click();
+
+  const pluginMenuItem = page
+    .getByRole('menuitem', { name: TREE_CREATE_COMMAND_LABEL })
+    .first();
+  await expect(pluginMenuItem).toBeVisible();
+  await pluginMenuItem.click();
+
+  await expect(page).toHaveURL(/\/edit\/.*\.ts(?:\?.*)?$/);
+  await expect(page.getByText(TEMPLATE_PLUGIN_ID).first()).toBeVisible({
+    timeout: 10_000
   });
 
   const panel = page.locator(`#${PLAYGROUND_SIDEBAR_ID}`);
   await expect(panel).toBeAttached({ timeout: 10_000 });
-  const sidebarTab = page
-    .locator(`[data-id="${PLAYGROUND_SIDEBAR_ID}"]`)
-    .first();
-  if (!(await panel.isVisible()) && (await sidebarTab.count()) > 0) {
-    await sidebarTab.click();
-  }
-
-  if (await panel.isVisible()) {
-    await expect(panel.locator(`#${TOKEN_SECTION_ID}`)).toBeVisible();
-    await expect(panel.locator(`#${EXAMPLE_SECTION_ID}`)).toBeVisible();
-  } else {
-    // Notebook may keep the right area collapsed by default; ensure sections are
-    // still registered in the panel for manual activation.
-    await expect(panel.locator(`#${TOKEN_SECTION_ID}`)).toBeAttached();
-    await expect(panel.locator(`#${EXAMPLE_SECTION_ID}`)).toBeAttached();
-  }
+  await expect(panel).toBeVisible({ timeout: 10_000 });
+  await expect(panel.locator(`#${TOKEN_SECTION_ID}`)).toBeVisible();
+  await expect(panel.locator(`#${EXAMPLE_SECTION_ID}`)).toBeVisible();
 });
