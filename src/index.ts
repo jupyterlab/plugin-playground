@@ -264,6 +264,8 @@ const JUPYTERLITE_AI_OPEN_CHAT_COMMAND = '@jupyterlite/ai:open-chat';
 const JUPYTERLITE_AI_CHAT_PANEL_ID = '@jupyterlite/ai:chat-panel';
 const JUPYTERLITE_AI_INSTALL_HINT =
   'JupyterLite AI is unavailable. Install the "jupyterlite-ai" extension and reload.';
+const JUPYTERLITE_AI_PROVIDER_SETUP_HINT =
+  'JupyterLite AI provider is not configured. Configure a provider and try again.';
 const DEFAULT_COMMAND_INSERT_MODE: CommandInsertMode = 'insert';
 const ARCHIVE_EXCLUDED_DIRECTORIES = new Set([
   '.git',
@@ -2194,12 +2196,14 @@ class PluginPlayground {
         'Failed to prefill JupyterLite AI prompt for insertion.',
         error
       );
-      Notification.warning(
-        `Could not prefill AI insertion prompt for "${commandId}": ${message}`,
-        {
-          autoClose: 5000
-        }
-      );
+      const warningMessage =
+        message === JUPYTERLITE_AI_PROVIDER_SETUP_HINT ||
+        message.startsWith(JUPYTERLITE_AI_INSTALL_HINT)
+          ? message
+          : `Could not prefill AI insertion prompt for "${commandId}": ${message}`;
+      Notification.warning(warningMessage, {
+        autoClose: 5000
+      });
     }
   }
 
@@ -2212,18 +2216,43 @@ class PluginPlayground {
   ): void {
     const { editorWidget, sourceModel } = activeEditor;
     const editor = editorWidget.content.editor;
+    const originalCursorPosition = editor.getCursorPosition();
+    const originalInsertionOffset = editor.getOffsetAt(originalCursorPosition);
     const originalSource = sourceModel.sharedModel.getSource();
-    const activateAppContext = ensurePluginActivateAppContext(originalSource);
-    if (activateAppContext.source !== originalSource) {
+    let cursorMarker = '__plugin_playground_cursor_marker__';
+    while (originalSource.includes(cursorMarker)) {
+      cursorMarker = `${cursorMarker}_`;
+    }
+    const sourceWithCursorMarker = `${originalSource.slice(
+      0,
+      originalInsertionOffset
+    )}${cursorMarker}${originalSource.slice(originalInsertionOffset)}`;
+
+    const activateAppContext = ensurePluginActivateAppContext(
+      sourceWithCursorMarker
+    );
+    const markerOffset = activateAppContext.source.indexOf(cursorMarker);
+    const sourceWithoutMarker =
+      markerOffset === -1
+        ? activateAppContext.source
+        : `${activateAppContext.source.slice(
+            0,
+            markerOffset
+          )}${activateAppContext.source.slice(
+            markerOffset + cursorMarker.length
+          )}`;
+    if (sourceWithoutMarker !== originalSource) {
       sourceModel.sharedModel.updateSource(
         0,
         originalSource.length,
-        activateAppContext.source
+        sourceWithoutMarker
       );
     }
 
-    const cursorPosition = editor.getCursorPosition();
-    const insertionOffset = editor.getOffsetAt(cursorPosition);
+    const insertionOffset =
+      markerOffset === -1 ? originalInsertionOffset : markerOffset;
+    const cursorPosition =
+      editor.getPositionAt(insertionOffset) ?? editor.getCursorPosition();
     const insertText = this._commandExecutionSnippet(
       commandId,
       activateAppContext.appVariableName
@@ -2285,16 +2314,21 @@ class PluginPlayground {
     await this.app.commands.execute(JUPYTERLITE_AI_OPEN_CHAT_COMMAND, {
       area: 'side'
     });
+    this.app.shell.activateById(JUPYTERLITE_AI_CHAT_PANEL_ID);
 
     const inputModel = this._requireJupyterLiteAIChatInputModel();
-    this._setJupyterLiteAIInputPrompt(inputModel, prompt);
+    inputModel.value = prompt;
+    inputModel.focus();
   }
 
   private _requireJupyterLiteAIChatInputModel(): {
     value: string;
     focus: () => void;
   } {
-    const sideWidgets = Array.from(this.app.shell.widgets('left'));
+    const sideWidgets = [
+      ...Array.from(this.app.shell.widgets('left')),
+      ...Array.from(this.app.shell.widgets('right'))
+    ];
     const chatPanel = sideWidgets.find(
       widget => widget.id === JUPYTERLITE_AI_CHAT_PANEL_ID
     ) as
@@ -2304,8 +2338,13 @@ class PluginPlayground {
           };
         }
       | undefined;
+    if (!chatPanel) {
+      throw new Error(
+        `${JUPYTERLITE_AI_INSTALL_HINT} Missing panel: "${JUPYTERLITE_AI_CHAT_PANEL_ID}".`
+      );
+    }
 
-    const candidate = chatPanel?.current?.model?.input;
+    const candidate = chatPanel.current?.model?.input;
     if (
       candidate &&
       typeof candidate === 'object' &&
@@ -2316,17 +2355,7 @@ class PluginPlayground {
     ) {
       return candidate as { value: string; focus: () => void };
     }
-    throw new Error(
-      'Opened JupyterLite AI chat, but could not access chat input model.'
-    );
-  }
-
-  private _setJupyterLiteAIInputPrompt(
-    inputModel: { value: string; focus: () => void },
-    prompt: string
-  ): void {
-    inputModel.value = prompt;
-    inputModel.focus();
+    throw new Error(JUPYTERLITE_AI_PROVIDER_SETUP_HINT);
   }
 
   private _buildCommandInsertAIPrompt(options: {

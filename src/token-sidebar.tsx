@@ -448,20 +448,14 @@ export class TokenSidebar extends ReactWidget {
                               elementSize: 'normal',
                               className: 'jp-PluginPlayground-actionIcon'
                             })}
-                            {isAICommandInsertMode ? (
-                              <span
-                                className="jp-PluginPlayground-commandInsertAIBadge"
-                                aria-hidden="true"
-                              >
-                                {React.createElement(offlineBoltIcon.react, {
+                            {isAICommandInsertMode
+                              ? React.createElement(offlineBoltIcon.react, {
                                   tag: 'span',
                                   elementSize: 'small',
                                   className:
-                                    'jp-PluginPlayground-commandInsertAIBadgeIcon'
-                                })}
-                                AI
-                              </span>
-                            ) : null}
+                                    'jp-PluginPlayground-commandInsertAIMarkerIcon'
+                                })
+                              : null}
                           </button>
                           <button
                             className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-commandInsertMenuButton"

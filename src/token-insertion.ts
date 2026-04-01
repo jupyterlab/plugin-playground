@@ -38,7 +38,6 @@ export function insertImportStatement(
   source: string,
   tokenReference: ITokenReference
 ): ISourceUpdateResult {
-  const statement = `import { ${tokenReference.tokenSymbol} } from '${tokenReference.packageName}';`;
   const existingImportLines = hasNamedValueImport(
     source,
     tokenReference.packageName,
@@ -48,6 +47,15 @@ export function insertImportStatement(
     return { source, changedLines: existingImportLines };
   }
 
+  const groupedImportResult = insertIntoExistingPackageImport(
+    source,
+    tokenReference
+  );
+  if (groupedImportResult) {
+    return groupedImportResult;
+  }
+
+  const statement = `import { ${tokenReference.tokenSymbol} } from '${tokenReference.packageName}';`;
   const separator = source.length > 0 ? '\n' : '';
   return {
     source: `${statement}${separator}${source}`,
@@ -680,6 +688,110 @@ function jupyterFrontEndParameterName(
     }
   }
   return null;
+}
+
+function insertIntoExistingPackageImport(
+  source: string,
+  tokenReference: ITokenReference
+): ISourceUpdateResult | null {
+  const sourceFile = ts.createSourceFile(
+    'plugin-playground-import-grouping.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX
+  );
+  const statement = `import { ${tokenReference.tokenSymbol} } from '${tokenReference.packageName}';`;
+  const lineEnding = source.includes('\r\n') ? '\r\n' : '\n';
+  let lastMatchingImport: ts.ImportDeclaration | null = null;
+
+  for (const candidate of sourceFile.statements) {
+    if (!ts.isImportDeclaration(candidate)) {
+      continue;
+    }
+    if (
+      !ts.isStringLiteral(candidate.moduleSpecifier) ||
+      candidate.moduleSpecifier.text !== tokenReference.packageName
+    ) {
+      continue;
+    }
+
+    lastMatchingImport = candidate;
+    const importClause = candidate.importClause;
+    if (!importClause || importClause.isTypeOnly) {
+      continue;
+    }
+
+    const namedBindings = importClause.namedBindings;
+    if (!namedBindings) {
+      if (importClause.name) {
+        return applyEditsWithChangedLines(source, [
+          {
+            start: importClause.name.end,
+            end: importClause.name.end,
+            text: `, { ${tokenReference.tokenSymbol} }`
+          }
+        ]);
+      }
+      continue;
+    }
+
+    if (ts.isNamespaceImport(namedBindings)) {
+      continue;
+    }
+
+    if (namedBindings.elements.length === 0) {
+      return applyEditsWithChangedLines(source, [
+        {
+          start: namedBindings.elements.pos,
+          end: namedBindings.elements.pos,
+          text: tokenReference.tokenSymbol
+        }
+      ]);
+    }
+
+    const insertionPosition = namedBindings.elements.end;
+    const hasTrailingComma = Boolean(namedBindings.elements.hasTrailingComma);
+    const namedBindingsText = source.slice(
+      namedBindings.getStart(sourceFile),
+      namedBindings.end
+    );
+    if (namedBindingsText.includes('\n')) {
+      const firstElement = namedBindings.elements[0];
+      const elementIndent = firstElement
+        ? lineIndent(source, firstElement.getStart(sourceFile))
+        : '  ';
+      return applyEditsWithChangedLines(source, [
+        {
+          start: insertionPosition,
+          end: insertionPosition,
+          text: `${hasTrailingComma ? '' : ','}${lineEnding}${elementIndent}${
+            tokenReference.tokenSymbol
+          }`
+        }
+      ]);
+    }
+
+    return applyEditsWithChangedLines(source, [
+      {
+        start: insertionPosition,
+        end: insertionPosition,
+        text: `${hasTrailingComma ? ' ' : ', '}${tokenReference.tokenSymbol}`
+      }
+    ]);
+  }
+
+  if (!lastMatchingImport) {
+    return null;
+  }
+
+  return applyEditsWithChangedLines(source, [
+    {
+      start: lastMatchingImport.end,
+      end: lastMatchingImport.end,
+      text: `${lineEnding}${statement}`
+    }
+  ]);
 }
 
 function hasNamedValueImport(
