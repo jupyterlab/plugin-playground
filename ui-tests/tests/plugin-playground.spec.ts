@@ -131,7 +131,8 @@ async function ensureMockJupyterLiteAIChat(
       commandId: string;
       chatPanelId: string;
     }) => {
-      const inputSelector = '.jp-chat-input-textfield textarea';
+      const inputSelector =
+        '.jp-chat-input-textfield[data-playground-test="ai-input"] textarea';
       const ensureInput = (): HTMLTextAreaElement => {
         let input = document.querySelector(
           inputSelector
@@ -175,13 +176,11 @@ async function ensureMockJupyterLiteAIChat(
             shell.__playgroundChatPanel
           ) {
             const chatPanel = shell.__playgroundChatPanel;
-            if (
-              !originalWidgets.some(
-                (widget: any) => widget?.id === chatPanel.id
-              )
-            ) {
-              originalWidgets.push(chatPanel);
-            }
+            const widgetsWithoutChatPanel = originalWidgets.filter(
+              (widget: any) => widget?.id !== chatPanel.id
+            );
+            widgetsWithoutChatPanel.push(chatPanel);
+            return widgetsWithoutChatPanel[Symbol.iterator]();
           }
           return originalWidgets[Symbol.iterator]();
         };
@@ -196,6 +195,18 @@ async function ensureMockJupyterLiteAIChat(
       };
 
       const commands = window.jupyterapp.commands;
+      const commandRegistry = commands as any;
+      if (!commandRegistry.__playgroundOriginalExecute) {
+        commandRegistry.__playgroundOriginalExecute =
+          commands.execute.bind(commands);
+        commands.execute = async (id: string, args?: any) => {
+          if (id === commandId) {
+            ensureInput();
+            return undefined;
+          }
+          return commandRegistry.__playgroundOriginalExecute(id, args);
+        };
+      }
       if (!commands.hasCommand(commandId)) {
         commands.addCommand(commandId, {
           label: 'JupyterLite AI test command',
@@ -1513,7 +1524,9 @@ export default extension;
     return current.content.model.sharedModel.getSource();
   });
   const suggestedSnippet = `app.commands.execute('${LOAD_COMMAND}');`;
-  const chatInput = page.locator('.jp-chat-input-textfield textarea');
+  const chatInput = page.locator(
+    '.jp-chat-input-textfield[data-playground-test="ai-input"] textarea'
+  );
 
   const panel = await openSidebarPanel(page, TOKEN_SECTION_ID);
   await panel.getByRole('tab', { name: 'Commands', exact: true }).click();
@@ -1634,7 +1647,9 @@ export default [advanced, simple];
     return current.content.model.sharedModel.getSource();
   });
   const suggestedSnippet = `app.commands.execute('${LOAD_COMMAND}');`;
-  const chatInput = page.locator('.jp-chat-input-textfield textarea');
+  const chatInput = page.locator(
+    '.jp-chat-input-textfield[data-playground-test="ai-input"] textarea'
+  );
 
   const panel = await openSidebarPanel(page, TOKEN_SECTION_ID);
   await panel.getByRole('tab', { name: 'Commands', exact: true }).click();
@@ -1736,7 +1751,9 @@ export default plugins;
     return current.content.model.sharedModel.getSource();
   });
   const suggestedSnippet = `app.commands.execute('${LOAD_COMMAND}');`;
-  const chatInput = page.locator('.jp-chat-input-textfield textarea');
+  const chatInput = page.locator(
+    '.jp-chat-input-textfield[data-playground-test="ai-input"] textarea'
+  );
 
   const panel = await openSidebarPanel(page, TOKEN_SECTION_ID);
   await panel.getByRole('tab', { name: 'Commands', exact: true }).click();
