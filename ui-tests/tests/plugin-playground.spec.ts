@@ -1579,7 +1579,12 @@ export default extension;
   );
   await expect
     .poll(async () =>
-      chatInput.evaluate(input => input.selectionStart === input.value.length)
+      chatInput.evaluate(input => {
+        if (!(input instanceof HTMLTextAreaElement)) {
+          return false;
+        }
+        return input.selectionStart === input.value.length;
+      })
     )
     .toBe(true);
   await expect(chatInput).not.toHaveValue(
