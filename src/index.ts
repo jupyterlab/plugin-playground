@@ -25,6 +25,7 @@ import { FileEditor, IEditorTracker } from '@jupyterlab/fileeditor';
 
 import { ILauncher } from '@jupyterlab/launcher';
 import { IMainMenu } from '@jupyterlab/mainmenu';
+import { IChatTracker } from '@jupyter/chat';
 
 import {
   checkIcon,
@@ -303,6 +304,7 @@ class PluginPlayground {
     protected editorTracker: IEditorTracker,
     launcher: ILauncher | null,
     protected documentManager: IDocumentManager | null,
+    protected chatTracker: IChatTracker | null,
     protected settings: ISettingRegistry.ISettings,
     protected requirejs: IRequireJS,
     toolbarWidgetRegistry: IToolbarWidgetRegistry
@@ -2329,37 +2331,45 @@ class PluginPlayground {
     value: string;
     focus: () => void;
   } {
-    const sideWidgets = [
-      ...Array.from(this.app.shell.widgets('left')),
-      ...Array.from(this.app.shell.widgets('right'))
-    ];
-    const chatPanel = sideWidgets.find(
-      widget => widget.id === JUPYTERLITE_AI_CHAT_PANEL_ID
-    ) as
-      | {
-          current?: {
-            model?: { input?: unknown };
-          };
-        }
-      | undefined;
-    if (!chatPanel) {
+    if (!this.chatTracker) {
       throw new Error(
-        `${JUPYTERLITE_AI_INSTALL_HINT} Missing panel: "${JUPYTERLITE_AI_CHAT_PANEL_ID}".`
+        `${JUPYTERLITE_AI_INSTALL_HINT} Missing service: "@jupyter/chat:IChatTracker".`
       );
     }
 
-    const candidate = chatPanel.current?.model?.input;
-    if (
+    const chatWidget =
+      this.chatTracker.currentWidget ?? this.chatTracker.find(() => true);
+    if (!chatWidget) {
+      throw new Error(
+        `${JUPYTERLITE_AI_INSTALL_HINT} Chat tracker has no active widgets.`
+      );
+    }
+
+    const inputModel = (
+      chatWidget as {
+        model?: {
+          input?: unknown;
+        };
+      }
+    ).model?.input;
+    if (this._isJupyterLiteAIChatInputModel(inputModel)) {
+      return inputModel;
+    }
+    throw new Error(JUPYTERLITE_AI_PROVIDER_SETUP_HINT);
+  }
+
+  private _isJupyterLiteAIChatInputModel(candidate: unknown): candidate is {
+    value: string;
+    focus: () => void;
+  } {
+    return !!(
       candidate &&
       typeof candidate === 'object' &&
       'value' in candidate &&
       typeof candidate.value === 'string' &&
       'focus' in candidate &&
       typeof candidate.focus === 'function'
-    ) {
-      return candidate as { value: string; focus: () => void };
-    }
-    throw new Error(JUPYTERLITE_AI_PROVIDER_SETUP_HINT);
+    );
   }
 
   private _buildCommandInsertAIPrompt(options: {
@@ -2695,7 +2705,12 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
     IEditorTracker,
     IToolbarWidgetRegistry
   ],
-  optional: [ICompletionProviderManager, ILauncher, IDocumentManager],
+  optional: [
+    ICompletionProviderManager,
+    ILauncher,
+    IDocumentManager,
+    IChatTracker
+  ],
   activate: (
     app: JupyterFrontEnd,
     settingRegistry: ISettingRegistry,
@@ -2704,7 +2719,8 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
     toolbarWidgetRegistry: IToolbarWidgetRegistry,
     completionManager: ICompletionProviderManager | null,
     launcher: ILauncher | null,
-    documentManager: IDocumentManager | null
+    documentManager: IDocumentManager | null,
+    chatTracker: IChatTracker | null
   ): IPluginPlayground => {
     if (completionManager) {
       completionManager.registerProvider(new CommandCompletionProvider(app));
@@ -2727,6 +2743,7 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
         editorTracker,
         launcher,
         documentManager,
+        chatTracker,
         settings,
         requirejs,
         toolbarWidgetRegistry

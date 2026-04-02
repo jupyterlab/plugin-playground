@@ -444,7 +444,7 @@ export class TokenSidebar extends ReactWidget {
                               : null}
                           </button>
                           <button
-                            className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-commandInsertMenuButton"
+                            className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-commandInsertMenuButton jp-PluginPlayground-commandInsertDropdownButton"
                             type="button"
                             onMouseDown={event => {
                               event.preventDefault();
