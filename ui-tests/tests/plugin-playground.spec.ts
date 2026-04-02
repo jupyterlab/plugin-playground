@@ -164,6 +164,32 @@ async function ensureMockJupyterLiteAIChat(
         }
       };
 
+      const app = window.jupyterapp as any;
+      const chatWidget = {
+        id: chatPanelId,
+        model: {
+          input: inputModel
+        }
+      };
+      app.__playgroundChatTracker = {
+        currentWidget: chatWidget,
+        find: (predicate: (widget: unknown) => boolean) =>
+          predicate(chatWidget) ? chatWidget : null
+      };
+      if (
+        !app.__playgroundOriginalResolveOptionalService &&
+        typeof app.resolveOptionalService === 'function'
+      ) {
+        app.__playgroundOriginalResolveOptionalService =
+          app.resolveOptionalService.bind(app);
+        app.resolveOptionalService = async (token: { name?: string }) => {
+          if (token?.name === '@jupyter/chat:IChatTracker') {
+            return app.__playgroundChatTracker;
+          }
+          return app.__playgroundOriginalResolveOptionalService(token);
+        };
+      }
+
       const shell = window.jupyterapp.shell as any;
       if (!shell.__playgroundOriginalWidgets) {
         shell.__playgroundOriginalWidgets = shell.widgets.bind(shell);
@@ -187,11 +213,7 @@ async function ensureMockJupyterLiteAIChat(
       }
       shell.__playgroundChatPanel = {
         id: chatPanelId,
-        current: {
-          model: {
-            input: inputModel
-          }
-        }
+        current: chatWidget
       };
 
       const commands = window.jupyterapp.commands;

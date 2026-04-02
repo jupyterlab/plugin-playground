@@ -2322,23 +2322,25 @@ class PluginPlayground {
     });
     this.app.shell.activateById(JUPYTERLITE_AI_CHAT_PANEL_ID);
 
-    const inputModel = this._requireJupyterLiteAIChatInputModel();
+    const inputModel = await this._requireJupyterLiteAIChatInputModel();
     inputModel.value = prompt;
     inputModel.focus();
   }
 
-  private _requireJupyterLiteAIChatInputModel(): {
+  private async _requireJupyterLiteAIChatInputModel(): Promise<{
     value: string;
     focus: () => void;
-  } {
-    if (!this.chatTracker) {
+  }> {
+    const chatTracker =
+      this.chatTracker ?? (await this.app.resolveOptionalService(IChatTracker));
+    if (!chatTracker) {
       throw new Error(
         `${JUPYTERLITE_AI_INSTALL_HINT} Missing service: "@jupyter/chat:IChatTracker".`
       );
     }
 
     const chatWidget =
-      this.chatTracker.currentWidget ?? this.chatTracker.find(() => true);
+      chatTracker.currentWidget ?? chatTracker.find(() => true);
     if (!chatWidget) {
       throw new Error(
         `${JUPYTERLITE_AI_INSTALL_HINT} Chat tracker has no active widgets.`
