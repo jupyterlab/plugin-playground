@@ -22,6 +22,7 @@ import { Signal } from '@lumino/signaling';
 import { DocumentRegistry, IDocumentWidget } from '@jupyterlab/docregistry';
 
 import { FileEditor, IEditorTracker } from '@jupyterlab/fileeditor';
+import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 
 import { ILauncher } from '@jupyterlab/launcher';
 import { IMainMenu } from '@jupyterlab/mainmenu';
@@ -88,6 +89,12 @@ import {
 import { downloadArchive, IArchiveEntry } from './archive';
 import { createTemplateArchive } from './export-template';
 import { ShareLink } from './share-link';
+import {
+  buildFolderSharePayload,
+  IFolderShareCandidateFile,
+  selectFolderSharePaths,
+  shouldSkipFolderShareEntry
+} from './share-via-link-utils';
 
 import { Token } from '@lumino/coreutils';
 
@@ -156,6 +163,19 @@ export interface IPluginShareResult {
   urlLength: number;
   message?: string;
 }
+
+type IShareLinkCreationResult =
+  | {
+      ok: true;
+      link: string;
+      urlLength: number;
+    }
+  | {
+      ok: false;
+      reason: 'length' | 'payload';
+      urlLength: number;
+      message: string;
+    };
 
 const PLUGIN_TEMPLATE = `import {
   JupyterFrontEnd,
@@ -233,7 +253,12 @@ const SHARE_VIA_LINK_ARGS_SCHEMA = {
     path: {
       type: 'string',
       description:
-        'Optional contents path of the file to share. When omitted, the active editor file is used.'
+        'Optional contents path of the file or folder to share. When omitted, the active editor file is used.'
+    },
+    useBrowserSelection: {
+      type: 'boolean',
+      description:
+        'When true, resolve the share path from the current file browser selection.'
     }
   }
 };
@@ -290,6 +315,7 @@ class PluginPlayground {
     protected settingRegistry: ISettingRegistry,
     commandPalette: ICommandPalette,
     protected editorTracker: IEditorTracker,
+    protected fileBrowserFactory: IFileBrowserFactory | null,
     launcher: ILauncher | null,
     protected documentManager: IDocumentManager | null,
     protected settings: ISettingRegistry.ISettings,
@@ -365,7 +391,8 @@ class PluginPlayground {
 
     app.commands.addCommand(CommandIDs.shareViaLink, {
       label: 'Copy Shareable Plugin Link',
-      caption: 'Create a URL for the active plugin file, then copy it',
+      caption:
+        'Create a URL for the active plugin file or selected folder, then copy it',
       describedBy: { args: SHARE_VIA_LINK_ARGS_SCHEMA },
       icon: () =>
         this._copiedCommandId === CommandIDs.shareViaLink
@@ -374,6 +401,17 @@ class PluginPlayground {
       execute: async args => {
         const requestedPath =
           typeof args.path === 'string' ? args.path : undefined;
+        if (args.useBrowserSelection === true && !requestedPath) {
+          const selectedItem = this.fileBrowserFactory?.tracker.currentWidget
+            ?.selectedItems()
+            .next().value;
+          if (
+            selectedItem &&
+            (selectedItem.type === 'file' || selectedItem.type === 'directory')
+          ) {
+            return this._shareViaLink(selectedItem.path);
+          }
+        }
         return this.shareViaLink(requestedPath);
       }
     });
@@ -867,7 +905,7 @@ class PluginPlayground {
   }
 
   /**
-   * Build a share URL for a single file and copy it to clipboard.
+   * Build a share URL for a file or folder and copy it to clipboard.
    */
   public async shareViaLink(path?: string): Promise<IPluginShareResult> {
     const requestedPath =
@@ -892,7 +930,7 @@ class PluginPlayground {
         sourcePath: null,
         urlLength: 0,
         message:
-          'No active editor is available. Pass a path argument to share a specific file.'
+          'No active editor is available. Pass a path argument to share a specific file or folder.'
       };
     }
 
@@ -903,13 +941,14 @@ class PluginPlayground {
   }
 
   /**
-   * Build a share URL for a single file and copy it to clipboard.
+   * Build a share URL for a file or folder and copy it to clipboard.
    */
   private async _shareViaLink(
     sourcePath: string,
     activeSource?: string
   ): Promise<IPluginShareResult> {
     const normalizedSourcePath = ContentUtils.normalizeContentsPath(sourcePath);
+    let sharedSourcePath = normalizedSourcePath;
     if (!normalizedSourcePath) {
       return {
         ok: false,
@@ -925,79 +964,62 @@ class PluginPlayground {
         this.app.serviceManager,
         normalizedSourcePath
       );
-      if (directory) {
-        throw new Error(
-          'Folder sharing is temporarily disabled. Pass a file path instead.'
-        );
-      }
-      const source =
-        activeSource ??
-        (await this._readSourceFileForExport(normalizedSourcePath));
-      const fileName = this._basename(normalizedSourcePath) || 'plugin.ts';
 
+      if (directory) {
+        sharedSourcePath = ContentUtils.normalizeContentsPath(directory.path);
+        const files = await this._collectShareableFolderFiles(sharedSourcePath);
+        if (files.length === 0) {
+          throw new Error(
+            `No text-readable files were found in "${sharedSourcePath}".`
+          );
+        }
+
+        const payload = buildFolderSharePayload(sharedSourcePath, files);
+        const linkResult = await this._createShareLink(payload);
+        if (!linkResult.ok) {
+          this._notifyFolderShareTooLarge(
+            linkResult.message,
+            sharedSourcePath,
+            files
+          );
+          return {
+            ok: false,
+            link: null,
+            sourcePath: sharedSourcePath,
+            urlLength: linkResult.urlLength,
+            message: linkResult.message
+          };
+        }
+        return this._finalizeShareLinkCopy(linkResult.link, sharedSourcePath);
+      }
+
+      const source =
+        activeSource ?? (await this._readSourceFileForExport(sharedSourcePath));
+      const fileName = this._basename(sharedSourcePath) || 'plugin.ts';
       const payload: ShareLink.ISharedPluginPayload = {
         version: 1,
+        kind: 'file',
         fileName,
         source
       };
-      const encodedPayload = await ShareLink.encodeSharedPluginPayload(payload);
-      const link = ShareLink.createSharedPluginUrl(encodedPayload);
-      const urlLength = link.length;
-
-      if (urlLength > SHARE_URL_MAX_LENGTH) {
+      const linkResult = await this._createShareLink(payload);
+      if (!linkResult.ok) {
         const message =
-          `The generated link is ${urlLength} characters long, which exceeds the configured limit ` +
-          `(${SHARE_URL_MAX_LENGTH}). Share a smaller file or use "Export Plugin Folder As Extension".`;
+          `${linkResult.message} ` +
+          `Share a smaller file or use "Export Plugin Folder As Extension".`;
         Notification.error(message, {
           autoClose: false
         });
         return {
           ok: false,
           link: null,
-          sourcePath: normalizedSourcePath,
-          urlLength,
+          sourcePath: sharedSourcePath,
+          urlLength: linkResult.urlLength,
           message
         };
       }
 
-      await ContentUtils.copyValueToClipboard(link);
-      ContentUtils.setCopiedStateWithTimeout(
-        CommandIDs.shareViaLink,
-        this._copiedCommandTimer,
-        timer => {
-          this._copiedCommandTimer = timer;
-        },
-        copiedCommandId => {
-          this._copiedCommandId = copiedCommandId;
-        },
-        () => {
-          this.app.commands.notifyCommandChanged(CommandIDs.shareViaLink);
-        },
-        1400
-      );
-      const details =
-        `Copied a share link for file "${normalizedSourcePath}" ` +
-        `(${urlLength} characters).`;
-
-      if (urlLength > SHARE_URL_WARN_LENGTH) {
-        Notification.warning(
-          `${details} Some browsers may reject very long URLs.`,
-          {
-            autoClose: 7000
-          }
-        );
-      } else {
-        Notification.success(details, {
-          autoClose: 5000
-        });
-      }
-
-      return {
-        ok: true,
-        link,
-        sourcePath: normalizedSourcePath,
-        urlLength
-      };
+      return this._finalizeShareLinkCopy(linkResult.link, sharedSourcePath);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       Notification.error(`Plugin share link creation failed: ${message}`, {
@@ -1006,16 +1028,199 @@ class PluginPlayground {
       return {
         ok: false,
         link: null,
-        sourcePath: normalizedSourcePath,
+        sourcePath: sharedSourcePath,
         urlLength: 0,
         message
       };
     }
   }
 
+  private async _collectShareableFolderFiles(
+    folderPath: string
+  ): Promise<IFolderShareCandidateFile[]> {
+    const filePaths = await this._collectArchiveFilePaths(folderPath);
+    const textEncoder = new TextEncoder();
+    const candidates = await this._mapWithConcurrency(
+      filePaths,
+      ARCHIVE_FILE_READ_CONCURRENCY,
+      async (filePath): Promise<IFolderShareCandidateFile | null> => {
+        const relativePath = this._relativePath(folderPath, filePath);
+        if (shouldSkipFolderShareEntry(relativePath)) {
+          return null;
+        }
+
+        const fileModel = await ContentUtils.getFileModel(
+          this.app.serviceManager,
+          filePath
+        );
+        if (!fileModel || fileModel.format === 'base64') {
+          return null;
+        }
+
+        const source = ContentUtils.fileModelToText(fileModel);
+        if (source === null) {
+          return null;
+        }
+
+        return {
+          relativePath,
+          source,
+          sizeBytes: textEncoder.encode(source).length
+        };
+      }
+    );
+
+    return candidates.filter(
+      (candidate): candidate is IFolderShareCandidateFile => candidate !== null
+    );
+  }
+
+  private _notifyFolderShareTooLarge(
+    message: string,
+    folderPath: string,
+    files: ReadonlyArray<IFolderShareCandidateFile>
+  ): void {
+    Notification.error(`${message} Select specific files to continue.`, {
+      autoClose: false,
+      actions: [
+        {
+          label: 'Select files',
+          displayType: 'accent',
+          callback: () => {
+            void this._openFolderShareSelectionDialog(folderPath, files);
+          }
+        }
+      ]
+    });
+  }
+
+  private async _openFolderShareSelectionDialog(
+    folderPath: string,
+    files: ReadonlyArray<IFolderShareCandidateFile>
+  ): Promise<void> {
+    const selectedPaths = await selectFolderSharePaths(files);
+    if (selectedPaths === null) {
+      return;
+    }
+
+    if (selectedPaths.length === 0) {
+      Notification.warning('Select at least one file to share.', {
+        autoClose: 5000
+      });
+      return;
+    }
+
+    const selectedPathSet = new Set(selectedPaths);
+    const selectedFiles = files.filter(file =>
+      selectedPathSet.has(file.relativePath)
+    );
+
+    const payload = buildFolderSharePayload(folderPath, selectedFiles);
+    try {
+      const linkResult = await this._createShareLink(payload);
+      if (!linkResult.ok) {
+        if (linkResult.reason === 'length') {
+          Notification.error(
+            `The selected files still produce a ${linkResult.urlLength}-character link (limit: ${SHARE_URL_MAX_LENGTH}). Select fewer files.`,
+            { autoClose: false }
+          );
+          return;
+        }
+        Notification.error(`${linkResult.message} Select fewer files.`, {
+          autoClose: false
+        });
+        return;
+      }
+      await this._finalizeShareLinkCopy(linkResult.link, folderPath);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      Notification.error(`Plugin share link creation failed: ${message}`, {
+        autoClose: false
+      });
+    }
+  }
+
+  private async _createShareLink(
+    payload: ShareLink.ISharedPluginPayload
+  ): Promise<IShareLinkCreationResult> {
+    try {
+      const encodedPayload = await ShareLink.encodeSharedPluginPayload(payload);
+      const link = ShareLink.createSharedPluginUrl(encodedPayload);
+      const urlLength = link.length;
+      if (urlLength > SHARE_URL_MAX_LENGTH) {
+        return {
+          ok: false,
+          reason: 'length',
+          urlLength,
+          message:
+            `The generated link is ${urlLength} characters long, which exceeds the configured limit ` +
+            `(${SHARE_URL_MAX_LENGTH}).`
+        };
+      }
+      return {
+        ok: true,
+        link,
+        urlLength
+      };
+    } catch (error) {
+      if (ShareLink.isSharedPayloadTooLargeError(error)) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          ok: false,
+          reason: 'payload',
+          urlLength: 0,
+          message
+        };
+      }
+      throw error;
+    }
+  }
+
+  private async _finalizeShareLinkCopy(
+    link: string,
+    sourcePath: string
+  ): Promise<IPluginShareResult> {
+    const urlLength = link.length;
+    await ContentUtils.copyValueToClipboard(link);
+    ContentUtils.setCopiedStateWithTimeout(
+      CommandIDs.shareViaLink,
+      this._copiedCommandTimer,
+      timer => {
+        this._copiedCommandTimer = timer;
+      },
+      copiedCommandId => {
+        this._copiedCommandId = copiedCommandId;
+      },
+      () => {
+        this.app.commands.notifyCommandChanged(CommandIDs.shareViaLink);
+      },
+      1400
+    );
+    const details = `Copied a share link for "${sourcePath}" (${urlLength} characters).`;
+
+    if (urlLength > SHARE_URL_WARN_LENGTH) {
+      Notification.warning(
+        `${details} Some browsers may reject very long URLs.`,
+        {
+          autoClose: 7000
+        }
+      );
+    } else {
+      Notification.success(details, {
+        autoClose: 5000
+      });
+    }
+    return {
+      ok: true,
+      link,
+      sourcePath,
+      urlLength
+    };
+  }
+
   /**
-   * Restore a shared file from URL token into a workspace folder and open it.
-   * The file is not executed automatically.
+   * Restore shared file(s) from URL token into a workspace folder and open one.
+   * Files are not executed automatically.
    */
   private async _loadSharedPluginFromUrl(): Promise<void> {
     const sharedToken = ShareLink.getSharedPluginTokenFromLocation();
@@ -1028,107 +1233,148 @@ class PluginPlayground {
 
     try {
       const payload = await ShareLink.decodeSharedPluginPayload(sharedToken);
-      const fileName = this._basename(payload.fileName) || 'plugin.ts';
-      const extension = PathExt.extname(fileName);
-      const rootName = extension
-        ? fileName.slice(0, -extension.length)
-        : fileName;
-      const rootFolder = ShareLink.sharedPluginFolderName(
+      const sharedEntries =
+        payload.kind === 'folder'
+          ? Object.entries(payload.files).map(([relativePath, source]) => ({
+              relativePath,
+              source
+            }))
+          : [
+              {
+                relativePath: this._basename(payload.fileName) || 'plugin.ts',
+                source: payload.source
+              }
+            ];
+      if (sharedEntries.length === 0) {
+        throw new Error('Shared payload does not include any files.');
+      }
+
+      const rootName = (() => {
+        if (payload.kind === 'folder') {
+          return this._basename(payload.rootName) || 'shared-plugin';
+        }
+        const fileName = this._basename(payload.fileName) || 'plugin.ts';
+        const extension = PathExt.extname(fileName);
+        return extension ? fileName.slice(0, -extension.length) : fileName;
+      })();
+      const baseRootFolder = ShareLink.sharedPluginFolderName(
         rootName,
         sharedToken
       );
-      const rootPath = ContentUtils.normalizeContentsPath(
-        this._joinPath(SHARED_LINKS_ROOT, rootFolder)
-      );
-      await ContentUtils.ensureContentsDirectory(
-        this.app.serviceManager,
-        rootPath
-      );
-
-      const baseName = extension
-        ? fileName.slice(0, -extension.length)
-        : fileName;
-      let entryPath = '';
-      let shouldWrite = false;
-      const maxVariants = 1000;
+      const maxVariants = 100;
+      let rootPath = '';
 
       for (let variant = 1; variant <= maxVariants; variant++) {
-        const candidateName =
-          variant === 1 ? fileName : `${baseName}-${variant}${extension}`;
-        const candidatePath = ContentUtils.normalizeContentsPath(
-          this._joinPath(rootPath, candidateName)
+        const folderName =
+          variant === 1 ? baseRootFolder : `${baseRootFolder}-${variant}`;
+        const candidateRootPath = ContentUtils.normalizeContentsPath(
+          this._joinPath(SHARED_LINKS_ROOT, folderName)
         );
-        const existingFile = await ContentUtils.getFileModel(
+        await ContentUtils.ensureContentsDirectory(
           this.app.serviceManager,
-          candidatePath
+          candidateRootPath
         );
 
-        if (!existingFile) {
-          entryPath = candidatePath;
-          shouldWrite = true;
-          break;
+        let isCompatible = true;
+        for (const entry of sharedEntries) {
+          const candidatePath = ContentUtils.normalizeContentsPath(
+            this._joinPath(candidateRootPath, entry.relativePath)
+          );
+          const existingFile = await ContentUtils.getFileModel(
+            this.app.serviceManager,
+            candidatePath
+          );
+          if (!existingFile) {
+            continue;
+          }
+          const existingSource = ContentUtils.fileModelToText(existingFile);
+          if (existingSource !== entry.source) {
+            isCompatible = false;
+            break;
+          }
         }
-
-        const existingSource = ContentUtils.fileModelToText(existingFile);
-        if (existingSource === payload.source) {
-          entryPath = candidatePath;
-          shouldWrite = false;
+        if (isCompatible) {
+          rootPath = candidateRootPath;
           break;
         }
       }
 
-      if (!entryPath) {
+      if (!rootPath) {
         throw new Error(
-          `Could not find a writable location for shared file "${fileName}" in "${rootPath}".`
+          `Could not find a writable location for shared files under "${SHARED_LINKS_ROOT}/${baseRootFolder}".`
         );
       }
-      let restoredPath = entryPath;
-      if (shouldWrite) {
-        const saved = await this.app.serviceManager.contents.save(entryPath, {
-          type: 'file',
-          format: 'text',
-          content: payload.source
-        });
-        if (!saved || saved.type !== 'file') {
-          throw new Error(
-            `Failed to save shared file "${fileName}" at "${entryPath}".`
-          );
-        }
-        const normalizedSavedPath = ContentUtils.normalizeContentsPath(
-          saved.path
+
+      const restoredPaths: string[] = [];
+      for (const entry of sharedEntries) {
+        const entryPath = ContentUtils.normalizeContentsPath(
+          this._joinPath(rootPath, entry.relativePath)
         );
-        if (normalizedSavedPath !== entryPath) {
-          throw new Error(
-            `Shared file was saved to unexpected path "${normalizedSavedPath}" instead of "${entryPath}".`
+        const entryDirectory = this._dirname(entryPath);
+        if (entryDirectory) {
+          await ContentUtils.ensureContentsDirectory(
+            this.app.serviceManager,
+            entryDirectory
           );
         }
-      }
-      let restoredFile = await ContentUtils.getFileModel(
-        this.app.serviceManager,
-        entryPath
-      );
-      for (let attempt = 0; !restoredFile && attempt < 8; attempt++) {
-        await new Promise<void>(resolve => {
-          window.setTimeout(resolve, 75);
-        });
-        restoredFile = await ContentUtils.getFileModel(
+
+        const existingFile = await ContentUtils.getFileModel(
           this.app.serviceManager,
           entryPath
         );
-      }
-      if (!restoredFile) {
-        throw new Error(
-          `Shared file "${entryPath}" could not be found after restore.`
+        const existingSource = ContentUtils.fileModelToText(existingFile);
+        if (existingSource !== entry.source) {
+          const saved = await this.app.serviceManager.contents.save(entryPath, {
+            type: 'file',
+            format: 'text',
+            content: entry.source
+          });
+          if (!saved || saved.type !== 'file') {
+            throw new Error(`Failed to save shared file at "${entryPath}".`);
+          }
+          const normalizedSavedPath = ContentUtils.normalizeContentsPath(
+            saved.path
+          );
+          if (normalizedSavedPath !== entryPath) {
+            throw new Error(
+              `Shared file was saved to unexpected path "${normalizedSavedPath}" instead of "${entryPath}".`
+            );
+          }
+        }
+
+        let restoredFile = await ContentUtils.getFileModel(
+          this.app.serviceManager,
+          entryPath
+        );
+        for (let attempt = 0; !restoredFile && attempt < 8; attempt++) {
+          await new Promise<void>(resolve => {
+            window.setTimeout(resolve, 75);
+          });
+          restoredFile = await ContentUtils.getFileModel(
+            this.app.serviceManager,
+            entryPath
+          );
+        }
+        if (!restoredFile) {
+          throw new Error(
+            `Shared file "${entryPath}" could not be found after restore.`
+          );
+        }
+        restoredPaths.push(
+          ContentUtils.normalizeContentsPath(restoredFile.path)
         );
       }
-      restoredPath = ContentUtils.normalizeContentsPath(restoredFile.path);
 
+      const openedPath = restoredPaths[0];
       await this.app.commands.execute('docmanager:open', {
-        path: restoredPath,
+        path: openedPath,
         factory: 'Editor'
       });
+      const fileCount = restoredPaths.length;
+      const openedLocation = fileCount === 1 ? openedPath : rootPath;
       Notification.success(
-        `Opened shared plugin from URL at "${restoredPath}" (1 file). `,
+        `Opened shared plugin from URL at "${openedLocation}" ` +
+          `(${fileCount} file${fileCount === 1 ? '' : 's'}).`,
         {
           autoClose: 6000
         }
@@ -1142,6 +1388,14 @@ class PluginPlayground {
   }
 
   private async _readSourceFileForExport(path: string): Promise<string> {
+    const source = await ContentUtils.readContentsFileAsText(
+      this.app.serviceManager,
+      path
+    );
+    if (source !== null) {
+      return source;
+    }
+
     const fileModel = await ContentUtils.getFileModel(
       this.app.serviceManager,
       path
@@ -1149,13 +1403,10 @@ class PluginPlayground {
     if (!fileModel) {
       throw new Error(`Could not read file "${path}".`);
     }
-    const source = ContentUtils.fileModelToText(fileModel);
-    if (source === null) {
-      throw new Error(
-        `Could not export file "${path}" because it is not readable as text.`
-      );
-    }
-    return source;
+
+    throw new Error(
+      `Could not export file "${path}" because it is not readable as text.`
+    );
   }
 
   private async _resolveExportContext(
@@ -1263,6 +1514,55 @@ class PluginPlayground {
     archiveEntries: IArchiveEntry[],
     overrides: ReadonlyMap<string, Uint8Array>
   ): Promise<void> {
+    const { nestedDirectories, filePaths } =
+      await this._collectArchiveDirectoryPaths(directoryPath);
+
+    for (const nestedDirectory of nestedDirectories) {
+      await this._collectArchiveEntriesInDirectory(
+        rootPath,
+        nestedDirectory,
+        archiveEntries,
+        overrides
+      );
+    }
+
+    const fileEntries = await this._mapWithConcurrency(
+      filePaths,
+      ARCHIVE_FILE_READ_CONCURRENCY,
+      async filePath =>
+        this._createArchiveEntryForFile(rootPath, filePath, overrides)
+    );
+    for (const entry of fileEntries) {
+      if (entry) {
+        archiveEntries.push(entry);
+      }
+    }
+  }
+
+  private async _collectArchiveFilePaths(rootPath: string): Promise<string[]> {
+    const normalizedRootPath = ContentUtils.normalizeContentsPath(rootPath);
+    const filePaths: string[] = [];
+    const pendingDirectories = [normalizedRootPath];
+
+    while (pendingDirectories.length > 0) {
+      const directoryPath = pendingDirectories.pop();
+      if (!directoryPath) {
+        continue;
+      }
+
+      const { nestedDirectories, filePaths: directFilePaths } =
+        await this._collectArchiveDirectoryPaths(directoryPath);
+      filePaths.push(...directFilePaths);
+      pendingDirectories.push(...nestedDirectories);
+    }
+
+    return filePaths;
+  }
+
+  private async _collectArchiveDirectoryPaths(directoryPath: string): Promise<{
+    nestedDirectories: string[];
+    filePaths: string[];
+  }> {
     const directory = await ContentUtils.getDirectoryModel(
       this.app.serviceManager,
       directoryPath
@@ -1297,26 +1597,7 @@ class PluginPlayground {
       }
     }
 
-    for (const nestedDirectory of nestedDirectories) {
-      await this._collectArchiveEntriesInDirectory(
-        rootPath,
-        nestedDirectory,
-        archiveEntries,
-        overrides
-      );
-    }
-
-    const fileEntries = await this._mapWithConcurrency(
-      filePaths,
-      ARCHIVE_FILE_READ_CONCURRENCY,
-      async filePath =>
-        this._createArchiveEntryForFile(rootPath, filePath, overrides)
-    );
-    for (const entry of fileEntries) {
-      if (entry) {
-        archiveEntries.push(entry);
-      }
-    }
+    return { nestedDirectories, filePaths };
   }
 
   private async _createArchiveEntryForFile(
@@ -1362,10 +1643,17 @@ class PluginPlayground {
     if (!normalizedRootPath) {
       return normalizedPath;
     }
-    if (normalizedPath.startsWith(`${normalizedRootPath}/`)) {
-      return normalizedPath.slice(normalizedRootPath.length + 1);
+
+    const normalizedRelativePath = ContentUtils.normalizeContentsPath(
+      PathExt.relative(normalizedRootPath, normalizedPath)
+    );
+    if (
+      normalizedRelativePath === '..' ||
+      normalizedRelativePath.startsWith('../')
+    ) {
+      return normalizedPath;
     }
-    return normalizedPath;
+    return normalizedRelativePath;
   }
 
   private _dirname(path: string): string {
@@ -1373,11 +1661,7 @@ class PluginPlayground {
       /\/+$/g,
       ''
     );
-    const index = normalizedPath.lastIndexOf('/');
-    if (index <= 0) {
-      return '';
-    }
-    return normalizedPath.slice(0, index);
+    return PathExt.dirname(normalizedPath);
   }
 
   private _basename(path: string): string {
@@ -1385,14 +1669,7 @@ class PluginPlayground {
       /\/+$/g,
       ''
     );
-    if (!normalizedPath) {
-      return '';
-    }
-    const index = normalizedPath.lastIndexOf('/');
-    if (index === -1) {
-      return normalizedPath;
-    }
-    return normalizedPath.slice(index + 1);
+    return PathExt.basename(normalizedPath);
   }
 
   private async _findExtensionRoot(
@@ -1403,9 +1680,7 @@ class PluginPlayground {
       ''
     );
     while (true) {
-      const packageJsonPath = current
-        ? `${current}/package.json`
-        : 'package.json';
+      const packageJsonPath = this._joinPath(current, 'package.json');
       const packageJson = await ContentUtils.getFileModel(
         this.app.serviceManager,
         packageJsonPath
@@ -1938,12 +2213,12 @@ class PluginPlayground {
   }
 
   private _joinPath(base: string, child: string): string {
-    const normalizedBase = base.replace(/\/+$/g, '');
+    const normalizedBase = ContentUtils.normalizeContentsPath(base).replace(
+      /\/+$/g,
+      ''
+    );
     const normalizedChild = ContentUtils.normalizeContentsPath(child);
-    if (!normalizedBase) {
-      return normalizedChild;
-    }
-    return `${normalizedBase}/${normalizedChild}`;
+    return PathExt.join(normalizedBase, normalizedChild);
   }
 
   private _parseJsonObject(
@@ -2394,7 +2669,12 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
     IEditorTracker,
     IToolbarWidgetRegistry
   ],
-  optional: [ICompletionProviderManager, ILauncher, IDocumentManager],
+  optional: [
+    ICompletionProviderManager,
+    IFileBrowserFactory,
+    ILauncher,
+    IDocumentManager
+  ],
   activate: (
     app: JupyterFrontEnd,
     settingRegistry: ISettingRegistry,
@@ -2402,6 +2682,7 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
     editorTracker: IEditorTracker,
     toolbarWidgetRegistry: IToolbarWidgetRegistry,
     completionManager: ICompletionProviderManager | null,
+    fileBrowserFactory: IFileBrowserFactory | null,
     launcher: ILauncher | null,
     documentManager: IDocumentManager | null
   ): IPluginPlayground => {
@@ -2424,6 +2705,7 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
         settingRegistry,
         commandPalette,
         editorTracker,
+        fileBrowserFactory,
         launcher,
         documentManager,
         settings,

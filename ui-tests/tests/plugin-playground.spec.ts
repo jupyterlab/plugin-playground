@@ -737,32 +737,22 @@ export default plugin;
   expect(hasUntitledFolderWithSameNamedFile).toBe(false);
 });
 
-test('returns an error when sharing a directory path', async ({
+test('shares selected file or folder when using browser selection', async ({
   page,
   tmpPath
 }) => {
-  const projectRoot = `${tmpPath}/share-folder-command-test`;
-  const sourcePath = `${projectRoot}/src/index.ts`;
-  const packageJsonPath = `${projectRoot}/package.json`;
+  const projectRoot = `${tmpPath}/share-browser-selection-test`;
+  const filePath = `${projectRoot}/README.md`;
+  const folderPath = `${projectRoot}/src`;
+  const sourcePath = `${folderPath}/index.ts`;
 
   await page.contents.uploadContent(
-    JSON.stringify(
-      {
-        name: 'share-folder-command-test',
-        version: '0.1.0',
-        jupyterlab: { extension: true }
-      },
-      null,
-      2
-    ),
+    '# Share Browser Selection\n',
     'text',
-    packageJsonPath
+    filePath
   );
   await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
   await page.goto();
-
-  await page.filebrowser.open(sourcePath);
-  expect(await page.activity.activateTab('index.ts')).toBe(true);
 
   await page.waitForCondition(() =>
     page.evaluate((id: string) => {
@@ -770,23 +760,75 @@ test('returns an error when sharing a directory path', async ({
     }, SHARE_COMMAND)
   );
 
-  const shareResult = await page.evaluate(
-    ({ id, path }) => {
-      return window.jupyterapp.commands.execute(id, { path });
-    },
-    {
-      id: SHARE_COMMAND,
-      path: projectRoot
-    }
-  );
+  await page.filebrowser.openDirectory(projectRoot);
+  const browserSection = page.getByRole('region', {
+    name: 'File Browser Section'
+  });
+  const fileItem = browserSection.getByRole('listitem', {
+    name: /^Name: README\.md/
+  });
+  await fileItem.click();
 
-  expect(shareResult.ok).toBe(false);
-  expect(shareResult.link).toBeNull();
-  expect(shareResult.sourcePath).toBe(projectRoot);
-  expect(shareResult.urlLength).toBe(0);
-  expect(shareResult.message ?? '').toContain(
-    'Folder sharing is temporarily disabled'
-  );
+  const fileShareResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id, {
+      useBrowserSelection: true
+    });
+  }, SHARE_COMMAND);
+  expect(fileShareResult.ok).toBe(true);
+  expect(fileShareResult.sourcePath).toBe(filePath);
+  expect(fileShareResult.link).toContain('plugin=');
+
+  await page.filebrowser.openDirectory(projectRoot);
+  const folderItem = browserSection.getByRole('listitem', {
+    name: /^Name: src/
+  });
+  await folderItem.click();
+
+  const folderShareResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id, {
+      useBrowserSelection: true
+    });
+  }, SHARE_COMMAND);
+  expect(folderShareResult.ok).toBe(true);
+  expect(folderShareResult.sourcePath).toBe(folderPath);
+  expect(folderShareResult.link).toContain('plugin=');
+});
+
+test('shows share action in file browser context menu for file and folder', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/share-context-menu-test`;
+  const filePath = `${projectRoot}/README.md`;
+  const folderPath = `${projectRoot}/src`;
+  const sourcePath = `${folderPath}/index.ts`;
+
+  await page.contents.uploadContent('# Context Menu Test\n', 'text', filePath);
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.goto();
+  await page.filebrowser.openDirectory(projectRoot);
+
+  const browserSection = page.getByRole('region', {
+    name: 'File Browser Section'
+  });
+  const shareMenuItem = page.getByRole('menuitem', {
+    name: 'Copy Shareable Plugin Link',
+    exact: true
+  });
+
+  const fileItem = browserSection.getByRole('listitem', {
+    name: /^Name: README\.md/
+  });
+  await fileItem.click({ button: 'right' });
+  await expect(shareMenuItem).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  const folderItem = browserSection.getByRole('listitem', {
+    name: /^Name: src/
+  });
+  await folderItem.click({ button: 'right' });
+  await expect(shareMenuItem).toBeVisible();
+  await page.keyboard.press('Escape');
 });
 
 test('opens token sidebar, shows tokens, and filters by exact token', async ({

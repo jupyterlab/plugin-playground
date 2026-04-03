@@ -78,6 +78,22 @@
       }
     ]
   },
+  "jupyter.lab.menus": {
+    "context": [
+      {
+        "command": "plugin-playground:share-via-link",
+        "args": { "useBrowserSelection": true },
+        "selector": ".jp-DirListing-item[data-isdir=\"false\"]",
+        "rank": 11
+      },
+      {
+        "command": "plugin-playground:share-via-link",
+        "args": { "useBrowserSelection": true },
+        "selector": ".jp-DirListing-item[data-isdir=\"true\"]",
+        "rank": 12
+      }
+    ]
+  },
   "jupyter.lab.shortcuts": [
     {
       "command": "plugin-playground:load-as-extension",
