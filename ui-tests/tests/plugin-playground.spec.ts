@@ -311,6 +311,38 @@ test('creates a plugin file with an explicit path argument', async ({
   }
 });
 
+test('creates a plugin file in cwd when no explicit path is provided', async ({
+  page,
+  tmpPath
+}) => {
+  const cwd = `${tmpPath}/nested`;
+  await page.contents.uploadContent('seed\n', 'text', `${cwd}/seed.txt`);
+
+  await page.goto();
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, CREATE_FILE_COMMAND)
+  );
+
+  const openPath = await page.evaluate(
+    async ({ id, cwdArg }) => {
+      await window.jupyterapp.commands.execute(id, { cwd: cwdArg });
+      const current = window.jupyterapp.shell
+        .currentWidget as FileEditorWidget | null;
+      return current?.context?.path ?? null;
+    },
+    {
+      id: CREATE_FILE_COMMAND,
+      cwdArg: cwd
+    }
+  );
+
+  expect(openPath).toBeTruthy();
+  expect(openPath?.startsWith(`${cwd}/`)).toBe(true);
+  expect(openPath?.endsWith('.ts')).toBe(true);
+});
+
 test('lists tokens and searches commands via command APIs', async ({
   page
 }) => {

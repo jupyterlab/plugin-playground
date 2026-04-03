@@ -242,6 +242,11 @@ const CREATE_PLUGIN_ARGS_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
+    cwd: {
+      type: 'string',
+      description:
+        'Optional current working directory. Used as the default parent directory when `path` is not provided and as the base for relative `path` values.'
+    },
     path: {
       type: 'string',
       description:
@@ -445,11 +450,14 @@ class PluginPlayground {
       describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
       icon: extensionIcon,
       execute: async args => {
+        const rawCwdArg = typeof args.cwd === 'string' ? args.cwd.trim() : '';
+        const normalizedCwdArg = ContentUtils.normalizeContentsPath(rawCwdArg);
         const rawPathArg =
           typeof args.path === 'string' ? args.path.trim() : '';
         const isRootRelativePath = rawPathArg.startsWith('/');
 
         const model = await app.serviceManager.contents.newUntitled({
+          ...(normalizedCwdArg ? { path: normalizedCwdArg } : {}),
           type: 'file',
           ext: 'ts'
         });
@@ -2495,8 +2503,12 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
           'Create a new TypeScript plugin file and open the playground sidebar',
         describedBy: { args: null },
         icon: extensionIcon,
-        execute: async () => {
+        execute: async args => {
+          const rawCwdArg = typeof args.cwd === 'string' ? args.cwd.trim() : '';
+          const normalizedCwdArg =
+            ContentUtils.normalizeContentsPath(rawCwdArg);
           const model = await app.serviceManager.contents.newUntitled({
+            ...(normalizedCwdArg ? { path: normalizedCwdArg } : {}),
             type: 'file',
             ext: 'ts'
           });
