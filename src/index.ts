@@ -24,6 +24,7 @@ import { DocumentRegistry, IDocumentWidget } from '@jupyterlab/docregistry';
 import { FileEditor, IEditorTracker } from '@jupyterlab/fileeditor';
 
 import { ILauncher } from '@jupyterlab/launcher';
+import { IMainMenu } from '@jupyterlab/mainmenu';
 
 import {
   checkIcon,
@@ -90,12 +91,14 @@ import { ShareLink } from './share-link';
 
 import { Token } from '@lumino/coreutils';
 
-import { AccordionPanel, Widget } from '@lumino/widgets';
+import { AccordionPanel, MenuBar, Widget } from '@lumino/widgets';
 
 import { IPlugin } from '@lumino/application';
 
 namespace CommandIDs {
   export const createNewFile = 'plugin-playground:create-new-plugin';
+  export const createNewFileFromNotebookTree =
+    'plugin-playground:create-new-plugin-from-notebook-tree';
   export const loadCurrentAsExtension = 'plugin-playground:load-as-extension';
   export const exportAsExtension = 'plugin-playground:export-as-extension';
   export const shareViaLink = 'plugin-playground:share-via-link';
@@ -263,6 +266,14 @@ const ARCHIVE_FILE_READ_CONCURRENCY = 8;
 const SHARE_URL_WARN_LENGTH = 1800;
 const SHARE_URL_MAX_LENGTH = 8000;
 const SHARED_LINKS_ROOT = 'plugin-playground-shared';
+const NOTEBOOK_FILE_BROWSER_FACTORY = 'FileBrowser';
+const NOTEBOOK_NEW_DROPDOWN_TOOLBAR_ITEM = 'new-dropdown';
+const NOTEBOOK_TREE_OPEN_SIDEBAR_KEY =
+  'plugin-playground:open-sidebar-from-tree';
+const NOTEBOOK_SHELL_PLUGIN_ID =
+  '@jupyter-notebook/application-extension:shell';
+const NOTEBOOK_TREE_WIDGET_PLUGIN_ID =
+  '@jupyter-notebook/tree-extension:widget';
 
 export interface IPluginPlayground {
   registerKnownModule(known: IKnownModule): Promise<void>;
@@ -590,6 +601,17 @@ class PluginPlayground {
       (playgroundSidebar.content as AccordionPanel).expand(1);
       this.app.shell.add(playgroundSidebar, 'right', { rank: 650 });
       this._playgroundSidebar = playgroundSidebar;
+      if (typeof window !== 'undefined') {
+        const shouldOpenFromTree = window.sessionStorage.getItem(
+          NOTEBOOK_TREE_OPEN_SIDEBAR_KEY
+        );
+        if (shouldOpenFromTree === '1') {
+          window.sessionStorage.removeItem(NOTEBOOK_TREE_OPEN_SIDEBAR_KEY);
+          if (!playgroundSidebar.isVisible) {
+            this.app.shell.activateById(playgroundSidebar.id);
+          }
+        }
+      }
 
       app.shell.currentChanged?.connect(() => {
         tokenSidebar.update();
@@ -2262,13 +2284,48 @@ class PluginPlayground {
       updateBadge();
     };
 
+    // Track logs only when they come from this JupyterLab origin.
+    const isRelevantSource = (source?: string): boolean => {
+      if (!source || source.startsWith('webpack://')) {
+        return true;
+      }
+      try {
+        const parsed = new URL(source, window.location.href);
+        if (parsed.origin !== window.location.origin) {
+          return false;
+        }
+        return true;
+      } catch {
+        return true;
+      }
+    };
+
     // Intercepts — count, buffer, then forward to the previous handler.
     const wrap = (
       method: (...args: any[]) => void,
       level: 'error' | 'warning' | 'info'
     ): ((...args: any[]) => void) => {
       return (...args: any[]): void => {
-        onLog(level, method, args);
+        const isIgnoredMessage = args.some(
+          arg =>
+            typeof arg === 'string' &&
+            (arg.includes('Observed element mutated') ||
+              arg.includes("don't worry, about SyntaxError") ||
+              arg.includes('/lite/api/all.json'))
+        );
+        if (isIgnoredMessage) {
+          method.apply(console, args);
+          return;
+        }
+
+        const stackSources = new Error().stack
+          ?.split('\n')
+          .slice(2)
+          .join('\n')
+          .match(/(?:https?:\/\/|blob:|webpack:\/\/)[^\s)]+/g);
+        if (!stackSources || stackSources.every(isRelevantSource)) {
+          onLog(level, method, args);
+        }
         method.apply(console, args);
       };
     };
@@ -2282,7 +2339,7 @@ class PluginPlayground {
     window.onerror = ((): (typeof window)['onerror'] => {
       const prev = window.onerror;
       return (msg, url, line, col, error): boolean => {
-        if (!replaying) {
+        if (!replaying && isRelevantSource(url ?? undefined)) {
           unreadCount++;
           hasError = true;
           if (logBuffer.length < MAX_BUFFER) {
@@ -2325,7 +2382,7 @@ class PluginPlayground {
 /**
  * Initialization data for the @jupyterlab/plugin-playground extension.
  */
-const plugin: JupyterFrontEndPlugin<IPluginPlayground> = {
+const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
   id: '@jupyterlab/plugin-playground:plugin',
   description:
     'Provide a playground for developing and testing JupyterLab plugins.',
@@ -2359,7 +2416,7 @@ const plugin: JupyterFrontEndPlugin<IPluginPlayground> = {
     const requirejsLoader = new RequireJSLoader();
 
     const playgroundReady = Promise.all([
-      settingRegistry.load(plugin.id),
+      settingRegistry.load(mainPlugin.id),
       requirejsLoader.load()
     ]).then(([settings, requirejs]) => {
       playground = new PluginPlayground(
@@ -2414,5 +2471,134 @@ const plugin: JupyterFrontEndPlugin<IPluginPlayground> = {
   }
 };
 
-export default plugin;
+const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
+  id: '@jupyterlab/plugin-playground:notebook-tree',
+  description: 'Adds a Plugin Playground entry to Notebook tree New dropdown.',
+  autoStart: true,
+  optional: [IToolbarWidgetRegistry, IMainMenu],
+  activate: (
+    app: JupyterFrontEnd,
+    toolbarWidgetRegistry: IToolbarWidgetRegistry | null,
+    mainMenu: IMainMenu | null
+  ): void => {
+    if (
+      !app.hasPlugin(NOTEBOOK_SHELL_PLUGIN_ID) &&
+      !app.hasPlugin(NOTEBOOK_TREE_WIDGET_PLUGIN_ID)
+    ) {
+      return;
+    }
+
+    if (!app.commands.hasCommand(CommandIDs.createNewFileFromNotebookTree)) {
+      app.commands.addCommand(CommandIDs.createNewFileFromNotebookTree, {
+        label: 'Plugin (Playground)',
+        caption:
+          'Create a new TypeScript plugin file and open the playground sidebar',
+        describedBy: { args: null },
+        icon: extensionIcon,
+        execute: async () => {
+          const model = await app.serviceManager.contents.newUntitled({
+            type: 'file',
+            ext: 'ts'
+          });
+          const openPath = model.path;
+
+          await app.serviceManager.contents.save(openPath, {
+            type: 'file',
+            format: 'text',
+            content: PLUGIN_TEMPLATE
+          });
+
+          if (typeof window !== 'undefined') {
+            window.sessionStorage.setItem(NOTEBOOK_TREE_OPEN_SIDEBAR_KEY, '1');
+          }
+          await app.commands.execute('docmanager:open', {
+            path: openPath
+          });
+          return openPath;
+        }
+      });
+    }
+
+    if (mainMenu) {
+      const hasPluginEntryInFileNewMenu = mainMenu.fileMenu.newMenu.items.some(
+        item =>
+          item.type === 'command' &&
+          item.command === CommandIDs.createNewFileFromNotebookTree
+      );
+      if (!hasPluginEntryInFileNewMenu) {
+        mainMenu.fileMenu.newMenu.addItem({
+          command: CommandIDs.createNewFileFromNotebookTree
+        });
+      }
+    }
+
+    if (!toolbarWidgetRegistry) {
+      return;
+    }
+
+    let baseNewDropdownFactory: ((browser: Widget) => Widget) | undefined;
+    let isInstallingNewDropdownFactory = false;
+
+    const wrappedNewDropdownFactory = (browser: Widget): Widget => {
+      const widget: Widget = baseNewDropdownFactory
+        ? baseNewDropdownFactory(browser)
+        : new Widget();
+      if (!(widget instanceof MenuBar) || widget.menus.length === 0) {
+        return widget;
+      }
+      const newMenu = widget.menus[0];
+      const hasPluginEntry = newMenu.items.some(
+        item =>
+          item.type === 'command' &&
+          item.command === CommandIDs.createNewFileFromNotebookTree
+      );
+      if (!hasPluginEntry) {
+        newMenu.addItem({
+          command: CommandIDs.createNewFileFromNotebookTree
+        });
+      }
+      return widget;
+    };
+
+    toolbarWidgetRegistry.factoryAdded.connect((_sender, toolbarItemName) => {
+      if (
+        toolbarItemName !== NOTEBOOK_NEW_DROPDOWN_TOOLBAR_ITEM ||
+        isInstallingNewDropdownFactory
+      ) {
+        return;
+      }
+      isInstallingNewDropdownFactory = true;
+      try {
+        const previousFactory = toolbarWidgetRegistry.addFactory<Widget>(
+          NOTEBOOK_FILE_BROWSER_FACTORY,
+          NOTEBOOK_NEW_DROPDOWN_TOOLBAR_ITEM,
+          wrappedNewDropdownFactory
+        );
+        if (previousFactory && previousFactory !== wrappedNewDropdownFactory) {
+          baseNewDropdownFactory = previousFactory;
+        }
+      } finally {
+        isInstallingNewDropdownFactory = false;
+      }
+    });
+
+    isInstallingNewDropdownFactory = true;
+    try {
+      const previousFactory = toolbarWidgetRegistry.addFactory<Widget>(
+        NOTEBOOK_FILE_BROWSER_FACTORY,
+        NOTEBOOK_NEW_DROPDOWN_TOOLBAR_ITEM,
+        wrappedNewDropdownFactory
+      );
+      if (previousFactory && previousFactory !== wrappedNewDropdownFactory) {
+        baseNewDropdownFactory = previousFactory;
+      }
+    } finally {
+      isInstallingNewDropdownFactory = false;
+    }
+  }
+};
+
+const plugins: JupyterFrontEndPlugin<any>[] = [notebookTreePlugin, mainPlugin];
+
+export default plugins;
 export type { IKnownModule };

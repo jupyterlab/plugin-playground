@@ -1,7 +1,7 @@
 name: Preview Badges
 on:
   pull_request_target:
-    types: [opened]
+    types: [opened, reopened]
 
 jobs:
   previews:
@@ -19,8 +19,11 @@ jobs:
             const prNumber = context.payload.pull_request.number;
             const docsSlug =
               `${context.repo.owner}-${context.repo.repo}`.toLowerCase();
-            const jupyterliteUrl = `https://${docsSlug}--${prNumber}.org.readthedocs.build/en/${prNumber}/lite/lab/`;
-            const jupyterliteBadge = `[![JupyterLite](https://jupyterlite.rtfd.io/en/latest/_static/badge-launch.svg)](${jupyterliteUrl})`;
+            const jupyterliteLabUrl = `https://${docsSlug}--${prNumber}.org.readthedocs.build/en/${prNumber}/lite/lab/`;
+            const jupyterliteNotebookUrl = `https://${docsSlug}--${prNumber}.org.readthedocs.build/en/${prNumber}/lite/tree/`;
+            const jupyterliteBadge = `[![JupyterLite](https://jupyterlite.rtfd.io/en/latest/_static/badge-launch.svg)](${jupyterliteLabUrl})`;
+            const jupyterliteNotebookBadge = `[![JupyterLite Notebook v7](https://jupyterlite.rtfd.io/en/latest/_static/badge-launch.svg)](${jupyterliteNotebookUrl})`;
+            const introMessage = "Preview environments for this pull request:";
             const marker = " :point_left:";
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
@@ -33,14 +36,44 @@ jobs:
               .find(comment => comment.body.includes("![Binder]("));
             if (
               !binderComment ||
-              binderComment.body.includes("![JupyterLite](") ||
               !binderComment.body.includes(marker)
             ) {
               return;
             }
-            await github.rest.issues.updateComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              comment_id: binderComment.id,
-              body: binderComment.body.replace(marker, ` ${jupyterliteBadge}${marker}`)
-            });
+            const binderMatch = binderComment.body.match(/\[!\[Binder\]\([^)]+\)\]\(([^)]+)\)/);
+            if (!binderMatch) {
+              return;
+            }
+
+            const binderUrl = binderMatch[1];
+            const binderNotebookUrl = binderUrl.includes("urlpath=")
+              ? binderUrl.replace(/urlpath=[^&)]+/, "urlpath=tree")
+              : `${binderUrl}${binderUrl.includes("?") ? "&" : "?"}urlpath=tree`;
+            const binderNotebookBadge = `[![Binder Notebook v7](https://mybinder.org/badge_logo.svg)](${binderNotebookUrl})`;
+            const tableHeader = "| Preview | Lab | Notebook v7 |";
+            if (
+              binderComment.body.includes(tableHeader) &&
+              binderComment.body.includes(introMessage)
+            ) {
+              return;
+            }
+
+            const previewTable = [
+              tableHeader,
+              "| --- | --- | --- |",
+              `| Binder | [![Binder](https://mybinder.org/badge_logo.svg)](${binderUrl}) | ${binderNotebookBadge} |`,
+              `| JupyterLite | ${jupyterliteBadge} | ${jupyterliteNotebookBadge} |`
+            ].join("\n");
+            const updatedBody = [
+              introMessage,
+              "",
+              previewTable
+            ].join("\n");
+            if (binderComment.body.trim() !== updatedBody.trim()) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: binderComment.id,
+                body: updatedBody
+              });
+            }
