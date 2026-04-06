@@ -17,7 +17,7 @@ README_FILENAME = "README.md"
 RAW_GITHUB_EXTENSION_EXAMPLES_BASE_URL = (
     "https://raw.githubusercontent.com/jupyterlab/extension-examples/main"
 )
-REMOTE_MEDIA_EXTENSIONS = (".gif", ".png")
+REMOTE_MEDIA_EXTENSIONS = (".gif", ".png", ".mp4", ".mov", ".webm")
 LOCKFILE_FILENAMES = {
     "yarn.lock",
     "package-lock.json",
@@ -35,7 +35,7 @@ SKIPPED_DIRECTORY_NAMES = {
     ".ipynb_checkpoints",
 }
 SKIPPED_FILE_PREFIXES = ("playwright.config.",)
-SKIPPED_FILE_SUFFIXES = (".gif", ".png", ".pyc", ".pyo")
+SKIPPED_FILE_SUFFIXES = (".gif", ".png", ".mp4", ".mov", ".webm", ".pyc", ".pyo")
 MARKDOWN_LINK_TARGET_PATTERN = re.compile(r"\]\((?P<target>[^)\s]+)\)")
 MARKDOWN_REFERENCE_TARGET_PATTERN = re.compile(
     r"(?m)^(?P<prefix>\[[^\]]+\]:\s*)(?P<target>\S+)"
@@ -44,6 +44,7 @@ HTML_SOURCE_TARGET_PATTERN = re.compile(
     r"""(?P<prefix>\bsrc=["'])(?P<target>[^"']+)(?P<suffix>["'])""",
     re.IGNORECASE,
 )
+MARKDOWN_EMPHASIZED_TARGET_PATTERN = re.compile(r"_(?P<target>[^\s_]+\.[A-Za-z0-9]+)_")
 
 
 class SyncStats(NamedTuple):
@@ -227,9 +228,17 @@ def _rewrite_readme_media_references(content: str, readme_relative_dir: Path) ->
             return match.group(0)
         return f"{match.group('prefix')}{rewritten}{match.group('suffix')}"
 
+    def replace_emphasized_target(match: re.Match[str]) -> str:
+        target = match.group("target")
+        rewritten = _build_remote_media_url(target, readme_relative_dir)
+        if rewritten is None:
+            return match.group(0)
+        return f"[{target}]({rewritten})"
+
     content = MARKDOWN_LINK_TARGET_PATTERN.sub(replace_markdown_target, content)
     content = MARKDOWN_REFERENCE_TARGET_PATTERN.sub(replace_markdown_target, content)
     content = HTML_SOURCE_TARGET_PATTERN.sub(replace_html_source, content)
+    content = MARKDOWN_EMPHASIZED_TARGET_PATTERN.sub(replace_emphasized_target, content)
     return content
 
 
