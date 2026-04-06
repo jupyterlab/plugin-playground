@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -12,6 +13,11 @@ except Exception:  # pragma: no cover
     BuildHookInterface = None
 
 ENTRYPOINT_FILENAMES = ("index.ts", "index.tsx", "index.js", "index.jsx")
+README_FILENAME = "README.md"
+RAW_GITHUB_EXTENSION_EXAMPLES_BASE_URL = (
+    "https://raw.githubusercontent.com/jupyterlab/extension-examples/main"
+)
+REMOTE_MEDIA_EXTENSIONS = (".gif", ".png")
 LOCKFILE_FILENAMES = {
     "yarn.lock",
     "package-lock.json",
@@ -29,7 +35,15 @@ SKIPPED_DIRECTORY_NAMES = {
     ".ipynb_checkpoints",
 }
 SKIPPED_FILE_PREFIXES = ("playwright.config.",)
-SKIPPED_FILE_SUFFIXES = (".pyc", ".pyo")
+SKIPPED_FILE_SUFFIXES = (".gif", ".png", ".pyc", ".pyo")
+MARKDOWN_LINK_TARGET_PATTERN = re.compile(r"\]\((?P<target>[^)\s]+)\)")
+MARKDOWN_REFERENCE_TARGET_PATTERN = re.compile(
+    r"(?m)^(?P<prefix>\[[^\]]+\]:\s*)(?P<target>\S+)"
+)
+HTML_SOURCE_TARGET_PATTERN = re.compile(
+    r"""(?P<prefix>\bsrc=["'])(?P<target>[^"']+)(?P<suffix>["'])""",
+    re.IGNORECASE,
+)
 
 
 class SyncStats(NamedTuple):
@@ -125,9 +139,16 @@ def sync_extension_examples(source_root: Path, destination_root: Path) -> SyncSt
                 source_file = current_path / filename
                 destination_file = destination_root / relative_path
                 destination_file.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source_file, destination_file)
+                if filename.lower() == README_FILENAME.lower():
+                    _copy_readme_with_remote_media(
+                        source_file=source_file,
+                        destination_file=destination_file,
+                        source_root=source_root,
+                    )
+                else:
+                    shutil.copy2(source_file, destination_file)
                 copied_files += 1
-                copied_bytes += source_file.stat().st_size
+                copied_bytes += destination_file.stat().st_size
 
     return SyncStats(
         source_root=source_root,
@@ -173,13 +194,102 @@ def _should_skip(relative_path: Path, *, is_dir: bool) -> bool:
         return True
     if any(name.startswith(prefix) for prefix in SKIPPED_FILE_PREFIXES):
         return True
-    if name.endswith(SKIPPED_FILE_SUFFIXES):
+    if name.lower().endswith(SKIPPED_FILE_SUFFIXES):
         return True
     return False
 
 
 def _is_hidden_path(relative_path: Path) -> bool:
     return any(part.startswith(".") for part in relative_path.parts)
+
+
+def _copy_readme_with_remote_media(
+    *, source_file: Path, destination_file: Path, source_root: Path
+) -> None:
+    content = source_file.read_text(encoding="utf-8")
+    readme_relative_dir = source_file.parent.relative_to(source_root)
+    rewritten = _rewrite_readme_media_references(content, readme_relative_dir)
+    destination_file.write_text(rewritten, encoding="utf-8")
+
+
+def _rewrite_readme_media_references(content: str, readme_relative_dir: Path) -> str:
+    def replace_markdown_target(match: re.Match[str]) -> str:
+        target = match.group("target")
+        rewritten = _build_remote_media_url(target, readme_relative_dir)
+        if rewritten is None:
+            return match.group(0)
+        return match.group(0).replace(target, rewritten, 1)
+
+    def replace_html_source(match: re.Match[str]) -> str:
+        target = match.group("target")
+        rewritten = _build_remote_media_url(target, readme_relative_dir)
+        if rewritten is None:
+            return match.group(0)
+        return f"{match.group('prefix')}{rewritten}{match.group('suffix')}"
+
+    content = MARKDOWN_LINK_TARGET_PATTERN.sub(replace_markdown_target, content)
+    content = MARKDOWN_REFERENCE_TARGET_PATTERN.sub(replace_markdown_target, content)
+    content = HTML_SOURCE_TARGET_PATTERN.sub(replace_html_source, content)
+    return content
+
+
+def _build_remote_media_url(target: str, readme_relative_dir: Path) -> str | None:
+    path_part, suffix = _split_target_suffix(target)
+    if _looks_external(path_part) or not path_part.lower().endswith(
+        REMOTE_MEDIA_EXTENSIONS
+    ):
+        return None
+
+    normalized = _normalize_repo_relative_path(path_part, readme_relative_dir)
+    if normalized is None:
+        return None
+
+    return f"{RAW_GITHUB_EXTENSION_EXAMPLES_BASE_URL}/{normalized}{suffix}"
+
+
+def _split_target_suffix(target: str) -> Tuple[str, str]:
+    split_index = -1
+    for separator in ("?", "#"):
+        index = target.find(separator)
+        if index == -1:
+            continue
+        if split_index == -1 or index < split_index:
+            split_index = index
+    if split_index != -1:
+        return target[:split_index], target[split_index:]
+    return target, ""
+
+
+def _looks_external(path: str) -> bool:
+    lowered = path.lower()
+    return (
+        "://" in lowered
+        or lowered.startswith("data:")
+        or lowered.startswith("mailto:")
+        or lowered.startswith("#")
+    )
+
+
+def _normalize_repo_relative_path(path: str, readme_relative_dir: Path) -> str | None:
+    if path.startswith("/"):
+        combined_parts = Path(path.lstrip("/")).parts
+    else:
+        combined_parts = (readme_relative_dir / Path(path)).parts
+
+    normalized_parts: List[str] = []
+    for part in combined_parts:
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if not normalized_parts:
+                return None
+            normalized_parts.pop()
+            continue
+        normalized_parts.append(part)
+
+    if not normalized_parts:
+        return None
+    return "/".join(normalized_parts)
 
 
 if BuildHookInterface is not None:
