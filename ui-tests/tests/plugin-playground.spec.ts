@@ -16,6 +16,7 @@ const LIST_COMMANDS_COMMAND = 'plugin-playground:list-commands';
 const LIST_EXAMPLES_COMMAND = 'plugin-playground:list-extension-examples';
 const TEST_PLUGIN_ID = 'playground-integration-test:plugin';
 const TEST_TOGGLE_COMMAND = 'playground-integration-test:toggle';
+const TEST_ARGS_COMMAND = 'playground-integration-test:with-args';
 const TEST_FILE = 'playground-integration-test.ts';
 const COMMAND_COMPLETION_FILE = 'command-completion.ts';
 const INVOKE_FILE_COMPLETER_COMMAND = 'completer:invoke-file';
@@ -1617,6 +1618,116 @@ export default extension;
     return current.content.model.sharedModel.getSource();
   });
   expect(sourceAfterSecondAction).toBe(sourceBefore);
+  await page.evaluate(() => {
+    document
+      .querySelector(
+        '.jp-chat-input-textfield[data-playground-test="ai-input"]'
+      )
+      ?.remove();
+  });
+});
+
+test('commands tab AI prompt includes command argument schema when available', async ({
+  page,
+  tmpPath
+}) => {
+  const editorPath = `${tmpPath}/command-sidebar-ai-prompt-args.ts`;
+
+  await page.contents.uploadContent(
+    `import { JupyterFrontEnd, JupyterFrontEndPlugin } from '@jupyterlab/application';
+
+const extension: JupyterFrontEndPlugin<void> = {
+  id: 'command-sidebar-ai-prompt-args:plugin',
+  autoStart: true,
+  activate: activate
+};
+
+function activate(app: JupyterFrontEnd): void {
+  const marker = 1;
+  void marker;
+}
+
+export default extension;
+`,
+    'text',
+    editorPath
+  );
+  await page.goto();
+  await page.filebrowser.open(editorPath);
+  expect(
+    await page.activity.activateTab('command-sidebar-ai-prompt-args.ts')
+  ).toBe(true);
+
+  await ensureMockJupyterLiteAIChat(page);
+
+  await page.evaluate((commandId: string) => {
+    const commands = window.jupyterapp.commands;
+    if (!commands.hasCommand(commandId)) {
+      commands.addCommand(commandId, {
+        label: 'Playground command with args',
+        usage: () =>
+          `app.commands.execute('${commandId}', { path: '/tmp/example.ts' });`,
+        describedBy: {
+          args: {
+            type: 'object',
+            required: ['path'],
+            properties: {
+              path: {
+                type: 'string',
+                description: 'Path to open.'
+              },
+              factory: {
+                type: 'string',
+                description: 'Widget factory name.'
+              }
+            }
+          }
+        },
+        execute: () => undefined
+      });
+    }
+  }, TEST_ARGS_COMMAND);
+
+  await page.evaluate(() => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    const editor = current.content.editor;
+    editor.setCursorPosition({
+      line: 9,
+      column: 2
+    });
+    editor.focus();
+  });
+
+  const chatInput = page.locator(
+    '.jp-chat-input-textfield[data-playground-test="ai-input"] textarea'
+  );
+
+  const panel = await openSidebarPanel(page, TOKEN_SECTION_ID);
+  await panel.getByRole('tab', { name: 'Commands', exact: true }).click();
+  await panel.getByPlaceholder('Filter command ids').fill(TEST_ARGS_COMMAND);
+  const commandListItem = panel.locator('.jp-PluginPlayground-listItem');
+  await expect(commandListItem).toHaveCount(1);
+
+  const modeMenuButton = commandListItem.locator(
+    '.jp-PluginPlayground-commandInsertMenuButton'
+  );
+  const primaryInsertButton = commandListItem.locator(
+    '.jp-PluginPlayground-commandInsertButton'
+  );
+  await expect(modeMenuButton).toBeEnabled();
+  await expect(primaryInsertButton).toBeEnabled();
+  await modeMenuButton.click();
+  await page.getByRole('menuitem', { name: 'Prompt AI to insert' }).click();
+  await primaryInsertButton.click();
+
+  await expect(chatInput).toHaveValue(
+    new RegExp(escapeRegExp(`Command ID: ${TEST_ARGS_COMMAND}`))
+  );
+  await expect(chatInput).toHaveValue(/Command Arguments:/);
+  await expect(chatInput).toHaveValue(/Arguments Schema:/);
+  await expect(chatInput).toHaveValue(/"path"/);
+  await expect(chatInput).toHaveValue(/"factory"/);
+
   await page.evaluate(() => {
     document
       .querySelector(

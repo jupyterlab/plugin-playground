@@ -77,6 +77,7 @@ import {
   CommandCompletionProvider,
   getCommandArgumentCount,
   getCommandArgumentDocumentation,
+  type ICommandArgumentDocumentation,
   getCommandRecords
 } from './command-completion';
 
@@ -2304,11 +2305,16 @@ class PluginPlayground {
     appVariableName: string | null;
   }): Promise<void> {
     const { editorWidget } = options.activeEditor;
+    const commandArguments = await getCommandArgumentDocumentation(
+      this.app,
+      options.commandId
+    ).catch(() => null);
     const prompt = this._buildCommandInsertAIPrompt({
       commandId: options.commandId,
       path: editorWidget.context.path,
       suggestedSnippet: options.suggestedSnippet,
-      appVariableName: options.appVariableName
+      appVariableName: options.appVariableName,
+      commandArguments
     });
 
     if (!this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_CHAT_COMMAND)) {
@@ -2390,20 +2396,49 @@ class PluginPlayground {
     path: string;
     suggestedSnippet: string;
     appVariableName: string | null;
+    commandArguments: ICommandArgumentDocumentation | null;
   }): string {
     const normalizedPath = ContentUtils.normalizeContentsPath(options.path);
     const appContextInstruction = options.appVariableName
       ? `Use the activate() app variable: ${options.appVariableName}.`
       : 'If app is missing, add JupyterFrontEnd import and declare activate(app: JupyterFrontEnd, ...).';
+    const commandArgumentsInstruction =
+      this._buildCommandArgumentsPromptSection(options.commandArguments);
     return [
       'Insert this command execution in the best location in this file.',
       'Keep exactly one final execute() call for this command.',
       'Use the currently open editor content as the source of truth.',
       appContextInstruction,
+      commandArgumentsInstruction,
       `Command ID: ${options.commandId}`,
       `Suggested command call: ${options.suggestedSnippet}`,
       `File: ${normalizedPath || '(unsaved)'}`
-    ].join('\n');
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  private _buildCommandArgumentsPromptSection(
+    commandArguments: ICommandArgumentDocumentation | null
+  ): string {
+    if (!commandArguments) {
+      return '';
+    }
+
+    const sections: string[] = [];
+    if (commandArguments.usage) {
+      sections.push(`Usage:\n${commandArguments.usage}`);
+    }
+    if (commandArguments.args) {
+      sections.push(
+        `Arguments Schema: ${JSON.stringify(commandArguments.args)}`
+      );
+    }
+    if (sections.length === 0) {
+      return '';
+    }
+
+    return `Command Arguments:\n${sections.join('\n\n')}`;
   }
 
   private _commandExecutionSnippet(
