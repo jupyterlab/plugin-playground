@@ -60,6 +60,7 @@
     "@codemirror/state": "^6.5.4",
     "@codemirror/view": "^6.39.16",
     "@jupyter-widgets/base": "^6.0.0",
+    "@jupyter/chat": "^0.21.0",
     "@jupyterlab/application": "^4.5.5",
     "@jupyterlab/apputils": "^4.6.5",
     "@jupyterlab/codemirror": "^4.5.5",

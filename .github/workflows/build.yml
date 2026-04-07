@@ -22,6 +22,13 @@ jobs:
     - name: Install dependencies
       run: python -m pip install -U "jupyterlab>=4,<5"
 
+    - name: Check lockfiles are deduplicated
+      run: |
+        set -eux
+        jlpm dedupe --check
+        cd ui-tests
+        jlpm dedupe --check
+
     - name: Lint the extension
       run: |
         set -eux
