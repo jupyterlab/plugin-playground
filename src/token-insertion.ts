@@ -10,6 +10,11 @@ interface ISourceUpdateResult {
   changedLines: number[];
 }
 
+export interface IActivateAppContextResult {
+  source: string;
+  appVariableName: string;
+}
+
 const DEPENDENCY_MULTILINE_THRESHOLD = 3;
 const PARAMETER_MULTILINE_THRESHOLD = 3;
 
@@ -33,7 +38,6 @@ export function insertImportStatement(
   source: string,
   tokenReference: ITokenReference
 ): ISourceUpdateResult {
-  const statement = `import { ${tokenReference.tokenSymbol} } from '${tokenReference.packageName}';`;
   const existingImportLines = hasNamedValueImport(
     source,
     tokenReference.packageName,
@@ -43,6 +47,15 @@ export function insertImportStatement(
     return { source, changedLines: existingImportLines };
   }
 
+  const groupedImportResult = insertIntoExistingPackageImport(
+    source,
+    tokenReference
+  );
+  if (groupedImportResult) {
+    return groupedImportResult;
+  }
+
+  const statement = `import { ${tokenReference.tokenSymbol} } from '${tokenReference.packageName}';`;
   const separator = source.length > 0 ? '\n' : '';
   return {
     source: `${statement}${separator}${source}`,
@@ -71,7 +84,7 @@ export function insertTokenDependency(
   if (!activateProperty) {
     return { source, changedLines: [] };
   }
-  const activate = resolveActivateFunction(activateProperty);
+  const activate = resolveActivateFunction(activateProperty, sourceFile);
 
   const requiresProperty = findObjectProperty(pluginObject, 'requires');
   const optionalProperty = findObjectProperty(pluginObject, 'optional');
@@ -267,6 +280,138 @@ export function insertTokenDependency(
   return applyEditsWithChangedLines(source, edits);
 }
 
+export function ensurePluginActivateAppContext(
+  source: string
+): IActivateAppContextResult {
+  const existingAppParameterName = findPluginActivateAppParameterName(source);
+  if (existingAppParameterName) {
+    return { source, appVariableName: existingAppParameterName };
+  }
+
+  const sourceFile = ts.createSourceFile(
+    'plugin-playground-activate-context.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX
+  );
+  const pluginObject = resolveDefaultPluginObject(sourceFile);
+  if (!pluginObject) {
+    return { source, appVariableName: 'app' };
+  }
+  const activateProperty = findObjectProperty(pluginObject, 'activate');
+  if (!activateProperty) {
+    return { source, appVariableName: 'app' };
+  }
+  const activate = resolveActivateFunction(activateProperty, sourceFile);
+  if (!activate) {
+    return { source, appVariableName: 'app' };
+  }
+
+  const importResult = insertImportStatement(source, {
+    packageName: '@jupyterlab/application',
+    tokenSymbol: 'JupyterFrontEnd'
+  });
+  let updatedSource = importResult.source;
+  const updatedSourceFile = ts.createSourceFile(
+    'plugin-playground-activate-context-updated.ts',
+    updatedSource,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX
+  );
+  const updatedPluginObject = resolveDefaultPluginObject(updatedSourceFile);
+  if (!updatedPluginObject) {
+    return { source: updatedSource, appVariableName: 'app' };
+  }
+  const updatedActivateProperty = findObjectProperty(
+    updatedPluginObject,
+    'activate'
+  );
+  if (!updatedActivateProperty) {
+    return { source: updatedSource, appVariableName: 'app' };
+  }
+  const updatedActivate = resolveActivateFunction(
+    updatedActivateProperty,
+    updatedSourceFile
+  );
+  if (!updatedActivate) {
+    return { source: updatedSource, appVariableName: 'app' };
+  }
+
+  const firstParameter = updatedActivate.parameters[0];
+  if (
+    firstParameter &&
+    ts.isIdentifier(firstParameter.name) &&
+    !firstParameter.type
+  ) {
+    const appVariableName = firstParameter.name.text || 'app';
+    const parameterResult = applyEditsWithChangedLines(updatedSource, [
+      {
+        start: firstParameter.getStart(updatedSourceFile),
+        end: firstParameter.end,
+        text: `${appVariableName}: JupyterFrontEnd`
+      }
+    ]);
+    return { source: parameterResult.source, appVariableName };
+  }
+
+  const existingParameterNames = new Set<string>();
+  for (const parameter of updatedActivate.parameters) {
+    if (ts.isIdentifier(parameter.name)) {
+      existingParameterNames.add(parameter.name.text);
+    }
+  }
+  let appVariableName = 'app';
+  let suffix = 2;
+  while (existingParameterNames.has(appVariableName)) {
+    appVariableName = `app${suffix}`;
+    suffix += 1;
+  }
+
+  const insertAt =
+    updatedActivate.parameters.length > 0
+      ? updatedActivate.parameters[0].getStart(updatedSourceFile)
+      : updatedActivate.parameters.pos;
+  const prefix = updatedActivate.parameters.length > 0 ? ', ' : '';
+  const parameterResult = applyEditsWithChangedLines(updatedSource, [
+    {
+      start: insertAt,
+      end: insertAt,
+      text: `${appVariableName}: JupyterFrontEnd${prefix}`
+    }
+  ]);
+  updatedSource = parameterResult.source;
+  return { source: updatedSource, appVariableName };
+}
+
+export function findPluginActivateAppParameterName(
+  source: string
+): string | null {
+  const sourceFile = ts.createSourceFile(
+    'plugin-playground-command-insertion.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX
+  );
+  const pluginObjects = resolveDefaultPluginObjects(sourceFile);
+  for (const pluginObject of pluginObjects) {
+    const activateProperty = findObjectProperty(pluginObject, 'activate');
+    if (!activateProperty) {
+      continue;
+    }
+    const activate = resolveActivateFunction(activateProperty, sourceFile);
+    const appParameterName = activate
+      ? jupyterFrontEndParameterName(activate, sourceFile)
+      : null;
+    if (appParameterName) {
+      return appParameterName;
+    }
+  }
+  return null;
+}
+
 function applyEditsWithChangedLines(
   source: string,
   edits: Array<{ start: number; end: number; text: string }>
@@ -375,23 +520,80 @@ function unwrapExpression(expression: ts.Expression): ts.Expression {
 function resolveDefaultPluginObject(
   sourceFile: ts.SourceFile
 ): ts.ObjectLiteralExpression | null {
-  let exported: ts.Expression | null = null;
+  const pluginObjects = resolveDefaultPluginObjects(sourceFile);
+  return pluginObjects.length > 0 ? pluginObjects[0] : null;
+}
+
+function resolveDefaultPluginObjects(
+  sourceFile: ts.SourceFile
+): ts.ObjectLiteralExpression[] {
+  const exported = resolveDefaultExportExpression(sourceFile);
+  if (!exported) {
+    return [];
+  }
+  return resolvePluginObjectsFromExpression(
+    sourceFile,
+    exported,
+    new Set<string>()
+  );
+}
+
+function resolveDefaultExportExpression(
+  sourceFile: ts.SourceFile
+): ts.Expression | null {
   for (const statement of sourceFile.statements) {
     if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
-      exported = unwrapExpression(statement.expression);
-      break;
+      return unwrapExpression(statement.expression);
     }
   }
-  if (!exported) {
-    return null;
-  }
-  if (ts.isObjectLiteralExpression(exported)) {
-    return exported;
-  }
-  if (!ts.isIdentifier(exported)) {
-    return null;
-  }
+  return null;
+}
 
+function resolvePluginObjectsFromExpression(
+  sourceFile: ts.SourceFile,
+  expression: ts.Expression,
+  seenIdentifiers: Set<string>
+): ts.ObjectLiteralExpression[] {
+  const unwrapped = unwrapExpression(expression);
+  if (ts.isObjectLiteralExpression(unwrapped)) {
+    return [unwrapped];
+  }
+  if (ts.isArrayLiteralExpression(unwrapped)) {
+    const pluginObjects: ts.ObjectLiteralExpression[] = [];
+    for (const element of unwrapped.elements) {
+      if (ts.isSpreadElement(element)) {
+        continue;
+      }
+      const nestedObjects = resolvePluginObjectsFromExpression(
+        sourceFile,
+        element,
+        seenIdentifiers
+      );
+      for (const pluginObject of nestedObjects) {
+        pluginObjects.push(pluginObject);
+      }
+    }
+    return pluginObjects;
+  }
+  if (ts.isIdentifier(unwrapped)) {
+    return resolvePluginObjectsFromIdentifier(
+      sourceFile,
+      unwrapped.text,
+      seenIdentifiers
+    );
+  }
+  return [];
+}
+
+function resolvePluginObjectsFromIdentifier(
+  sourceFile: ts.SourceFile,
+  identifierName: string,
+  seenIdentifiers: Set<string>
+): ts.ObjectLiteralExpression[] {
+  if (seenIdentifiers.has(identifierName)) {
+    return [];
+  }
+  seenIdentifiers.add(identifierName);
   for (const statement of sourceFile.statements) {
     if (!ts.isVariableStatement(statement)) {
       continue;
@@ -399,19 +601,23 @@ function resolveDefaultPluginObject(
     for (const declaration of statement.declarationList.declarations) {
       if (
         ts.isIdentifier(declaration.name) &&
-        declaration.name.text === exported.text &&
-        declaration.initializer &&
-        ts.isObjectLiteralExpression(declaration.initializer)
+        declaration.name.text === identifierName &&
+        declaration.initializer
       ) {
-        return declaration.initializer;
+        return resolvePluginObjectsFromExpression(
+          sourceFile,
+          declaration.initializer,
+          seenIdentifiers
+        );
       }
     }
   }
-  return null;
+  return [];
 }
 
 function resolveActivateFunction(
-  activateProperty: ts.ObjectLiteralElementLike
+  activateProperty: ts.ObjectLiteralElementLike,
+  sourceFile?: ts.SourceFile
 ): ts.FunctionLikeDeclarationBase | null {
   if (ts.isMethodDeclaration(activateProperty)) {
     return activateProperty;
@@ -423,7 +629,176 @@ function resolveActivateFunction(
   ) {
     return activateProperty.initializer;
   }
+  if (
+    sourceFile &&
+    ts.isPropertyAssignment(activateProperty) &&
+    ts.isIdentifier(activateProperty.initializer)
+  ) {
+    const referencedFunction = resolveFunctionLikeByName(
+      sourceFile,
+      activateProperty.initializer.text
+    );
+    if (referencedFunction) {
+      return referencedFunction;
+    }
+  }
   return null;
+}
+
+function resolveFunctionLikeByName(
+  sourceFile: ts.SourceFile,
+  functionName: string
+): ts.FunctionLikeDeclarationBase | null {
+  for (const statement of sourceFile.statements) {
+    if (
+      ts.isFunctionDeclaration(statement) &&
+      statement.name?.text === functionName
+    ) {
+      return statement;
+    }
+    if (!ts.isVariableStatement(statement)) {
+      continue;
+    }
+    for (const declaration of statement.declarationList.declarations) {
+      if (
+        ts.isIdentifier(declaration.name) &&
+        declaration.name.text === functionName &&
+        declaration.initializer &&
+        (ts.isArrowFunction(declaration.initializer) ||
+          ts.isFunctionExpression(declaration.initializer))
+      ) {
+        return declaration.initializer;
+      }
+    }
+  }
+  return null;
+}
+
+function jupyterFrontEndParameterName(
+  activate: ts.FunctionLikeDeclarationBase,
+  sourceFile: ts.SourceFile
+): string | null {
+  const firstParameter = activate.parameters[0];
+  const firstUntypedIdentifierName =
+    firstParameter &&
+    ts.isIdentifier(firstParameter.name) &&
+    !firstParameter.type
+      ? firstParameter.name.text
+      : null;
+  for (const parameter of activate.parameters) {
+    if (!ts.isIdentifier(parameter.name) || !parameter.type) {
+      continue;
+    }
+    const typeText = parameter.type.getText(sourceFile);
+    if (/\bJupyterFrontEnd\b/.test(typeText)) {
+      return parameter.name.text;
+    }
+  }
+  return firstUntypedIdentifierName;
+}
+
+function insertIntoExistingPackageImport(
+  source: string,
+  tokenReference: ITokenReference
+): ISourceUpdateResult | null {
+  const sourceFile = ts.createSourceFile(
+    'plugin-playground-import-grouping.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX
+  );
+  const statement = `import { ${tokenReference.tokenSymbol} } from '${tokenReference.packageName}';`;
+  const lineEnding = source.includes('\r\n') ? '\r\n' : '\n';
+  let lastMatchingImport: ts.ImportDeclaration | null = null;
+
+  for (const candidate of sourceFile.statements) {
+    if (!ts.isImportDeclaration(candidate)) {
+      continue;
+    }
+    if (
+      !ts.isStringLiteral(candidate.moduleSpecifier) ||
+      candidate.moduleSpecifier.text !== tokenReference.packageName
+    ) {
+      continue;
+    }
+
+    lastMatchingImport = candidate;
+    const importClause = candidate.importClause;
+    if (!importClause || importClause.isTypeOnly) {
+      continue;
+    }
+
+    const namedBindings = importClause.namedBindings;
+    if (!namedBindings) {
+      if (importClause.name) {
+        return applyEditsWithChangedLines(source, [
+          {
+            start: importClause.name.end,
+            end: importClause.name.end,
+            text: `, { ${tokenReference.tokenSymbol} }`
+          }
+        ]);
+      }
+      continue;
+    }
+
+    if (ts.isNamespaceImport(namedBindings)) {
+      continue;
+    }
+
+    if (namedBindings.elements.length === 0) {
+      return applyEditsWithChangedLines(source, [
+        {
+          start: namedBindings.elements.pos,
+          end: namedBindings.elements.pos,
+          text: tokenReference.tokenSymbol
+        }
+      ]);
+    }
+
+    const insertionPosition = namedBindings.elements.end;
+    const hasTrailingComma = Boolean(namedBindings.elements.hasTrailingComma);
+    const namedBindingsText = source.slice(
+      namedBindings.getStart(sourceFile),
+      namedBindings.end
+    );
+    if (namedBindingsText.includes('\n')) {
+      const firstElement = namedBindings.elements[0];
+      const elementIndent = firstElement
+        ? lineIndent(source, firstElement.getStart(sourceFile))
+        : '  ';
+      return applyEditsWithChangedLines(source, [
+        {
+          start: insertionPosition,
+          end: insertionPosition,
+          text: `${hasTrailingComma ? '' : ','}${lineEnding}${elementIndent}${
+            tokenReference.tokenSymbol
+          }`
+        }
+      ]);
+    }
+
+    return applyEditsWithChangedLines(source, [
+      {
+        start: insertionPosition,
+        end: insertionPosition,
+        text: `${hasTrailingComma ? ' ' : ', '}${tokenReference.tokenSymbol}`
+      }
+    ]);
+  }
+
+  if (!lastMatchingImport) {
+    return null;
+  }
+
+  return applyEditsWithChangedLines(source, [
+    {
+      start: lastMatchingImport.end,
+      end: lastMatchingImport.end,
+      text: `${lineEnding}${statement}`
+    }
+  ]);
 }
 
 function hasNamedValueImport(

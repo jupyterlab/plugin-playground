@@ -60,39 +60,21 @@ def _ensure_extension_examples(root):
 
 
 def _sync_examples_to_lite_contents(root):
-    import shutil
+    import sys
 
     examples = _ensure_extension_examples(root)
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+    from extension_examples_bundle import sync_extension_examples
+
     lite_examples_root = root / "docs" / "content" / "extension-examples"
-    if lite_examples_root.exists():
-        shutil.rmtree(lite_examples_root)
-    lite_examples_root.mkdir(parents=True, exist_ok=True)
-
-    ignored = shutil.ignore_patterns(
-        ".git",
-        "node_modules",
-        "lib",
-        "dist",
-        ".ipynb_checkpoints",
+    stats = sync_extension_examples(examples, lite_examples_root)
+    print(
+        "Copied "
+        f"{stats.copied_examples} extension examples into docs/content for Lite "
+        f"({stats.copied_files} files)."
     )
-
-    copied_count = 0
-    for example_dir in sorted(examples.iterdir()):
-        if not example_dir.is_dir() or example_dir.name.startswith("."):
-            continue
-
-        src_dir = example_dir / "src"
-        if not ((src_dir / "index.ts").exists() or (src_dir / "index.js").exists()):
-            continue
-
-        shutil.copytree(
-            example_dir,
-            lite_examples_root / example_dir.name,
-            ignore=ignored,
-        )
-        copied_count += 1
-
-    print(f"Copied {copied_count} extension examples into docs/content for Lite.")
 
 
 def _sync_agent_skills_to_lite_contents(root):

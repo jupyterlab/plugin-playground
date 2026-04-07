@@ -23,7 +23,7 @@ This extension provides a new command, `Load Current File As Extension`, availab
 
 It also adds a single right sidebar panel with two collapsible sections:
 
-- **Extension Points**: token string IDs and command IDs, with a `Tokens` / `Commands` switch. Tokens support search, copy, and import actions. Commands support search and copy actions.
+- **Extension Points**: token string IDs and command IDs, with a `Tokens` / `Commands` switch. Tokens support search, copy, and import actions. Commands support search, copy, and insert-at-cursor actions.
 - **Extension Examples**: discovered examples from a local checkout of [`jupyterlab/extension-examples`](https://github.com/jupyterlab/extension-examples), so you can open them directly from the panel.
 
 If examples are missing:
@@ -138,6 +138,24 @@ Plugin Playground supports AI-assisted extension prototyping in both JupyterLite
 
 - [JupyterLite AI documentation](https://jupyterlite-ai.readthedocs.io/en/latest/)
 - [Plugin authoring skill for agents](_agents/skills/plugin-authoring/SKILL.md)
+
+### Command Insert Modes (Default + AI Prompt)
+
+The `+` action in the `Commands` tab depends on mode:
+
+- `Insert in selection` inserts:
+
+```ts
+app.commands.execute('<command-id>');
+```
+
+at the active cursor position.
+
+- `Prompt AI to insert` does not insert directly. It opens JupyterLite AI chat and prefills a prompt with file context so AI can choose the best insertion location before you submit.
+
+The sidebar remembers your last-used command insert mode in:
+
+- `commandInsertDefaultMode` (`insert` or `ai`, `insert` by default)
 
 ### Commands for AI Agents and Automation
 
