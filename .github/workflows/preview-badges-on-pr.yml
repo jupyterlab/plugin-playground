@@ -1,7 +1,7 @@
 name: Preview Badges
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened]
+    types: [opened, reopened]
 
 jobs:
   previews:
@@ -23,6 +23,7 @@ jobs:
             const jupyterliteNotebookUrl = `https://${docsSlug}--${prNumber}.org.readthedocs.build/en/${prNumber}/lite/tree/`;
             const jupyterliteBadge = `[![JupyterLite](https://jupyterlite.rtfd.io/en/latest/_static/badge-launch.svg)](${jupyterliteLabUrl})`;
             const jupyterliteNotebookBadge = `[![JupyterLite Notebook v7](https://jupyterlite.rtfd.io/en/latest/_static/badge-launch.svg)](${jupyterliteNotebookUrl})`;
+            const introMessage = "Preview environments for this pull request:";
             const marker = " :point_left:";
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
@@ -50,7 +51,10 @@ jobs:
               : `${binderUrl}${binderUrl.includes("?") ? "&" : "?"}urlpath=tree`;
             const binderNotebookBadge = `[![Binder Notebook v7](https://mybinder.org/badge_logo.svg)](${binderNotebookUrl})`;
             const tableHeader = "| Preview | Lab | Notebook v7 |";
-            if (binderComment.body.includes(tableHeader)) {
+            if (
+              binderComment.body.includes(tableHeader) &&
+              binderComment.body.includes(introMessage)
+            ) {
               return;
             }
 
@@ -60,17 +64,16 @@ jobs:
               `| Binder | [![Binder](https://mybinder.org/badge_logo.svg)](${binderUrl}) | ${binderNotebookBadge} |`,
               `| JupyterLite | ${jupyterliteBadge} | ${jupyterliteNotebookBadge} |`
             ].join("\n");
-            const cleanedBody = binderComment.body
-              .replace(/\s*\[!\[Binder Notebook v7\]\([^)]+\)\]\([^)]+\)/g, "")
-              .replace(/\s*\[!\[JupyterLite\]\([^)]+\)\]\([^)]+\)/g, "")
-              .replace(/\s*\[!\[JupyterLite Notebook v7\]\([^)]+\)\]\([^)]+\)/g, "");
-            const updatedBody = cleanedBody.replace(
-              marker,
-              `\n\n${previewTable}\n${marker}`
-            );
-            await github.rest.issues.updateComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              comment_id: binderComment.id,
-              body: updatedBody
-            });
+            const updatedBody = [
+              introMessage,
+              "",
+              previewTable
+            ].join("\n");
+            if (binderComment.body.trim() !== updatedBody.trim()) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: binderComment.id,
+                body: updatedBody
+              });
+            }
