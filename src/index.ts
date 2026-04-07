@@ -17,6 +17,8 @@ import {
   IToolbarWidgetRegistry
 } from '@jupyterlab/apputils';
 
+import { ILogConsoleTracker } from 'jupyterlab-js-logs';
+
 import { Signal } from '@lumino/signaling';
 
 import { DocumentRegistry, IDocumentWidget } from '@jupyterlab/docregistry';
@@ -25,6 +27,7 @@ import { FileEditor, IEditorTracker } from '@jupyterlab/fileeditor';
 
 import { ILauncher } from '@jupyterlab/launcher';
 import { IMainMenu } from '@jupyterlab/mainmenu';
+import { IChatTracker } from '@jupyter/chat';
 
 import {
   checkIcon,
@@ -62,6 +65,7 @@ import { ImportResolver } from './resolver';
 import { IRequireJS, RequireJSLoader } from './requirejs';
 
 import {
+  type CommandInsertMode,
   filterCommandRecords,
   filterTokenRecords,
   TokenSidebar
@@ -75,11 +79,14 @@ import {
   CommandCompletionProvider,
   getCommandArgumentCount,
   getCommandArgumentDocumentation,
+  type ICommandArgumentDocumentation,
   getCommandRecords
 } from './command-completion';
 
 import { ContentUtils } from './contents';
 import {
+  ensurePluginActivateAppContext,
+  findPluginActivateAppParameterName,
   insertImportStatement,
   insertTokenDependency,
   parseTokenReference
@@ -257,10 +264,18 @@ const CREATE_PLUGIN_ARGS_SCHEMA = {
 const LOAD_ON_SAVE_TOGGLE_TOOLBAR_ITEM = 'plugin-playground-load-on-save';
 const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
 const LOAD_ON_SAVE_SETTING = 'loadOnSave';
+const COMMAND_INSERT_DEFAULT_MODE_SETTING = 'commandInsertDefaultMode';
 const LOAD_ON_SAVE_ENABLED_DESCRIPTION =
   'Toggle auto-loading this file as an extension on save';
 const LOAD_ON_SAVE_DISABLED_DESCRIPTION =
   'Auto load on save is available for JavaScript and TypeScript files';
+const JUPYTERLITE_AI_OPEN_CHAT_COMMAND = '@jupyterlite/ai:open-chat';
+const JUPYTERLITE_AI_CHAT_PANEL_ID = '@jupyterlite/ai:chat-panel';
+const JUPYTERLITE_AI_INSTALL_HINT =
+  'JupyterLite AI is unavailable. Install the "jupyterlite-ai" extension and reload.';
+const JUPYTERLITE_AI_PROVIDER_SETUP_HINT =
+  'JupyterLite AI provider is not configured. Configure a provider and try again.';
+const DEFAULT_COMMAND_INSERT_MODE: CommandInsertMode = 'insert';
 const ARCHIVE_EXCLUDED_DIRECTORIES = new Set([
   '.git',
   '.ipynb_checkpoints',
@@ -297,9 +312,11 @@ class PluginPlayground {
     protected editorTracker: IEditorTracker,
     launcher: ILauncher | null,
     protected documentManager: IDocumentManager | null,
+    protected chatTracker: IChatTracker | null,
     protected settings: ISettingRegistry.ISettings,
     protected requirejs: IRequireJS,
-    toolbarWidgetRegistry: IToolbarWidgetRegistry
+    toolbarWidgetRegistry: IToolbarWidgetRegistry,
+    protected logConsoleTracker: ILogConsoleTracker | null
   ) {
     registerCoreKnownModules();
 
@@ -581,7 +598,11 @@ class PluginPlayground {
         discoverKnownModules: force => discoverFederatedKnownModules({ force }),
         openDocumentationLink: this._openDocumentationLink.bind(this),
         onInsertImport: this._insertTokenImport.bind(this),
-        isImportEnabled: this._canInsertImport.bind(this)
+        isImportEnabled: this._canInsertImport.bind(this),
+        onSetCommandInsertMode: this._setCommandInsertMode.bind(this),
+        onInsertCommand: this._insertCommandExecution.bind(this),
+        getCommandInsertMode: () => this._commandInsertMode,
+        isCommandInsertEnabled: this._hasEditableEditor.bind(this)
       });
       this._tokenSidebar = tokenSidebar;
       tokenSidebar.id = 'jp-plugin-token-sidebar';
@@ -654,6 +675,7 @@ class PluginPlayground {
       settings.changed.connect(updatedSettings => {
         this.settings = updatedSettings;
         this._updateSettings(requirejs, updatedSettings);
+        tokenSidebar.update();
         for (const refresh of this._loadOnSaveToggleRefreshers) {
           refresh();
         }
@@ -1469,6 +1491,13 @@ class PluginPlayground {
     requirejs.require.config({
       baseUrl: baseURL
     });
+
+    const composite = settings.composite as Record<string, unknown>;
+    const rawCommandInsertMode = this._stringValue(
+      composite[COMMAND_INSERT_DEFAULT_MODE_SETTING]
+    );
+    this._commandInsertMode =
+      rawCommandInsertMode === 'ai' ? 'ai' : DEFAULT_COMMAND_INSERT_MODE;
   }
 
   private _getTokenRecords(): ReadonlyArray<TokenSidebar.ITokenRecord> {
@@ -2095,25 +2124,14 @@ class PluginPlayground {
       return;
     }
 
-    const editorWidget = this.editorTracker.currentWidget;
-    if (!editorWidget) {
-      await showDialog({
-        title: 'No active editor',
-        body: 'Open a text editor tab to insert an import statement.',
-        buttons: [Dialog.okButton()]
-      });
+    const activeEditor = await this._requireEditableEditor(
+      'Open a text editor tab to insert an import statement.'
+    );
+    if (!activeEditor) {
       return;
     }
 
-    const sourceModel = editorWidget.content.model;
-    if (!sourceModel || !sourceModel.sharedModel) {
-      await showDialog({
-        title: 'No editable content',
-        body: 'The active tab does not expose editable source text.',
-        buttons: [Dialog.okButton()]
-      });
-      return;
-    }
+    const { editorWidget, sourceModel } = activeEditor;
 
     const source = sourceModel.sharedModel.getSource();
     const importResult = insertImportStatement(source, tokenReference);
@@ -2141,14 +2159,357 @@ class PluginPlayground {
     if (!parseTokenReference(tokenName)) {
       return false;
     }
+    return this._hasEditableEditor();
+  }
 
+  private async _insertCommandExecution(
+    commandId: string,
+    mode: CommandInsertMode
+  ): Promise<void> {
+    await this._setCommandInsertMode(mode);
+
+    const activeEditor = await this._requireEditableEditor(
+      'Open a text editor tab to insert command execution.'
+    );
+    if (!activeEditor) {
+      return;
+    }
+
+    if (mode === 'insert') {
+      this._insertCommandExecutionAtCursor(activeEditor, commandId);
+      return;
+    }
+
+    const source = activeEditor.sourceModel.sharedModel.getSource();
+    const appVariableName = findPluginActivateAppParameterName(source);
+    const suggestedSnippet = this._commandExecutionSnippet(
+      commandId,
+      appVariableName ?? 'app'
+    );
+
+    try {
+      await this._promptAIToInsertCommand({
+        activeEditor,
+        commandId,
+        suggestedSnippet,
+        appVariableName
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        'Failed to prefill JupyterLite AI prompt for insertion.',
+        error
+      );
+      const warningMessage =
+        message === JUPYTERLITE_AI_PROVIDER_SETUP_HINT ||
+        message.startsWith(JUPYTERLITE_AI_INSTALL_HINT)
+          ? message
+          : `Could not prefill AI insertion prompt for "${commandId}": ${message}`;
+      Notification.warning(warningMessage, {
+        autoClose: 5000
+      });
+    }
+  }
+
+  private async _setCommandInsertMode(mode: CommandInsertMode): Promise<void> {
+    if (this._commandInsertMode === mode) {
+      return;
+    }
+    this._commandInsertMode = mode;
+    this._tokenSidebar?.update();
+    try {
+      await this.settings.set(COMMAND_INSERT_DEFAULT_MODE_SETTING, mode);
+    } catch (error) {
+      console.warn(
+        `Failed to persist "${COMMAND_INSERT_DEFAULT_MODE_SETTING}" setting.`,
+        error
+      );
+    }
+  }
+
+  private _insertCommandExecutionAtCursor(
+    activeEditor: {
+      editorWidget: IDocumentWidget<FileEditor>;
+      sourceModel: NonNullable<FileEditor['model']>;
+    },
+    commandId: string
+  ): void {
+    const { editorWidget, sourceModel } = activeEditor;
+    const editor = editorWidget.content.editor;
+    const originalCursorPosition = editor.getCursorPosition();
+    const originalInsertionOffset = editor.getOffsetAt(originalCursorPosition);
+    const originalSource = sourceModel.sharedModel.getSource();
+    let cursorMarker = '__plugin_playground_cursor_marker__';
+    while (originalSource.includes(cursorMarker)) {
+      cursorMarker = `${cursorMarker}_`;
+    }
+    const sourceWithCursorMarker = `${originalSource.slice(
+      0,
+      originalInsertionOffset
+    )}${cursorMarker}${originalSource.slice(originalInsertionOffset)}`;
+
+    const activateAppContext = ensurePluginActivateAppContext(
+      sourceWithCursorMarker
+    );
+    const markerOffset = activateAppContext.source.indexOf(cursorMarker);
+    const sourceWithoutMarker =
+      markerOffset === -1
+        ? activateAppContext.source
+        : `${activateAppContext.source.slice(
+            0,
+            markerOffset
+          )}${activateAppContext.source.slice(
+            markerOffset + cursorMarker.length
+          )}`;
+    if (sourceWithoutMarker !== originalSource) {
+      sourceModel.sharedModel.updateSource(
+        0,
+        originalSource.length,
+        sourceWithoutMarker
+      );
+    }
+
+    const insertionOffset =
+      markerOffset === -1 ? originalInsertionOffset : markerOffset;
+    const cursorPosition =
+      editor.getPositionAt(insertionOffset) ?? editor.getCursorPosition();
+    const insertText = this._commandExecutionSnippet(
+      commandId,
+      activateAppContext.appVariableName
+    );
+
+    editor.setSelection({
+      start: cursorPosition,
+      end: cursorPosition
+    });
+    if (editor.replaceSelection) {
+      editor.replaceSelection(insertText);
+    } else {
+      sourceModel.sharedModel.updateSource(
+        insertionOffset,
+        insertionOffset,
+        insertText
+      );
+      const fallbackCursorPosition = editor.getPositionAt(
+        insertionOffset + insertText.length
+      );
+      if (fallbackCursorPosition) {
+        editor.setCursorPosition(fallbackCursorPosition);
+      }
+    }
+
+    const nextCursorPosition = editor.getCursorPosition();
+    editor.revealPosition(nextCursorPosition);
+    window.requestAnimationFrame(() => {
+      ContentUtils.highlightEditorLines(editor, [nextCursorPosition.line]);
+    });
+    editor.focus();
+  }
+
+  private async _promptAIToInsertCommand(options: {
+    commandId: string;
+    activeEditor: {
+      editorWidget: IDocumentWidget<FileEditor>;
+      sourceModel: NonNullable<FileEditor['model']>;
+    };
+    suggestedSnippet: string;
+    appVariableName: string | null;
+  }): Promise<void> {
+    const { editorWidget } = options.activeEditor;
+    const commandArguments = await getCommandArgumentDocumentation(
+      this.app,
+      options.commandId
+    ).catch(() => null);
+    const prompt = this._buildCommandInsertAIPrompt({
+      commandId: options.commandId,
+      path: editorWidget.context.path,
+      suggestedSnippet: options.suggestedSnippet,
+      appVariableName: options.appVariableName,
+      commandArguments
+    });
+
+    if (!this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_CHAT_COMMAND)) {
+      throw new Error(
+        `${JUPYTERLITE_AI_INSTALL_HINT} Missing command: "${JUPYTERLITE_AI_OPEN_CHAT_COMMAND}".`
+      );
+    }
+
+    await this.app.commands.execute(JUPYTERLITE_AI_OPEN_CHAT_COMMAND, {
+      area: 'side'
+    });
+    this.app.shell.activateById(JUPYTERLITE_AI_CHAT_PANEL_ID);
+
+    const inputModel = await this._requireJupyterLiteAIChatInputModel();
+    inputModel.value = prompt;
+    inputModel.focus();
+    window.requestAnimationFrame(() => {
+      const activeElement = document.activeElement;
+      if (
+        activeElement instanceof HTMLTextAreaElement ||
+        activeElement instanceof HTMLInputElement
+      ) {
+        const cursorIndex = activeElement.value.length;
+        activeElement.setSelectionRange(cursorIndex, cursorIndex);
+        activeElement.scrollTop = activeElement.scrollHeight;
+      }
+    });
+  }
+
+  private async _requireJupyterLiteAIChatInputModel(): Promise<{
+    value: string;
+    focus: () => void;
+  }> {
+    const chatTracker =
+      this.chatTracker ?? (await this.app.resolveOptionalService(IChatTracker));
+    if (!chatTracker) {
+      throw new Error(
+        `${JUPYTERLITE_AI_INSTALL_HINT} Missing service: "@jupyter/chat:IChatTracker".`
+      );
+    }
+
+    const chatWidget =
+      chatTracker.currentWidget ?? chatTracker.find(() => true);
+    if (!chatWidget) {
+      throw new Error(
+        `${JUPYTERLITE_AI_INSTALL_HINT} Chat tracker has no active widgets.`
+      );
+    }
+
+    const inputModel = (
+      chatWidget as {
+        model?: {
+          input?: unknown;
+        };
+      }
+    ).model?.input;
+    if (this._isJupyterLiteAIChatInputModel(inputModel)) {
+      return inputModel;
+    }
+    throw new Error(JUPYTERLITE_AI_PROVIDER_SETUP_HINT);
+  }
+
+  private _isJupyterLiteAIChatInputModel(candidate: unknown): candidate is {
+    value: string;
+    focus: () => void;
+  } {
+    return !!(
+      candidate &&
+      typeof candidate === 'object' &&
+      'value' in candidate &&
+      typeof candidate.value === 'string' &&
+      'focus' in candidate &&
+      typeof candidate.focus === 'function'
+    );
+  }
+
+  private _buildCommandInsertAIPrompt(options: {
+    commandId: string;
+    path: string;
+    suggestedSnippet: string;
+    appVariableName: string | null;
+    commandArguments: ICommandArgumentDocumentation | null;
+  }): string {
+    const normalizedPath = ContentUtils.normalizeContentsPath(options.path);
+    const appContextInstruction = options.appVariableName
+      ? `Use the activate() app variable: ${options.appVariableName}.`
+      : 'If app is missing, add JupyterFrontEnd import and declare activate(app: JupyterFrontEnd, ...).';
+    const commandArgumentsInstruction =
+      this._buildCommandArgumentsPromptSection(options.commandArguments);
+    return [
+      'Insert this command execution in the best location in this file.',
+      'Keep exactly one final execute() call for this command.',
+      'Use the currently open editor content as the source of truth.',
+      appContextInstruction,
+      commandArgumentsInstruction,
+      `Command ID: ${options.commandId}`,
+      `Suggested command call: ${options.suggestedSnippet}`,
+      `File: ${normalizedPath || '(unsaved)'}`
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  private _buildCommandArgumentsPromptSection(
+    commandArguments: ICommandArgumentDocumentation | null
+  ): string {
+    if (!commandArguments) {
+      return '';
+    }
+
+    const sections: string[] = [];
+    if (commandArguments.usage) {
+      sections.push(`Usage:\n${commandArguments.usage}`);
+    }
+    if (commandArguments.args) {
+      sections.push(
+        `Arguments Schema: ${JSON.stringify(commandArguments.args)}`
+      );
+    }
+    if (sections.length === 0) {
+      return '';
+    }
+
+    return `Command Arguments:\n${sections.join('\n\n')}`;
+  }
+
+  private _commandExecutionSnippet(
+    commandId: string,
+    appVariableName: string
+  ): string {
+    const escapedCommandId = commandId
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'");
+    return `${appVariableName}.commands.execute('${escapedCommandId}');`;
+  }
+
+  private _getEditableEditor(): {
+    editorWidget: IDocumentWidget<FileEditor>;
+    sourceModel: NonNullable<FileEditor['model']>;
+  } | null {
     const editorWidget = this.editorTracker.currentWidget;
-    if (!editorWidget) {
-      return false;
+    if (!editorWidget || editorWidget !== this.app.shell.currentWidget) {
+      return null;
     }
 
     const sourceModel = editorWidget.content.model;
-    return !!(sourceModel && sourceModel.sharedModel);
+    if (!sourceModel || !sourceModel.sharedModel) {
+      return null;
+    }
+
+    return {
+      editorWidget,
+      sourceModel
+    };
+  }
+
+  private _hasEditableEditor(): boolean {
+    return this._getEditableEditor() !== null;
+  }
+
+  private async _requireEditableEditor(noEditorMessage: string): Promise<{
+    editorWidget: IDocumentWidget<FileEditor>;
+    sourceModel: NonNullable<FileEditor['model']>;
+  } | null> {
+    const activeEditor = this._getEditableEditor();
+    if (activeEditor) {
+      return activeEditor;
+    }
+
+    if (!this.editorTracker.currentWidget) {
+      await showDialog({
+        title: 'No active editor',
+        body: noEditorMessage,
+        buttons: [Dialog.okButton()]
+      });
+      return null;
+    }
+
+    await showDialog({
+      title: 'No editable content',
+      body: 'The active tab does not expose editable source text.',
+      buttons: [Dialog.okButton()]
+    });
+    return null;
   }
 
   /**
@@ -2195,30 +2556,45 @@ class PluginPlayground {
       updateBadge();
     };
 
+    const getTrackedLogPanel = () => {
+      if (!this.logConsoleTracker) {
+        return null;
+      }
+      const currentWidget = this.logConsoleTracker.currentWidget;
+      if (currentWidget && !currentWidget.isDisposed) {
+        return currentWidget;
+      }
+
+      let firstTrackedWidget: typeof currentWidget = null;
+      this.logConsoleTracker.forEach(widget => {
+        if (!firstTrackedWidget && !widget.isDisposed) {
+          firstTrackedWidget = widget;
+        }
+      });
+      return firstTrackedWidget;
+    };
+
     // Check if the js-logs panel is currently open and visible.
     const isPanelVisible = (): boolean => {
-      if (
-        !commands.hasCommand(JS_LOGS_OPEN) ||
-        !commands.isToggled(JS_LOGS_OPEN)
-      ) {
+      if (!commands.hasCommand(JS_LOGS_OPEN)) {
         return false;
       }
-      const el = document.querySelector('.jp-LogConsole');
-      return el !== null && (el as HTMLElement).offsetParent !== null;
+      const trackedPanel = getTrackedLogPanel();
+      return !!(
+        trackedPanel &&
+        trackedPanel.isAttached &&
+        trackedPanel.isVisible
+      );
     };
 
     // Focus the existing log console panel instead of toggling it closed.
     const focusLogPanel = (): void => {
-      const el = document.querySelector('.jp-LogConsole');
-      if (el) {
-        const widget = el.closest('.lm-Widget[id]');
-        if (widget && widget.id) {
-          this.app.shell.activateById(widget.id);
-          return;
-        }
+      const trackedPanel = getTrackedLogPanel();
+      if (trackedPanel) {
+        this.app.shell.activateById(trackedPanel.id);
+        return;
       }
-      // Fallback: toggle open - create a new panel.
-      commands.execute(JS_LOGS_OPEN);
+      void commands.execute(JS_LOGS_OPEN);
     };
 
     const updateBadge = (): void => {
@@ -2244,7 +2620,7 @@ class PluginPlayground {
         resetBadge();
         return;
       }
-      const panelExists = commands.isToggled(JS_LOGS_OPEN);
+      const panelExists = getTrackedLogPanel() !== null;
       if (panelExists) {
         // Panel already open.
         focusLogPanel();
@@ -2380,6 +2756,7 @@ class PluginPlayground {
     string,
     MainAreaWidget<IFrame>
   >();
+  private _commandInsertMode: CommandInsertMode = DEFAULT_COMMAND_INSERT_MODE;
   private _copiedCommandId: string | null = null;
   private _copiedCommandTimer: number | null = null;
   private _playgroundSidebar: SidePanel | null = null;
@@ -2402,7 +2779,13 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
     IEditorTracker,
     IToolbarWidgetRegistry
   ],
-  optional: [ICompletionProviderManager, ILauncher, IDocumentManager],
+  optional: [
+    ICompletionProviderManager,
+    ILauncher,
+    IDocumentManager,
+    ILogConsoleTracker,
+    IChatTracker
+  ],
   activate: (
     app: JupyterFrontEnd,
     settingRegistry: ISettingRegistry,
@@ -2411,7 +2794,9 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
     toolbarWidgetRegistry: IToolbarWidgetRegistry,
     completionManager: ICompletionProviderManager | null,
     launcher: ILauncher | null,
-    documentManager: IDocumentManager | null
+    documentManager: IDocumentManager | null,
+    logConsoleTracker: ILogConsoleTracker | null,
+    chatTracker: IChatTracker | null
   ): IPluginPlayground => {
     if (completionManager) {
       completionManager.registerProvider(new CommandCompletionProvider(app));
@@ -2434,9 +2819,11 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
         editorTracker,
         launcher,
         documentManager,
+        chatTracker,
         settings,
         requirejs,
-        toolbarWidgetRegistry
+        toolbarWidgetRegistry,
+        logConsoleTracker
       );
       return playground;
     });
