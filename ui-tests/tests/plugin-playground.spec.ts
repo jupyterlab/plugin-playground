@@ -1,4 +1,5 @@
 import { expect, galata, test } from '@jupyterlab/galata';
+import { KNOWN_MODULE_NAMES } from '../../src/modules';
 import type { FileEditorWidget } from '@jupyterlab/fileeditor';
 import type { IJupyterLabPageFixture } from '@jupyterlab/galata';
 import type { Contents } from '@jupyterlab/services';
@@ -17,6 +18,10 @@ const LIST_EXAMPLES_COMMAND = 'plugin-playground:list-extension-examples';
 const TEST_PLUGIN_ID = 'playground-integration-test:plugin';
 const TEST_TOGGLE_COMMAND = 'playground-integration-test:toggle';
 const TEST_FILE = 'playground-integration-test.ts';
+const FEDERATED_RUNTIME_PACKAGE = '@jupyterlab/plugin-playground';
+const FEDERATED_RUNTIME_CONSUMER_PLUGIN_ID = 'runtime-consumer-test:plugin';
+const FEDERATED_RUNTIME_CONSUMER_COMMAND = 'runtime-consumer-test:check';
+const FEDERATED_RUNTIME_CONSUMER_FILE = 'runtime-consumer-test.ts';
 const COMMAND_COMPLETION_FILE = 'command-completion.ts';
 const INVOKE_FILE_COMPLETER_COMMAND = 'completer:invoke-file';
 const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
@@ -433,6 +438,67 @@ test('loads current editor file as a plugin extension', async ({
     page.evaluate((id: string) => {
       return window.jupyterapp.commands.isToggled(id);
     }, TEST_TOGGLE_COMMAND)
+  ).resolves.toBe(true);
+});
+
+test('loads plugin importing runtime federated module outside known module map', async ({
+  page,
+  tmpPath
+}) => {
+  const consumerPath = `${tmpPath}/${FEDERATED_RUNTIME_CONSUMER_FILE}`;
+  expect(KNOWN_MODULE_NAMES).not.toContain(FEDERATED_RUNTIME_PACKAGE);
+  const consumerSource = `import { JupyterFrontEnd, JupyterFrontEndPlugin } from '@jupyterlab/application';
+import { IPluginPlayground } from '${FEDERATED_RUNTIME_PACKAGE}';
+import type { IPluginPlayground as IPluginPlaygroundType } from '${FEDERATED_RUNTIME_PACKAGE}';
+
+const plugin: JupyterFrontEndPlugin<void> = {
+  id: '${FEDERATED_RUNTIME_CONSUMER_PLUGIN_ID}',
+  autoStart: true,
+  requires: [IPluginPlayground],
+  activate: (app: JupyterFrontEnd, playground: IPluginPlaygroundType) => {
+    app.commands.addCommand('${FEDERATED_RUNTIME_CONSUMER_COMMAND}', {
+      label: 'Runtime Federated Consumer Check',
+      execute: () => typeof playground.shareViaLink === 'function'
+    });
+  }
+};
+
+export default plugin;
+`;
+
+  await page.contents.uploadContent(consumerSource, 'text', consumerPath);
+  await page.goto();
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+
+  await page.filebrowser.open(consumerPath);
+  expect(await page.activity.activateTab(FEDERATED_RUNTIME_CONSUMER_FILE)).toBe(
+    true
+  );
+
+  const consumerLoadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(consumerLoadResult.ok).toBe(true);
+  expect(consumerLoadResult.status).toBe('loaded');
+  expect(consumerLoadResult.pluginIds).toContain(
+    FEDERATED_RUNTIME_CONSUMER_PLUGIN_ID
+  );
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, FEDERATED_RUNTIME_CONSUMER_COMMAND)
+  );
+
+  await expect(
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.execute(id);
+    }, FEDERATED_RUNTIME_CONSUMER_COMMAND)
   ).resolves.toBe(true);
 });
 
