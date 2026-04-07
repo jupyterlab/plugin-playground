@@ -14,9 +14,10 @@ except Exception:  # pragma: no cover
 
 ENTRYPOINT_FILENAMES = ("index.ts", "index.tsx", "index.js", "index.jsx")
 README_FILENAME = "README.md"
-RAW_GITHUB_EXTENSION_EXAMPLES_BASE_URL = (
-    "https://raw.githubusercontent.com/jupyterlab/extension-examples/main"
+RAW_GITHUB_EXTENSION_EXAMPLES_REPOSITORY_URL = (
+    "https://raw.githubusercontent.com/jupyterlab/extension-examples"
 )
+DEFAULT_EXTENSION_EXAMPLES_REF = "main"
 REMOTE_MEDIA_EXTENSIONS = (".gif", ".png", ".mp4", ".mov", ".webm")
 LOCKFILE_FILENAMES = {
     "yarn.lock",
@@ -77,6 +78,11 @@ def ensure_extension_examples_source(root: Path) -> Path:
             raise RuntimeError(
                 "Failed to initialize the 'extension-examples' submodule."
             ) from error
+        except OSError as error:
+            raise RuntimeError(
+                "Failed to initialize the 'extension-examples' submodule: "
+                "'git' is required when building from a git checkout."
+            ) from error
 
         if (examples / "README.md").exists():
             return examples
@@ -109,6 +115,7 @@ def list_example_directories(source_root: Path) -> List[Path]:
 def sync_extension_examples(source_root: Path, destination_root: Path) -> SyncStats:
     source_root = source_root.resolve()
     destination_root = destination_root.resolve()
+    raw_base_url = _raw_github_extension_examples_base_url(source_root)
 
     if destination_root.exists():
         shutil.rmtree(destination_root)
@@ -145,6 +152,7 @@ def sync_extension_examples(source_root: Path, destination_root: Path) -> SyncSt
                         source_file=source_file,
                         destination_file=destination_file,
                         source_root=source_root,
+                        raw_base_url=raw_base_url,
                     )
                 else:
                     shutil.copy2(source_file, destination_file)
@@ -205,32 +213,54 @@ def _is_hidden_path(relative_path: Path) -> bool:
 
 
 def _copy_readme_with_remote_media(
-    *, source_file: Path, destination_file: Path, source_root: Path
+    *,
+    source_file: Path,
+    destination_file: Path,
+    source_root: Path,
+    raw_base_url: str,
 ) -> None:
     content = source_file.read_text(encoding="utf-8")
     readme_relative_dir = source_file.parent.relative_to(source_root)
-    rewritten = _rewrite_readme_media_references(content, readme_relative_dir)
+    rewritten = _rewrite_readme_media_references(
+        content,
+        readme_relative_dir,
+        raw_base_url=raw_base_url,
+    )
     destination_file.write_text(rewritten, encoding="utf-8")
 
 
-def _rewrite_readme_media_references(content: str, readme_relative_dir: Path) -> str:
+def _rewrite_readme_media_references(
+    content: str, readme_relative_dir: Path, *, raw_base_url: str
+) -> str:
     def replace_markdown_target(match: re.Match[str]) -> str:
         target = match.group("target")
-        rewritten = _build_remote_media_url(target, readme_relative_dir)
+        rewritten = _build_remote_media_url(
+            target,
+            readme_relative_dir,
+            raw_base_url=raw_base_url,
+        )
         if rewritten is None:
             return match.group(0)
         return match.group(0).replace(target, rewritten, 1)
 
     def replace_html_source(match: re.Match[str]) -> str:
         target = match.group("target")
-        rewritten = _build_remote_media_url(target, readme_relative_dir)
+        rewritten = _build_remote_media_url(
+            target,
+            readme_relative_dir,
+            raw_base_url=raw_base_url,
+        )
         if rewritten is None:
             return match.group(0)
         return f"{match.group('prefix')}{rewritten}{match.group('suffix')}"
 
     def replace_emphasized_target(match: re.Match[str]) -> str:
         target = match.group("target")
-        rewritten = _build_remote_media_url(target, readme_relative_dir)
+        rewritten = _build_remote_media_url(
+            target,
+            readme_relative_dir,
+            raw_base_url=raw_base_url,
+        )
         if rewritten is None:
             return match.group(0)
         return f"[{target}]({rewritten})"
@@ -242,7 +272,9 @@ def _rewrite_readme_media_references(content: str, readme_relative_dir: Path) ->
     return content
 
 
-def _build_remote_media_url(target: str, readme_relative_dir: Path) -> str | None:
+def _build_remote_media_url(
+    target: str, readme_relative_dir: Path, *, raw_base_url: str
+) -> str | None:
     path_part, suffix = _split_target_suffix(target)
     if _looks_external(path_part) or not path_part.lower().endswith(
         REMOTE_MEDIA_EXTENSIONS
@@ -253,7 +285,28 @@ def _build_remote_media_url(target: str, readme_relative_dir: Path) -> str | Non
     if normalized is None:
         return None
 
-    return f"{RAW_GITHUB_EXTENSION_EXAMPLES_BASE_URL}/{normalized}{suffix}"
+    return f"{raw_base_url}/{normalized}{suffix}"
+
+
+def _raw_github_extension_examples_base_url(source_root: Path) -> str:
+    ref = _resolve_extension_examples_ref(source_root)
+    return f"{RAW_GITHUB_EXTENSION_EXAMPLES_REPOSITORY_URL}/{ref}"
+
+
+def _resolve_extension_examples_ref(source_root: Path) -> str:
+    try:
+        ref = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(source_root),
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except (subprocess.CalledProcessError, OSError):
+        return DEFAULT_EXTENSION_EXAMPLES_REF
+
+    if re.fullmatch(r"[0-9a-fA-F]{40}", ref):
+        return ref.lower()
+    return DEFAULT_EXTENSION_EXAMPLES_REF
 
 
 def _split_target_suffix(target: str) -> Tuple[str, str]:
