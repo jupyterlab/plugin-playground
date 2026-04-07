@@ -32,15 +32,27 @@ source = "nodejs"
 fields = ["description", "authors", "urls"]
 
 [tool.hatch.build.targets.sdist]
-artifacts = ["jupyterlab_plugin_playground/labextension"]
-exclude = [".github", "binder"]
+artifacts = [
+    "jupyterlab_plugin_playground/labextension",
+    "jupyterlab_plugin_playground/extension-examples",
+]
+exclude = [
+    ".github",
+    "binder",
+    "extension-examples",
+    "extension-examples/**",
+]
 
 [tool.hatch.build.targets.wheel.shared-data]
 "jupyterlab_plugin_playground/labextension" = "share/jupyter/labextensions/@jupyterlab/plugin-playground"
 "install.json" = "share/jupyter/labextensions/@jupyterlab/plugin-playground/install.json"
+"jupyter-config/jupyter_server_config.d/jupyterlab_plugin_playground.json" = "etc/jupyter/jupyter_server_config.d/jupyterlab_plugin_playground.json"
 
 [tool.hatch.build.hooks.version]
 path = "jupyterlab_plugin_playground/_version.py"
+
+[tool.hatch.build.hooks.custom]
+path = "extension_examples_bundle.py"
 
 [tool.hatch.build.hooks.jupyter-builder]
 dependencies = ["hatch-jupyter-builder>=0.5"]
@@ -70,3 +82,9 @@ before-build-npm = [
     "jlpm",
     "jlpm build:prod"
 ]
+before-build-python = [
+    "git submodule update --init --recursive"
+]
+
+[tool.check-wheel-contents]
+ignore = ["W002", "W004"]
