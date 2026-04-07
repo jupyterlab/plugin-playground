@@ -2,13 +2,17 @@ import { Dialog, ReactWidget, showDialog } from '@jupyterlab/apputils';
 
 import {
   addIcon,
+  caretDownEmptyIcon,
   checkIcon,
   copyIcon,
   jsonIcon,
+  MenuSvg,
+  offlineBoltIcon,
   type LabIcon
 } from '@jupyterlab/ui-components';
 
 import * as React from 'react';
+import { CommandRegistry } from '@lumino/commands';
 import type { IKnownModule } from './known-modules';
 import {
   type ICommandArgumentDocumentation,
@@ -22,6 +26,8 @@ import {
   githubRepositoryIcon,
   npmPackageIcon
 } from './icons';
+
+export type CommandInsertMode = 'insert' | 'ai';
 
 export namespace TokenSidebar {
   export interface ITokenRecord {
@@ -45,6 +51,13 @@ export namespace TokenSidebar {
     ) => void;
     onInsertImport: (tokenName: string) => Promise<void> | void;
     isImportEnabled: (tokenName: string) => boolean;
+    onSetCommandInsertMode: (mode: CommandInsertMode) => Promise<void> | void;
+    onInsertCommand: (
+      commandId: string,
+      mode: CommandInsertMode
+    ) => Promise<void> | void;
+    getCommandInsertMode: () => CommandInsertMode;
+    isCommandInsertEnabled: () => boolean;
   }
 }
 
@@ -59,6 +72,9 @@ interface IKnownModuleLink {
   url: string;
 }
 const EXTENSION_POINT_PANEL_ID = 'jp-PluginPlayground-extensionPointPanel';
+const COMMAND_INSERT_MENU_INSERT_ID =
+  'plugin-playground:command-insert-selection';
+const COMMAND_INSERT_MENU_AI_ID = 'plugin-playground:command-insert-ai';
 
 export function filterTokenRecords(
   tokens: ReadonlyArray<TokenSidebar.ITokenRecord>,
@@ -109,6 +125,15 @@ export class TokenSidebar extends ReactWidget {
   ) => void;
   private readonly _onInsertImport: (tokenName: string) => Promise<void> | void;
   private readonly _isImportEnabled: (tokenName: string) => boolean;
+  private readonly _onSetCommandInsertMode: (
+    mode: CommandInsertMode
+  ) => Promise<void> | void;
+  private readonly _onInsertCommand: (
+    commandId: string,
+    mode: CommandInsertMode
+  ) => Promise<void> | void;
+  private readonly _getCommandInsertMode: () => CommandInsertMode;
+  private readonly _isCommandInsertEnabled: () => boolean;
   private _query = '';
   private _activeView: ExtensionPointView = 'tokens';
   private _isDiscoveringKnownModules = false;
@@ -123,6 +148,10 @@ export class TokenSidebar extends ReactWidget {
     ICommandArgumentDocumentation | null
   >();
   private _commandArgumentCounts = new Map<string, number | null>();
+  private readonly _commandInsertMenuCommands = new CommandRegistry();
+  private readonly _commandInsertMenu = new MenuSvg({
+    commands: this._commandInsertMenuCommands
+  });
 
   constructor(options: TokenSidebar.IOptions) {
     super();
@@ -135,7 +164,27 @@ export class TokenSidebar extends ReactWidget {
     this._openDocumentationLink = options.openDocumentationLink;
     this._onInsertImport = options.onInsertImport;
     this._isImportEnabled = options.isImportEnabled;
+    this._onSetCommandInsertMode = options.onSetCommandInsertMode;
+    this._onInsertCommand = options.onInsertCommand;
+    this._getCommandInsertMode = options.getCommandInsertMode;
+    this._isCommandInsertEnabled = options.isCommandInsertEnabled;
     this.addClass('jp-PluginPlayground-sidebar');
+    this._commandInsertMenuCommands.addCommand(COMMAND_INSERT_MENU_INSERT_ID, {
+      label: 'Insert in selection',
+      describedBy: { args: null },
+      isToggled: () => this._getCommandInsertMode() === 'insert',
+      execute: () => {
+        void this._setCommandInsertMode('insert');
+      }
+    });
+    this._commandInsertMenuCommands.addCommand(COMMAND_INSERT_MENU_AI_ID, {
+      label: 'Prompt AI to insert',
+      describedBy: { args: null },
+      isToggled: () => this._getCommandInsertMode() === 'ai',
+      execute: () => {
+        void this._setCommandInsertMode('ai');
+      }
+    });
   }
 
   public showPackagesView(): void {
@@ -147,6 +196,7 @@ export class TokenSidebar extends ReactWidget {
       window.clearTimeout(this._copiedTimer);
       this._copiedTimer = null;
     }
+    this._commandInsertMenu.dispose();
     super.dispose();
   }
 
@@ -154,6 +204,9 @@ export class TokenSidebar extends ReactWidget {
     const isTokenView = this._activeView === 'tokens';
     const isCommandView = this._activeView === 'commands';
     const isPackagesView = this._activeView === 'packages';
+    const commandInsertMode = this._getCommandInsertMode();
+    const isAICommandInsertMode = commandInsertMode === 'ai';
+    const canInsertCommand = this._isCommandInsertEnabled();
     const activeTabId = `jp-PluginPlayground-extensionPointTab-${this._activeView}`;
     let tokens: ReadonlyArray<TokenSidebar.ITokenRecord> = [];
     let commands: ReadonlyArray<ICommandRecord> = [];
@@ -351,6 +404,66 @@ export class TokenSidebar extends ReactWidget {
                         {command.id}
                       </code>
                       <div className="jp-PluginPlayground-tokenActions">
+                        <div className="jp-PluginPlayground-commandInsertSplit">
+                          <button
+                            className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-commandInsertButton"
+                            type="button"
+                            onMouseDown={event => {
+                              event.preventDefault();
+                            }}
+                            onClick={() => {
+                              void this._insertCommand(
+                                command.id,
+                                commandInsertMode
+                              );
+                            }}
+                            disabled={!canInsertCommand}
+                            aria-label={
+                              isAICommandInsertMode
+                                ? `Prompt AI to insert command execution for ${command.id} (default)`
+                                : `Insert command execution for ${command.id} (default)`
+                            }
+                            title={
+                              isAICommandInsertMode
+                                ? 'Prompt AI to insert command execution (default)'
+                                : 'Insert command execution (default)'
+                            }
+                          >
+                            {React.createElement(addIcon.react, {
+                              tag: 'span',
+                              elementSize: 'normal',
+                              className: 'jp-PluginPlayground-actionIcon'
+                            })}
+                            {isAICommandInsertMode
+                              ? React.createElement(offlineBoltIcon.react, {
+                                  tag: 'span',
+                                  elementSize: 'small',
+                                  className:
+                                    'jp-PluginPlayground-commandInsertAIMarkerIcon'
+                                })
+                              : null}
+                          </button>
+                          <button
+                            className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-commandInsertMenuButton jp-PluginPlayground-commandInsertDropdownButton"
+                            type="button"
+                            onMouseDown={event => {
+                              event.preventDefault();
+                            }}
+                            onClick={event => {
+                              this._openCommandInsertMenu(event.currentTarget);
+                            }}
+                            disabled={!canInsertCommand}
+                            aria-haspopup="menu"
+                            aria-label={`Choose command insertion mode for ${command.id}`}
+                            title="Choose command insertion mode"
+                          >
+                            {React.createElement(caretDownEmptyIcon.react, {
+                              tag: 'span',
+                              elementSize: 'normal',
+                              className: 'jp-PluginPlayground-actionIcon'
+                            })}
+                          </button>
+                        </div>
                         <button
                           className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-argumentBadgeButton"
                           type="button"
@@ -764,6 +877,59 @@ export class TokenSidebar extends ReactWidget {
       await showDialog({
         title: 'Failed to insert import statement',
         body: `Could not insert import for "${tokenName}". ${message}`,
+        buttons: [Dialog.okButton()]
+      });
+    }
+  }
+
+  private _openCommandInsertMenu(anchorButton: HTMLButtonElement): void {
+    this._commandInsertMenu.clearItems();
+    this._commandInsertMenu.addItem({
+      command: COMMAND_INSERT_MENU_INSERT_ID
+    });
+    this._commandInsertMenu.addItem({
+      command: COMMAND_INSERT_MENU_AI_ID
+    });
+    const anchorRect = anchorButton.getBoundingClientRect();
+    const splitRect = anchorButton.parentElement?.getBoundingClientRect();
+    this._commandInsertMenu.open(
+      splitRect?.left ?? anchorRect.left,
+      anchorRect.bottom
+    );
+  }
+
+  private async _setCommandInsertMode(mode: CommandInsertMode): Promise<void> {
+    try {
+      await this._onSetCommandInsertMode(mode);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unknown mode switch error';
+      await showDialog({
+        title: 'Failed to change command insertion mode',
+        body: `Could not switch to "${mode}" mode. ${message}`,
+        buttons: [Dialog.okButton()]
+      });
+    }
+  }
+
+  private async _insertCommand(
+    commandId: string,
+    mode: CommandInsertMode
+  ): Promise<void> {
+    try {
+      await this._onInsertCommand(commandId, mode);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unknown insertion error';
+      await showDialog({
+        title:
+          mode === 'ai'
+            ? 'Failed to open AI command insertion prompt'
+            : 'Failed to insert command execution',
+        body:
+          mode === 'ai'
+            ? `Could not prompt AI to insert command "${commandId}". ${message}`
+            : `Could not insert command "${commandId}". ${message}`,
         buttons: [Dialog.okButton()]
       });
     }
