@@ -17,6 +17,8 @@ import {
   IToolbarWidgetRegistry
 } from '@jupyterlab/apputils';
 
+import { ILogConsoleTracker } from 'jupyterlab-js-logs';
+
 import { Signal } from '@lumino/signaling';
 
 import { DocumentRegistry, IDocumentWidget } from '@jupyterlab/docregistry';
@@ -294,7 +296,8 @@ class PluginPlayground {
     protected documentManager: IDocumentManager | null,
     protected settings: ISettingRegistry.ISettings,
     protected requirejs: IRequireJS,
-    toolbarWidgetRegistry: IToolbarWidgetRegistry
+    toolbarWidgetRegistry: IToolbarWidgetRegistry,
+    protected logConsoleTracker: ILogConsoleTracker | null
   ) {
     registerCoreKnownModules();
 
@@ -2187,30 +2190,45 @@ class PluginPlayground {
       updateBadge();
     };
 
+    const getTrackedLogPanel = () => {
+      if (!this.logConsoleTracker) {
+        return null;
+      }
+      const currentWidget = this.logConsoleTracker.currentWidget;
+      if (currentWidget && !currentWidget.isDisposed) {
+        return currentWidget;
+      }
+
+      let firstTrackedWidget: typeof currentWidget = null;
+      this.logConsoleTracker.forEach(widget => {
+        if (!firstTrackedWidget && !widget.isDisposed) {
+          firstTrackedWidget = widget;
+        }
+      });
+      return firstTrackedWidget;
+    };
+
     // Check if the js-logs panel is currently open and visible.
     const isPanelVisible = (): boolean => {
-      if (
-        !commands.hasCommand(JS_LOGS_OPEN) ||
-        !commands.isToggled(JS_LOGS_OPEN)
-      ) {
+      if (!commands.hasCommand(JS_LOGS_OPEN)) {
         return false;
       }
-      const el = document.querySelector('.jp-LogConsole');
-      return el !== null && (el as HTMLElement).offsetParent !== null;
+      const trackedPanel = getTrackedLogPanel();
+      return !!(
+        trackedPanel &&
+        trackedPanel.isAttached &&
+        trackedPanel.isVisible
+      );
     };
 
     // Focus the existing log console panel instead of toggling it closed.
     const focusLogPanel = (): void => {
-      const el = document.querySelector('.jp-LogConsole');
-      if (el) {
-        const widget = el.closest('.lm-Widget[id]');
-        if (widget && widget.id) {
-          this.app.shell.activateById(widget.id);
-          return;
-        }
+      const trackedPanel = getTrackedLogPanel();
+      if (trackedPanel) {
+        this.app.shell.activateById(trackedPanel.id);
+        return;
       }
-      // Fallback: toggle open - create a new panel.
-      commands.execute(JS_LOGS_OPEN);
+      void commands.execute(JS_LOGS_OPEN);
     };
 
     const updateBadge = (): void => {
@@ -2236,7 +2254,7 @@ class PluginPlayground {
         resetBadge();
         return;
       }
-      const panelExists = commands.isToggled(JS_LOGS_OPEN);
+      const panelExists = getTrackedLogPanel() !== null;
       if (panelExists) {
         // Panel already open.
         focusLogPanel();
@@ -2394,7 +2412,12 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
     IEditorTracker,
     IToolbarWidgetRegistry
   ],
-  optional: [ICompletionProviderManager, ILauncher, IDocumentManager],
+  optional: [
+    ICompletionProviderManager,
+    ILauncher,
+    IDocumentManager,
+    ILogConsoleTracker
+  ],
   activate: (
     app: JupyterFrontEnd,
     settingRegistry: ISettingRegistry,
@@ -2403,7 +2426,8 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
     toolbarWidgetRegistry: IToolbarWidgetRegistry,
     completionManager: ICompletionProviderManager | null,
     launcher: ILauncher | null,
-    documentManager: IDocumentManager | null
+    documentManager: IDocumentManager | null,
+    logConsoleTracker: ILogConsoleTracker | null
   ): IPluginPlayground => {
     if (completionManager) {
       completionManager.registerProvider(new CommandCompletionProvider(app));
@@ -2428,7 +2452,8 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
         documentManager,
         settings,
         requirejs,
-        toolbarWidgetRegistry
+        toolbarWidgetRegistry,
+        logConsoleTracker
       );
       return playground;
     });
