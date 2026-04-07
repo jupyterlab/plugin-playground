@@ -426,15 +426,16 @@ test('creates a plugin file with an explicit path argument', async ({
     );
 
     const openPath = await page.evaluate(
-      async ({ id, path }) => {
-        await window.jupyterapp.commands.execute(id, { path });
+      async ({ id, path, cwd }) => {
+        await window.jupyterapp.commands.execute(id, { path, cwd });
         const current = window.jupyterapp.shell
           .currentWidget as FileEditorWidget | null;
         return current?.context?.path ?? null;
       },
       {
         id: CREATE_FILE_COMMAND,
-        path: requestedPath
+        path: requestedPath,
+        cwd: 'does/not/exist'
       }
     );
     expect(openPath).toBe(expectedPath);
