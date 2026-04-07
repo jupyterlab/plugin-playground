@@ -2775,7 +2775,7 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
     ICompletionProviderManager,
     ILauncher,
     IDocumentManager,
-    ILogConsoleTracker
+    ILogConsoleTracker,
     IChatTracker
   ],
   activate: (
@@ -2787,7 +2787,7 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
     completionManager: ICompletionProviderManager | null,
     launcher: ILauncher | null,
     documentManager: IDocumentManager | null,
-    logConsoleTracker: ILogConsoleTracker | null
+    logConsoleTracker: ILogConsoleTracker | null,
     chatTracker: IChatTracker | null
   ): IPluginPlayground => {
     if (completionManager) {
