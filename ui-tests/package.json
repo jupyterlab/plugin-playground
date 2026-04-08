@@ -8,6 +8,7 @@
     "start:notebook": "jupyter notebook --config jupyter_server_test_config.py",
     "test": "jlpm playwright test",
     "test:notebook": "jlpm playwright test --config playwright.notebook.config.js",
+    "test:docs-screenshots": "jlpm playwright test --config playwright.docs.config.js",
     "test:update": "jlpm playwright test --update-snapshots"
   },
   "devDependencies": {
