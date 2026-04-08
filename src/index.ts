@@ -14,12 +14,16 @@ import {
   showDialog,
   showErrorMessage,
   ICommandPalette,
-  IToolbarWidgetRegistry
+  IToolbarWidgetRegistry,
+  ReactWidget,
+  UseSignal,
+  addToolbarButtonClass
 } from '@jupyterlab/apputils';
+import { Button } from '@jupyter/react-components';
 
 import { ILogConsoleTracker } from 'jupyterlab-js-logs';
 
-import { Signal } from '@lumino/signaling';
+import { Signal, type ISignal } from '@lumino/signaling';
 
 import { DocumentRegistry, IDocumentWidget } from '@jupyterlab/docregistry';
 
@@ -31,6 +35,9 @@ import { IMainMenu } from '@jupyterlab/mainmenu';
 import { IChatTracker } from '@jupyter/chat';
 
 import {
+  caretDownEmptyIcon,
+  fileIcon,
+  folderIcon,
   checkIcon,
   downloadIcon,
   extensionIcon,
@@ -104,10 +111,12 @@ import {
 } from './share-via-link-utils';
 
 import { Token } from '@lumino/coreutils';
+import type { CommandRegistry } from '@lumino/commands';
 
-import { AccordionPanel, MenuBar, Widget } from '@lumino/widgets';
+import { AccordionPanel, Menu, MenuBar, Widget } from '@lumino/widgets';
 
 import { IPlugin } from '@lumino/application';
+import * as React from 'react';
 
 namespace CommandIDs {
   export const createNewFile = 'plugin-playground:create-new-plugin';
@@ -188,6 +197,72 @@ type IShareLinkCreationResult =
       urlLength: number;
       message: string;
     };
+
+class ShareDropdownToolbarButton extends ReactWidget {
+  constructor(
+    private readonly _commandChanged: ISignal<
+      CommandRegistry,
+      CommandRegistry.ICommandChangedArgs
+    >,
+    private readonly _isCopied: () => boolean,
+    private readonly _onOpenMenu: (anchor: HTMLElement) => void
+  ) {
+    super();
+    addToolbarButtonClass(this);
+  }
+
+  private _renderButton(): React.ReactNode {
+    const isCopied = this._isCopied();
+    const tooltip = isCopied
+      ? 'Copied'
+      : 'Share the current file or package by creating a copyable URL link';
+    const leadingIcon = isCopied ? checkIcon : shareIcon;
+    return React.createElement(
+      Button,
+      {
+        appearance: 'stealth',
+        className:
+          'jp-ToolbarButtonComponent jp-PluginPlayground-shareDropdownButton',
+        title: tooltip,
+        'aria-label': 'Share',
+        'aria-haspopup': 'menu',
+        'aria-pressed': isCopied,
+        onClick: (event: React.MouseEvent<HTMLElement>) => {
+          this._onOpenMenu(event.currentTarget);
+        }
+      },
+      React.createElement(leadingIcon.react, {
+        tag: 'span',
+        elementSize: 'normal',
+        className: 'jp-ToolbarButtonComponent-icon'
+      }),
+      React.createElement(
+        'span',
+        { className: 'jp-ToolbarButtonComponent-label' },
+        'Share'
+      ),
+      React.createElement(caretDownEmptyIcon.react, {
+        tag: 'span',
+        elementSize: 'normal',
+        className:
+          'jp-PluginPlayground-actionIcon jp-PluginPlayground-shareDropdownCaretIcon'
+      })
+    );
+  }
+
+  render(): JSX.Element {
+    return React.createElement(
+      UseSignal<CommandRegistry, CommandRegistry.ICommandChangedArgs>,
+      {
+        signal: this._commandChanged,
+        shouldUpdate: (_sender, change) =>
+          change.type === 'many-changed' ||
+          change.id === CommandIDs.shareViaLink,
+        children: () => this._renderButton()
+      }
+    );
+  }
+}
 
 const PLUGIN_TEMPLATE = `import {
   JupyterFrontEnd,
@@ -276,6 +351,12 @@ const SHARE_VIA_LINK_ARGS_SCHEMA = {
       type: 'boolean',
       description:
         'When true, resolve the share path from the current context-menu target before using browser selection.'
+    },
+    shareVariant: {
+      type: 'string',
+      enum: ['file', 'package'],
+      description:
+        'Internal UI variant used by the Share toolbar dropdown label.'
     }
   }
 };
@@ -292,6 +373,7 @@ const CREATE_PLUGIN_ARGS_SCHEMA = {
   }
 };
 const LOAD_ON_SAVE_TOGGLE_TOOLBAR_ITEM = 'plugin-playground-load-on-save';
+const SHARE_LINK_TOOLBAR_ITEM = 'share-extension-link';
 const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
 const LOAD_ON_SAVE_SETTING = 'loadOnSave';
 const COMMAND_INSERT_DEFAULT_MODE_SETTING = 'commandInsertDefaultMode';
@@ -421,14 +503,45 @@ class PluginPlayground {
     });
 
     app.commands.addCommand(CommandIDs.shareViaLink, {
-      label: 'Copy Shareable Plugin Link',
-      caption:
-        'Create a URL for the active plugin file or selected folder, then copy it',
+      label: args => {
+        if (args.shareVariant === 'file') {
+          return 'Share Single File (Default)';
+        }
+        if (args.shareVariant === 'package') {
+          return 'Share Package';
+        }
+        return 'Copy Shareable Plugin Link';
+      },
+      caption: args => {
+        if (args.shareVariant === 'file') {
+          return 'Create a URL for the current file and copy it';
+        }
+        if (args.shareVariant === 'package') {
+          return 'Create a URL for the current package folder and copy it';
+        }
+        return 'Create a URL for the active plugin file or selected folder, then copy it';
+      },
       describedBy: { args: SHARE_VIA_LINK_ARGS_SCHEMA },
-      icon: () =>
-        this._copiedCommandId === CommandIDs.shareViaLink
+      icon: args => {
+        if (args.shareVariant === 'file') {
+          return fileIcon;
+        }
+        if (args.shareVariant === 'package') {
+          return folderIcon;
+        }
+        return this._copiedCommandId === CommandIDs.shareViaLink
           ? checkIcon
-          : shareIcon,
+          : shareIcon;
+      },
+      isEnabled: args => {
+        if (args.shareVariant === 'package') {
+          return (
+            typeof args.path === 'string' &&
+            ContentUtils.normalizeContentsPath(args.path).length > 0
+          );
+        }
+        return true;
+      },
       execute: async args => {
         const requestedPath =
           typeof args.path === 'string' ? args.path : undefined;
@@ -459,6 +572,18 @@ class PluginPlayground {
                 return this._shareViaLink(contextTargetPath);
               }
             }
+            const message =
+              'Could not resolve the context-menu target. Right-click a single file or folder and try again.';
+            Notification.warning(message, {
+              autoClose: 5000
+            });
+            return {
+              ok: false,
+              link: null,
+              sourcePath: null,
+              urlLength: 0,
+              message
+            };
           }
 
           const selectedItems: Contents.IModel[] = [];
@@ -500,6 +625,12 @@ class PluginPlayground {
         return this.shareViaLink();
       }
     });
+
+    toolbarWidgetRegistry.addFactory<IDocumentWidget<FileEditor>>(
+      'Editor',
+      SHARE_LINK_TOOLBAR_ITEM,
+      widget => this._createShareLinkDropdownWidget(widget)
+    );
 
     toolbarWidgetRegistry.addFactory<IDocumentWidget<FileEditor>>(
       'Editor',
@@ -895,6 +1026,77 @@ class PluginPlayground {
     widget.disposed.connect(dispose);
 
     return toggleWidget;
+  }
+
+  private _createShareLinkDropdownWidget(
+    widget: IDocumentWidget<FileEditor>
+  ): Widget {
+    const shareButton = new ShareDropdownToolbarButton(
+      this.app.commands.commandChanged,
+      () => this._copiedCommandId === CommandIDs.shareViaLink,
+      anchor => {
+        void this._openShareLinkDropdown(widget, anchor);
+      }
+    );
+    return shareButton;
+  }
+
+  private async _openShareLinkDropdown(
+    widget: IDocumentWidget<FileEditor>,
+    anchor: HTMLElement | null
+  ): Promise<void> {
+    if (!anchor) {
+      return;
+    }
+
+    const filePath = ContentUtils.normalizeContentsPath(widget.context.path);
+    if (!filePath) {
+      return;
+    }
+
+    const sourceDirectory = ContentUtils.normalizeContentsPath(
+      this._dirname(filePath)
+    );
+    const parentDirectory = ContentUtils.normalizeContentsPath(
+      this._dirname(sourceDirectory)
+    );
+    const packageDirectoryCandidates = [sourceDirectory];
+    if (
+      parentDirectory &&
+      parentDirectory !== sourceDirectory &&
+      !packageDirectoryCandidates.includes(parentDirectory)
+    ) {
+      packageDirectoryCandidates.push(parentDirectory);
+    }
+    let packagePath = '';
+    for (const directoryPath of packageDirectoryCandidates) {
+      const packageJsonPath = this._joinPath(directoryPath, 'package.json');
+      const packageJson = await ContentUtils.getFileModel(
+        this.app.serviceManager,
+        packageJsonPath
+      );
+      if (packageJson) {
+        packagePath = directoryPath;
+        break;
+      }
+    }
+
+    const menu = new Menu({ commands: this.app.commands });
+    menu.addItem({
+      command: CommandIDs.shareViaLink,
+      args: { path: filePath, shareVariant: 'file' }
+    });
+    menu.addItem({
+      command: CommandIDs.shareViaLink,
+      args: {
+        path: packagePath,
+        shareVariant: 'package'
+      }
+    });
+    const anchorRect = anchor.getBoundingClientRect();
+    menu.open(anchorRect.right, anchorRect.bottom + 2, {
+      horizontalAlignment: 'right'
+    });
   }
 
   private _queuePluginLoad(

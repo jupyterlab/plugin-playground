@@ -165,7 +165,7 @@ Plugin Playground now exposes command APIs that mirror sidebar data and support 
 - `plugin-playground:list-commands`
 - `plugin-playground:list-extension-examples`
 - `plugin-playground:export-as-extension` (supports optional `{ path?: string }`)
-- `plugin-playground:share-via-link` (supports optional `{ path?: string, useBrowserSelection?: boolean }`)
+- `plugin-playground:share-via-link` (supports optional `{ path?: string, useBrowserSelection?: boolean, useContextTarget?: boolean }`)
 
 Example:
 
@@ -186,6 +186,9 @@ await app.commands.execute('plugin-playground:share-via-link', {
 `plugin-playground:share-via-link` shares a file or folder. If no `path` is
 provided, it shares the active file. The file/folder right-click context-menu
 entries use the selected browser item path automatically.
+In the editor toolbar, the Share action is a dropdown with `Share Single File
+(Default)` and `Share Package`; package sharing is enabled when a
+`package.json` is found in the current file directory or its parent directory.
 Folder sharing skips non-text/media files (for example images and videos).
 By default, folder sharing always opens a file-selection dialog so you can
 exclude files before creating the link. You can control this with

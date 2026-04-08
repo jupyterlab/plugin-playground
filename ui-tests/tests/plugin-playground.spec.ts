@@ -964,6 +964,47 @@ test('shares selected file or folder when using browser selection', async ({
   expect(folderShareResult.link).toContain('plugin=');
 });
 
+test('does not fall back to browser selection when context target is required', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/share-context-target-strict-test`;
+  const filePath = `${projectRoot}/README.md`;
+
+  await page.contents.uploadContent(
+    '# Share Context Target Strict\n',
+    'text',
+    filePath
+  );
+  await page.goto();
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, SHARE_COMMAND)
+  );
+
+  await page.filebrowser.openDirectory(projectRoot);
+  const browserSection = page.getByRole('region', {
+    name: 'File Browser Section'
+  });
+  const fileItem = browserSection.getByRole('listitem', {
+    name: /^Name: README\.md/
+  });
+  await fileItem.click();
+
+  const result = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id, {
+      useBrowserSelection: true,
+      useContextTarget: true
+    });
+  }, SHARE_COMMAND);
+
+  expect(result.ok).toBe(false);
+  expect(result.sourcePath).toBeNull();
+  expect(result.message).toContain('Could not resolve the context-menu target');
+});
+
 test('disables always-show folder selection dialog after opting out', async ({
   page,
   tmpPath
@@ -1218,7 +1259,145 @@ test.describe('share folder selection dialog modes', () => {
         })
       ).toHaveCount(0);
     });
+
+    test('opens selection dialog from size-limit notification action', async ({
+      page,
+      tmpPath
+    }) => {
+      const projectRoot = `${tmpPath}/share-folder-limit-only-overflow-test`;
+      const folderPath = `${projectRoot}/src`;
+      const sourcePath = `${folderPath}/index.ts`;
+      const helperPath = `${folderPath}/helper.ts`;
+      const indexSource = Array.from(
+        { length: 1600 },
+        (_, index) => `${index.toString(36)}|`
+      ).join('');
+      const helperSource = Array.from(
+        { length: 1600 },
+        (_, index) => `${(index + 5000).toString(36)}#`
+      ).join('');
+
+      await page.contents.uploadContent(indexSource, 'text', sourcePath);
+      await page.contents.uploadContent(helperSource, 'text', helperPath);
+      await page.goto();
+
+      await page.waitForCondition(() =>
+        page.evaluate((id: string) => {
+          return window.jupyterapp.commands.hasCommand(id);
+        }, SHARE_COMMAND)
+      );
+
+      await page.filebrowser.openDirectory(projectRoot);
+      const browserSection = page.getByRole('region', {
+        name: 'File Browser Section'
+      });
+      const folderItem = browserSection.getByRole('listitem', {
+        name: /^Name: src/
+      });
+      await folderItem.click();
+
+      const initialResult = await page.evaluate((id: string) => {
+        return window.jupyterapp.commands.execute(id, {
+          useBrowserSelection: true
+        });
+      }, SHARE_COMMAND);
+
+      expect(initialResult.ok).toBe(false);
+      expect(initialResult.sourcePath).toBe(folderPath);
+      expect(initialResult.message).toContain('exceeds the configured limit');
+
+      await page.waitForFunction(() => {
+        const button = Array.from(
+          document.querySelectorAll('button.jp-toast-button')
+        ).find(
+          element =>
+            element instanceof HTMLButtonElement &&
+            element.textContent?.trim() === 'Select files'
+        );
+        if (!(button instanceof HTMLButtonElement)) {
+          return false;
+        }
+        button.click();
+        return true;
+      });
+
+      const shareSelectedFilesButton = page.getByRole('button', {
+        name: 'Share Selected Files',
+        exact: true
+      });
+      await expect(shareSelectedFilesButton).toBeVisible();
+
+      const helperCheckbox = page
+        .locator('label', { hasText: /^helper\.ts \(/ })
+        .locator('input[type="checkbox"]');
+      await expect(helperCheckbox).toBeVisible();
+      await helperCheckbox.uncheck();
+      await shareSelectedFilesButton.click();
+
+      await expect(
+        page.getByText(
+          new RegExp(
+            `Copied a share link for "${escapeRegExp(folderPath)}" \\(`
+          )
+        )
+      ).toBeVisible();
+    });
   });
+});
+
+test('shows toolbar share dropdown package option availability', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/share-toolbar-dropdown-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.goto();
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  const shareToolbarButton = page.locator(
+    '.jp-PluginPlayground-shareDropdownButton'
+  );
+  await expect(shareToolbarButton).toBeVisible();
+
+  await shareToolbarButton.click();
+  const singleFileMenuItem = page.getByRole('menuitem', {
+    name: 'Share Single File (Default)',
+    exact: true
+  });
+  await expect(singleFileMenuItem).toBeVisible();
+  const disabledPackageMenuItem = page.getByRole('menuitem', {
+    name: 'Share Package',
+    exact: true
+  });
+  await expect(disabledPackageMenuItem).toBeVisible();
+  await expect(disabledPackageMenuItem).toHaveClass(/lm-mod-disabled/);
+  await page.keyboard.press('Escape');
+
+  await page.contents.uploadContent(
+    JSON.stringify({ name: 'share-toolbar-dropdown-test', version: '0.1.0' }),
+    'text',
+    packageJsonPath
+  );
+
+  await shareToolbarButton.click();
+  const packageMenuItem = page.getByRole('menuitem', {
+    name: 'Share Package',
+    exact: true
+  });
+  await expect(packageMenuItem).toBeVisible();
+  await expect(packageMenuItem).not.toHaveClass(/lm-mod-disabled/);
+  await packageMenuItem.click();
+
+  const shareSelectedFilesButton = page.getByRole('button', {
+    name: 'Share Selected Files',
+    exact: true
+  });
+  await expect(shareSelectedFilesButton).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 });
 
 test('shows share action in file browser context menu for file and folder', async ({
