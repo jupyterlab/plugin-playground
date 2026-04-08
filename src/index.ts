@@ -365,10 +365,27 @@ const CREATE_PLUGIN_ARGS_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
+    cwd: {
+      type: 'string',
+      description:
+        'Optional current working directory. Used as the default parent directory when `path` is not provided and as the base for relative `path` values.'
+    },
     path: {
       type: 'string',
       description:
         'Optional file path. Relative paths are resolved from the current working directory; paths starting with "/" are resolved from the workspace root. If no extension is provided, ".ts" is appended.'
+    }
+  }
+};
+
+const CREATE_PLUGIN_FROM_NOTEBOOK_TREE_ARGS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    cwd: {
+      type: 'string',
+      description:
+        'Optional current working directory used as the default parent directory for the new file.'
     }
   }
 };
@@ -702,8 +719,13 @@ class PluginPlayground {
         const rawPathArg =
           typeof args.path === 'string' ? args.path.trim() : '';
         const isRootRelativePath = rawPathArg.startsWith('/');
+        const rawCwdArg = typeof args.cwd === 'string' ? args.cwd.trim() : '';
+        const normalizedCwdArg = ContentUtils.normalizeContentsPath(rawCwdArg);
+        const createInPath =
+          !isRootRelativePath && normalizedCwdArg ? normalizedCwdArg : '';
 
         const model = await app.serviceManager.contents.newUntitled({
+          ...(createInPath ? { path: createInPath } : {}),
           type: 'file',
           ext: 'ts'
         });
@@ -3535,10 +3557,14 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
         label: 'Plugin (Playground)',
         caption:
           'Create a new TypeScript plugin file and open the playground sidebar',
-        describedBy: { args: null },
+        describedBy: { args: CREATE_PLUGIN_FROM_NOTEBOOK_TREE_ARGS_SCHEMA },
         icon: extensionIcon,
-        execute: async () => {
+        execute: async args => {
+          const rawCwdArg = typeof args.cwd === 'string' ? args.cwd.trim() : '';
+          const normalizedCwdArg =
+            ContentUtils.normalizeContentsPath(rawCwdArg);
           const model = await app.serviceManager.contents.newUntitled({
+            ...(normalizedCwdArg ? { path: normalizedCwdArg } : {}),
             type: 'file',
             ext: 'ts'
           });
