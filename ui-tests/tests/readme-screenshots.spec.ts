@@ -12,6 +12,7 @@ const EXAMPLE_SECTION_ID = 'jp-plugin-example-sidebar';
 const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
 const READABLE_DEMO_FILE = 'readme-screenshots.ts';
 const RIGHT_SIDEBAR_SCREENSHOT_WIDTH = 300;
+const EXTENSION_POINTS_GALLERY_WIDTH = 290;
 const EXTENSION_EXAMPLES_BOTTOM_PADDING = 24;
 const EXTENSION_EXAMPLES_MIN_HEIGHT = 180;
 const EDITOR_TOOLBAR_SCREENSHOT_HEIGHT = 420;
@@ -240,7 +241,7 @@ test('generate README screenshots', async ({ page }) => {
   }
 
   const extensionPointsSection = await openSidebarPanel(page, TOKEN_SECTION_ID);
-  await page.sidebar.setWidth(RIGHT_SIDEBAR_SCREENSHOT_WIDTH, 'right');
+  await page.sidebar.setWidth(EXTENSION_POINTS_GALLERY_WIDTH, 'right');
 
   await saveTopCroppedScreenshot(
     page,
@@ -268,6 +269,25 @@ test('generate README screenshots', async ({ page }) => {
     extensionPointsSection.locator('.jp-PluginPlayground-listItem').first()
   ).toBeVisible();
   await saveScreenshot(extensionPointsSection, 'extension-points-commands.png');
+
+  await extensionPointsSection.getByRole('tab', { name: 'Packages' }).click();
+  const packageFilter = extensionPointsSection.locator(
+    'input[aria-label="Filter packages"]'
+  );
+  await packageFilter.fill('@jupyterlab/');
+  await expect(
+    extensionPointsSection.locator('.jp-PluginPlayground-listItem').first()
+  ).toBeVisible({
+    timeout: 20_000
+  });
+  await saveScreenshot(extensionPointsSection, 'packages-reference.png');
+
+  await page.sidebar.setWidth(RIGHT_SIDEBAR_SCREENSHOT_WIDTH, 'right');
+  await extensionPointsSection.getByRole('tab', { name: 'Commands' }).click();
+  await commandFilter.fill('plugin-playground:');
+  await expect(
+    extensionPointsSection.locator('.jp-PluginPlayground-listItem').first()
+  ).toBeVisible();
 
   const firstCommandItem = extensionPointsSection
     .locator('.jp-PluginPlayground-listItem')
@@ -306,18 +326,6 @@ test('generate README screenshots', async ({ page }) => {
     timeout: 20_000
   });
   await saveScreenshot(extensionPointsSection, 'command-argument-docs.png');
-
-  await extensionPointsSection.getByRole('tab', { name: 'Packages' }).click();
-  const packageFilter = extensionPointsSection.locator(
-    'input[aria-label="Filter packages"]'
-  );
-  await packageFilter.fill('@jupyterlab/');
-  await expect(
-    extensionPointsSection.locator('.jp-PluginPlayground-listItem').first()
-  ).toBeVisible({
-    timeout: 20_000
-  });
-  await saveScreenshot(extensionPointsSection, 'packages-reference.png');
 
   const examplesSection = await openSidebarPanel(page, EXAMPLE_SECTION_ID);
   const examplesFilter = examplesSection.locator(
