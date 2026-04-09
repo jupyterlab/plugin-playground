@@ -155,6 +155,8 @@ jobs:
         path: |
           ui-tests/test-results
           ui-tests/playwright-report
+          ui-tests/test-results-docs-screenshots
+          ui-tests/playwright-report-docs-screenshots
 
   integration_tests_notebook_v7:
     name: Integration tests (Notebook v7)
