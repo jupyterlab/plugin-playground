@@ -28,6 +28,7 @@ Plugin Playground is built to keep the full plugin prototyping workflow inside J
 The right sidebar includes a single Plugin Playground panel with two collapsible sections. In **Extension Points**, the `Tokens` tab helps you discover available token strings and insert import/dependency updates, the `Commands` tab lets you search command IDs, inspect argument docs, and insert execution snippets (either directly or through AI-assisted prompt mode), and the `Packages` tab surfaces package docs plus npm and repository links for known modules.
 
 ![Extension Points command discovery and insertion actions](docs/images/readme/extension-points-commands.png)
+![Extension Points token discovery and insertion actions](docs/images/readme/extension-points-tokens.png)
 ![Packages reference tab in Extension Points](docs/images/readme/packages-reference.png)
 
 The **Extension Examples** section lists discovered examples from `extension-examples/` and lets you open source entrypoints and README files directly. This keeps reference implementations close while you prototype.

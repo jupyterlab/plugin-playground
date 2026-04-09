@@ -249,6 +249,16 @@ test('generate README screenshots', async ({ page }) => {
     EDITOR_TOOLBAR_SCREENSHOT_HEIGHT
   );
 
+  await extensionPointsSection.getByRole('tab', { name: 'Tokens' }).click();
+  const tokenFilter = extensionPointsSection.getByPlaceholder(
+    'Filter token strings'
+  );
+  await tokenFilter.fill('@jupyterlab/');
+  await expect(
+    extensionPointsSection.locator('.jp-PluginPlayground-listItem').first()
+  ).toBeVisible();
+  await saveScreenshot(extensionPointsSection, 'extension-points-tokens.png');
+
   await extensionPointsSection.getByRole('tab', { name: 'Commands' }).click();
   const commandFilter = extensionPointsSection.locator(
     'input[aria-label="Filter command ids"]'
