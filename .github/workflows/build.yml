@@ -141,6 +141,12 @@ jobs:
         set -eux
         jlpm test
 
+    - name: Execute docs screenshot tests
+      working-directory: ui-tests
+      run: |
+        set -eux
+        jlpm test:docs-screenshots
+
     - name: Upload Playwright Test report
       if: always()
       uses: actions/upload-artifact@v4

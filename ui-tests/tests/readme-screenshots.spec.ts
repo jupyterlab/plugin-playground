@@ -11,6 +11,12 @@ const TOKEN_SECTION_ID = 'jp-plugin-token-sidebar';
 const EXAMPLE_SECTION_ID = 'jp-plugin-example-sidebar';
 const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
 const READABLE_DEMO_FILE = 'readme-screenshots.ts';
+const RIGHT_SIDEBAR_SCREENSHOT_WIDTH = 300;
+const EXTENSION_EXAMPLES_BOTTOM_PADDING = 24;
+const EXTENSION_EXAMPLES_MIN_HEIGHT = 180;
+const EDITOR_TOOLBAR_SCREENSHOT_HEIGHT = 420;
+const SETTINGS_BOTTOM_PADDING = 120;
+const SETTINGS_MIN_HEIGHT = 320;
 const SCREENSHOT_OUTPUT_DIR = path.resolve(
   __dirname,
   '../../docs/images/readme'
@@ -47,6 +53,70 @@ async function saveScreenshot(
 ): Promise<void> {
   await locator.screenshot({
     path: path.join(SCREENSHOT_OUTPUT_DIR, filename)
+  });
+}
+
+async function saveSectionCroppedToAnchor(
+  page: IJupyterLabPageFixture,
+  section: Locator,
+  anchor: Locator,
+  filename: string,
+  options?: {
+    bottomPadding?: number;
+    minHeight?: number;
+  }
+): Promise<void> {
+  const bottomPadding =
+    options?.bottomPadding ?? EXTENSION_EXAMPLES_BOTTOM_PADDING;
+  const minHeight = options?.minHeight ?? EXTENSION_EXAMPLES_MIN_HEIGHT;
+  const sectionBox = await section.boundingBox();
+  const anchorBox = await anchor.boundingBox();
+
+  if (!sectionBox || !anchorBox) {
+    await saveScreenshot(section, filename);
+    return;
+  }
+
+  const sectionBottom = sectionBox.y + sectionBox.height;
+  const targetBottom = Math.min(
+    sectionBottom,
+    anchorBox.y + anchorBox.height + bottomPadding
+  );
+  const clip = {
+    x: Math.max(0, Math.floor(sectionBox.x)),
+    y: Math.max(0, Math.floor(sectionBox.y)),
+    width: Math.max(1, Math.floor(sectionBox.width)),
+    height: Math.max(minHeight, Math.floor(targetBottom - sectionBox.y))
+  };
+
+  await page.screenshot({
+    path: path.join(SCREENSHOT_OUTPUT_DIR, filename),
+    clip
+  });
+}
+
+async function saveTopCroppedScreenshot(
+  page: IJupyterLabPageFixture,
+  section: Locator,
+  filename: string,
+  maxHeight: number
+): Promise<void> {
+  const sectionBox = await section.boundingBox();
+  if (!sectionBox) {
+    await saveScreenshot(section, filename);
+    return;
+  }
+
+  const clip = {
+    x: Math.max(0, Math.floor(sectionBox.x)),
+    y: Math.max(0, Math.floor(sectionBox.y)),
+    width: Math.max(1, Math.floor(sectionBox.width)),
+    height: Math.max(1, Math.min(Math.floor(sectionBox.height), maxHeight))
+  };
+
+  await page.screenshot({
+    path: path.join(SCREENSHOT_OUTPUT_DIR, filename),
+    clip
   });
 }
 
@@ -168,9 +238,17 @@ test('generate README screenshots', async ({ page }) => {
   if (!(await loadOnSaveCheckbox.isChecked())) {
     await loadOnSaveCheckbox.check();
   }
-  await saveScreenshot(editorPanel, 'editor-toolbar-actions.png');
 
   const extensionPointsSection = await openSidebarPanel(page, TOKEN_SECTION_ID);
+  await page.sidebar.setWidth(RIGHT_SIDEBAR_SCREENSHOT_WIDTH, 'right');
+
+  await saveTopCroppedScreenshot(
+    page,
+    editorPanel,
+    'editor-toolbar-actions.png',
+    EDITOR_TOOLBAR_SCREENSHOT_HEIGHT
+  );
+
   await extensionPointsSection.getByRole('tab', { name: 'Commands' }).click();
   const commandFilter = extensionPointsSection.locator(
     'input[aria-label="Filter command ids"]'
@@ -236,12 +314,18 @@ test('generate README screenshots', async ({ page }) => {
     'input[aria-label="Filter extension examples"]'
   );
   await examplesFilter.fill('launcher');
-  await expect(
-    examplesSection.locator('.jp-PluginPlayground-listItem').first()
-  ).toBeVisible({
+  const firstExampleItem = examplesSection
+    .locator('.jp-PluginPlayground-listItem')
+    .first();
+  await expect(firstExampleItem).toBeVisible({
     timeout: 20_000
   });
-  await saveScreenshot(examplesSection, 'extension-examples.png');
+  await saveSectionCroppedToAnchor(
+    page,
+    examplesSection,
+    firstExampleItem,
+    'extension-examples.png'
+  );
 
   await page.evaluate(async () => {
     if (!window.jupyterapp.commands.hasCommand('settingeditor:open')) {
@@ -261,9 +345,18 @@ test('generate README screenshots', async ({ page }) => {
   ).toBeVisible({
     timeout: 20_000
   });
-  await saveScreenshot(
+  const defaultInsertModeSetting = settingsPanel
+    .getByText('Default command insertion mode')
+    .first();
+  await saveSectionCroppedToAnchor(
+    page,
     settingsPanel,
-    'settings-command-insert-default-mode.png'
+    defaultInsertModeSetting,
+    'settings-command-insert-default-mode.png',
+    {
+      bottomPadding: SETTINGS_BOTTOM_PADDING,
+      minHeight: SETTINGS_MIN_HEIGHT
+    }
   );
 
   await page.evaluate(async (filePath: string) => {
