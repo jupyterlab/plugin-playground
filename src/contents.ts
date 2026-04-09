@@ -254,6 +254,33 @@ export namespace ContentUtils {
     return text === null ? null : new TextEncoder().encode(text);
   }
 
+  export function parseJsonObject(
+    raw: string | null | undefined
+  ): Record<string, unknown> | null {
+    if (typeof raw !== 'string') {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (
+        parsed !== null &&
+        typeof parsed === 'object' &&
+        !Array.isArray(parsed)
+      ) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  export function fileModelToJsonObject(
+    fileModel: IFileModel | null
+  ): Record<string, unknown> | null {
+    return parseJsonObject(fileModelToText(fileModel));
+  }
+
   export async function readContentsFileAsText(
     serviceManager: ServiceManager.IManager,
     path: string

@@ -76,6 +76,21 @@ export function stableStringHash(value: string): string {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
+export async function sha256Base64Url(
+  bytes: Uint8Array
+): Promise<string | null> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) {
+    return null;
+  }
+  try {
+    const digest = await subtle.digest('SHA-256', bytes);
+    return bytesToBase64Url(new Uint8Array(digest));
+  } catch {
+    return null;
+  }
+}
+
 export async function gzipBytesIfSupported(
   bytes: Uint8Array
 ): Promise<Uint8Array | null> {

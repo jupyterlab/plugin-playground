@@ -30,6 +30,8 @@ const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
 interface IWindowWithExportCounter extends Window {
   __exportDownloadCount?: number;
   __originalCreateObjectURL?: typeof URL.createObjectURL;
+  __exportDownloadFilenames?: string[];
+  __originalAnchorClick?: (this: HTMLAnchorElement) => void;
 }
 
 test.use({ autoGoto: false });
@@ -653,6 +655,165 @@ test('exports active extension folder as a zip archive', async ({
 
   expect(exportResult.ok).toBe(true);
   expect(exportResult.archiveName).toBe('export-command-test.zip');
+  expect(exportResult.fileCount).toBeGreaterThanOrEqual(2);
+
+  const downloadCount = await page.evaluate(() => {
+    return (window as IWindowWithExportCounter).__exportDownloadCount ?? 0;
+  });
+  expect(downloadCount).toBeGreaterThan(0);
+});
+
+test('exports active extension folder as a Python wheel from toolbar dropdown', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/export-toolbar-wheel-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: 'export-toolbar-wheel-test',
+        version: '0.1.0',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, EXPORT_COMMAND)
+  );
+
+  await page.evaluate(() => {
+    const win = window as IWindowWithExportCounter;
+    win.__exportDownloadCount = 0;
+    win.__exportDownloadFilenames = [];
+
+    if (!win.__originalCreateObjectURL) {
+      win.__originalCreateObjectURL = URL.createObjectURL.bind(URL);
+      const originalCreateObjectURL = win.__originalCreateObjectURL;
+      URL.createObjectURL = ((blob: Blob) => {
+        win.__exportDownloadCount = (win.__exportDownloadCount ?? 0) + 1;
+        return originalCreateObjectURL(blob);
+      }) as typeof URL.createObjectURL;
+    }
+
+    if (!win.__originalAnchorClick) {
+      win.__originalAnchorClick = HTMLAnchorElement.prototype.click;
+      const originalAnchorClick = win.__originalAnchorClick;
+      HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+        const targetWindow = window as IWindowWithExportCounter;
+        targetWindow.__exportDownloadFilenames = [
+          ...(targetWindow.__exportDownloadFilenames ?? []),
+          this.download
+        ];
+        return originalAnchorClick.call(this);
+      };
+    }
+  });
+
+  const exportFormatButton = page.getByRole('button', {
+    name: 'Choose export format'
+  });
+  await expect(exportFormatButton).toBeVisible();
+  await exportFormatButton.click();
+
+  const wheelMenuItem = page
+    .locator('.lm-Menu-item', {
+      has: page.locator('.lm-Menu-itemLabel', {
+        hasText: 'Export as Python wheel (.whl)'
+      })
+    })
+    .first();
+  await expect(wheelMenuItem).toBeVisible();
+  await wheelMenuItem.click();
+
+  const downloadCountBeforeExport = await page.evaluate(() => {
+    return (window as IWindowWithExportCounter).__exportDownloadCount ?? 0;
+  });
+  expect(downloadCountBeforeExport).toBe(0);
+
+  const exportButton = page.getByRole('button', {
+    name: /Export plugin folder as/
+  });
+  await expect(exportButton).toBeVisible();
+  await exportButton.click();
+
+  await page.waitForCondition(() =>
+    page.evaluate(() => {
+      const filenames =
+        (window as IWindowWithExportCounter).__exportDownloadFilenames ?? [];
+      return filenames.some(name => name.endsWith('.whl'));
+    })
+  );
+});
+
+test('exports active extension folder as a Python wheel', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/export-command-wheel-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: 'export-command-wheel-test',
+        version: '0.1.0',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, EXPORT_COMMAND)
+  );
+
+  await page.evaluate(() => {
+    const win = window as IWindowWithExportCounter;
+    win.__exportDownloadCount = 0;
+    if (!win.__originalCreateObjectURL) {
+      win.__originalCreateObjectURL = URL.createObjectURL.bind(URL);
+      const originalCreateObjectURL = win.__originalCreateObjectURL;
+      URL.createObjectURL = ((blob: Blob) => {
+        win.__exportDownloadCount = (win.__exportDownloadCount ?? 0) + 1;
+        return originalCreateObjectURL(blob);
+      }) as typeof URL.createObjectURL;
+    }
+  });
+
+  const exportResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id, {
+      format: 'wheel'
+    });
+  }, EXPORT_COMMAND);
+
+  expect(exportResult.ok).toBe(true);
+  expect(exportResult.archiveName).toMatch(/-py3-none-any\.whl$/);
   expect(exportResult.fileCount).toBeGreaterThanOrEqual(2);
 
   const downloadCount = await page.evaluate(() => {
