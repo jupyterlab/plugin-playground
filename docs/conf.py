@@ -30,7 +30,6 @@ html_theme_options = {
             "icon": "fab fa-github-square",
         },
     ],
-    "use_edit_page_button": True,
 }
 html_static_path = ["_static"]
 
