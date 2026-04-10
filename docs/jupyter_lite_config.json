@@ -5,7 +5,13 @@
       "typescript": {
         "name": "typescript",
         "extensions": [".ts"],
-        "mimetypes": ["text/plain"],
+        "mimeTypes": ["text/plain"],
+        "fileFormat": "text"
+      },
+      "extensionless-text": {
+        "name": "extensionless-text",
+        "extensions": [""],
+        "mimeTypes": ["text/plain"],
         "fileFormat": "text"
       }
     }

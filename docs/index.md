@@ -3,5 +3,6 @@ Try `jupyterlab-plugin-playground` in your browser right now <a href="./lite/lab
 ```
 
 ```{include} ../README.md
-
+:relative-images:
+:relative-docs: ..
 ```

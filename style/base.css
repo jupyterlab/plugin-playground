@@ -127,6 +127,54 @@
   justify-content: center;
 }
 
+.jp-PluginPlayground-commandInsertSplit {
+  align-items: center;
+  border-radius: var(--jp-border-radius);
+  display: inline-flex;
+  gap: 0;
+  position: relative;
+}
+
+.jp-PluginPlayground-commandInsertSplit::after {
+  border: var(--jp-border-width) solid transparent;
+  border-radius: inherit;
+  content: '';
+  inset: calc(-1 * var(--jp-border-width));
+  pointer-events: none;
+  position: absolute;
+}
+
+.jp-PluginPlayground-commandInsertSplit:hover::after,
+.jp-PluginPlayground-commandInsertSplit:focus-within::after {
+  border-color: var(--jp-brand-color1);
+}
+
+.jp-PluginPlayground-commandInsertButton {
+  min-width: 26px;
+  position: relative;
+  z-index: 1;
+}
+
+.jp-PluginPlayground-commandInsertMenuButton {
+  z-index: 1;
+}
+
+.jp-PluginPlayground-commandInsertDropdownButton {
+  border-left: var(--jp-border-width) solid var(--jp-border-color1);
+  margin-left: calc(-1 * var(--jp-border-width));
+  min-width: 7px;
+  padding: 0 5px !important;
+}
+
+.jp-PluginPlayground-commandInsertAIMarkerIcon {
+  top: -5px;
+  height: 10px;
+  pointer-events: none;
+  position: absolute;
+  right: 7px;
+  width: 10px;
+}
+
 .jp-PluginPlayground-argumentBadgeButton {
   position: relative;
 }

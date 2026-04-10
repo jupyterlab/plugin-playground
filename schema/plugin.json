@@ -37,6 +37,13 @@
       "default": false,
       "type": "boolean"
     },
+    "commandInsertDefaultMode": {
+      "title": "Default command insertion mode",
+      "description": "The default action used by the + button in the Commands tab. Use \"insert\" to insert command execution directly at cursor, or \"ai\" to open JupyterLite AI chat with a prefilled prompt so AI can place the insertion in context.",
+      "default": "insert",
+      "type": "string",
+      "enum": ["insert", "ai"]
+    },
     "plugins": {
       "title": "Plugins",
       "description": "List of strings of plugin text to load automatically. Line breaks are encoded as '\\n'",

@@ -21,7 +21,7 @@ dependencies:
   # additional packages for demos
   # - ipywidgets
   - jupyterlab-lsp
-  - jupyterlab-js-logs>=1,<2
+  - jupyterlab-js-logs>=1.1,<2
   # use the same AI package in Binder and JupyterLite deployments
   - pip:
       - jupyterlite-ai>=0.12,<1

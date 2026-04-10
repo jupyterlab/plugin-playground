@@ -16,9 +16,12 @@ const LIST_COMMANDS_COMMAND = 'plugin-playground:list-commands';
 const LIST_EXAMPLES_COMMAND = 'plugin-playground:list-extension-examples';
 const TEST_PLUGIN_ID = 'playground-integration-test:plugin';
 const TEST_TOGGLE_COMMAND = 'playground-integration-test:toggle';
+const TEST_ARGS_COMMAND = 'playground-integration-test:with-args';
 const TEST_FILE = 'playground-integration-test.ts';
 const COMMAND_COMPLETION_FILE = 'command-completion.ts';
 const INVOKE_FILE_COMPLETER_COMMAND = 'completer:invoke-file';
+const JUPYTERLITE_AI_OPEN_CHAT_COMMAND = '@jupyterlite/ai:open-chat';
+const JUPYTERLITE_AI_CHAT_PANEL_ID = '@jupyterlite/ai:chat-panel';
 const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
 const TOKEN_SECTION_ID = 'jp-plugin-token-sidebar';
 const EXAMPLE_SECTION_ID = 'jp-plugin-example-sidebar';
@@ -116,6 +119,135 @@ async function focusActiveEditor(page: IJupyterLabPageFixture): Promise<void> {
     const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
     current.content.editor.focus();
   });
+}
+
+async function ensureMockJupyterLiteAIChat(
+  page: IJupyterLabPageFixture
+): Promise<void> {
+  await page.evaluate(
+    ({
+      commandId,
+      chatPanelId
+    }: {
+      commandId: string;
+      chatPanelId: string;
+    }) => {
+      const inputSelector =
+        '.jp-chat-input-textfield[data-playground-test="ai-input"] textarea';
+      const ensureInput = (): HTMLTextAreaElement => {
+        let input = document.querySelector(
+          inputSelector
+        ) as HTMLTextAreaElement | null;
+        if (input) {
+          return input;
+        }
+        const wrapper = document.createElement('div');
+        wrapper.className = 'jp-chat-input-textfield';
+        wrapper.setAttribute('data-playground-test', 'ai-input');
+        input = document.createElement('textarea');
+        wrapper.appendChild(input);
+        document.body.prepend(wrapper);
+        return input;
+      };
+
+      const inputModel = {
+        get value(): string {
+          return ensureInput().value;
+        },
+        set value(nextValue: string) {
+          const input = ensureInput();
+          input.value = nextValue;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        },
+        focus: () => {
+          ensureInput().focus();
+        }
+      };
+
+      const app = window.jupyterapp as any;
+      const chatWidget = {
+        id: chatPanelId,
+        model: {
+          input: inputModel
+        }
+      };
+      app.__playgroundChatTracker = {
+        currentWidget: chatWidget,
+        find: (predicate: (widget: unknown) => boolean) =>
+          predicate(chatWidget) ? chatWidget : null
+      };
+      if (
+        !app.__playgroundOriginalResolveOptionalService &&
+        typeof app.resolveOptionalService === 'function'
+      ) {
+        app.__playgroundOriginalResolveOptionalService =
+          app.resolveOptionalService.bind(app);
+        app.resolveOptionalService = async (token: { name?: string }) => {
+          if (token?.name === '@jupyter/chat:IChatTracker') {
+            return app.__playgroundChatTracker;
+          }
+          return app.__playgroundOriginalResolveOptionalService(token);
+        };
+      }
+
+      const shell = window.jupyterapp.shell as any;
+      if (!shell.__playgroundOriginalWidgets) {
+        shell.__playgroundOriginalWidgets = shell.widgets.bind(shell);
+        shell.widgets = (area: string) => {
+          const originalWidgets = Array.from(
+            shell.__playgroundOriginalWidgets(area)
+          );
+          if (
+            (area === 'left' || area === 'right') &&
+            shell.__playgroundChatPanel
+          ) {
+            const chatPanel = shell.__playgroundChatPanel;
+            const widgetsWithoutChatPanel = originalWidgets.filter(
+              (widget: any) => widget?.id !== chatPanel.id
+            );
+            widgetsWithoutChatPanel.push(chatPanel);
+            return widgetsWithoutChatPanel[Symbol.iterator]();
+          }
+          return originalWidgets[Symbol.iterator]();
+        };
+      }
+      shell.__playgroundChatPanel = {
+        id: chatPanelId,
+        current: chatWidget
+      };
+
+      const commands = window.jupyterapp.commands;
+      const commandRegistry = commands as any;
+      if (!commandRegistry.__playgroundOriginalExecute) {
+        commandRegistry.__playgroundOriginalExecute =
+          commands.execute.bind(commands);
+        commands.execute = async (id: string, args?: any) => {
+          if (id === commandId) {
+            ensureInput();
+            return undefined;
+          }
+          return commandRegistry.__playgroundOriginalExecute(id, args);
+        };
+      }
+      if (!commands.hasCommand(commandId)) {
+        commands.addCommand(commandId, {
+          label: 'JupyterLite AI test command',
+          describedBy: { args: null },
+          execute: () => {
+            ensureInput();
+            return undefined;
+          }
+        });
+      }
+
+      ensureInput();
+    },
+    {
+      commandId: JUPYTERLITE_AI_OPEN_CHAT_COMMAND,
+      chatPanelId: JUPYTERLITE_AI_CHAT_PANEL_ID
+    }
+  );
 }
 
 test('registers plugin playground commands', async ({ page }) => {
@@ -294,21 +426,54 @@ test('creates a plugin file with an explicit path argument', async ({
     );
 
     const openPath = await page.evaluate(
-      async ({ id, path }) => {
-        await window.jupyterapp.commands.execute(id, { path });
+      async ({ id, path, cwd }) => {
+        await window.jupyterapp.commands.execute(id, { path, cwd });
         const current = window.jupyterapp.shell
           .currentWidget as FileEditorWidget | null;
         return current?.context?.path ?? null;
       },
       {
         id: CREATE_FILE_COMMAND,
-        path: requestedPath
+        path: requestedPath,
+        cwd: 'does/not/exist'
       }
     );
     expect(openPath).toBe(expectedPath);
   } finally {
     await page.unrouteAll({ behavior: 'ignoreErrors' });
   }
+});
+
+test('creates a plugin file in cwd when no explicit path is provided', async ({
+  page,
+  tmpPath
+}) => {
+  const cwd = `${tmpPath}/nested`;
+  await page.contents.uploadContent('seed\n', 'text', `${cwd}/seed.txt`);
+
+  await page.goto();
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, CREATE_FILE_COMMAND)
+  );
+
+  const openPath = await page.evaluate(
+    async ({ id, cwdArg }) => {
+      await window.jupyterapp.commands.execute(id, { cwd: cwdArg });
+      const current = window.jupyterapp.shell
+        .currentWidget as FileEditorWidget | null;
+      return current?.context?.path ?? null;
+    },
+    {
+      id: CREATE_FILE_COMMAND,
+      cwdArg: cwd
+    }
+  );
+
+  expect(openPath).toBeTruthy();
+  expect(openPath?.startsWith(`${cwd}/`)).toBe(true);
+  expect(openPath?.endsWith('.ts')).toBe(true);
 });
 
 test('lists tokens and searches commands via command APIs', async ({
@@ -586,155 +751,159 @@ const plugin = {
 export default plugin;
 `;
 
-  await page.contents.uploadContent(
-    JSON.stringify(
-      {
-        name: 'share-load-command-test',
-        version: '0.1.0',
-        jupyterlab: { extension: true }
-      },
-      null,
-      2
-    ),
-    'text',
-    packageJsonPath
-  );
-  await page.contents.uploadContent(sharedPluginSource, 'text', sourcePath);
-  await page.goto();
-
-  await page.filebrowser.open(sourcePath);
-  expect(await page.activity.activateTab(sourceFilename)).toBe(true);
-
-  await page.waitForCondition(() =>
-    page.evaluate((id: string) => {
-      return window.jupyterapp.commands.hasCommand(id);
-    }, SHARE_COMMAND)
-  );
-
-  const shareResult = await page.evaluate((id: string) => {
-    return window.jupyterapp.commands.execute(id);
-  }, SHARE_COMMAND);
-  expect(shareResult.ok).toBe(true);
-  expect(typeof shareResult.link).toBe('string');
-
-  await Promise.all([
-    page.waitForLoadState('domcontentloaded'),
-    page.evaluate((url: string) => {
-      window.location.assign(url);
-    }, shareResult.link)
-  ]);
-
-  let restoredPath = '';
-  await page.waitForCondition(async () => {
-    const root = await page.contents.getContentMetadata(
-      'plugin-playground-shared',
-      'directory'
+  try {
+    await page.contents.uploadContent(
+      JSON.stringify(
+        {
+          name: 'share-load-command-test',
+          version: '0.1.0',
+          jupyterlab: { extension: true }
+        },
+        null,
+        2
+      ),
+      'text',
+      packageJsonPath
     );
-    if (!root || root.type !== 'directory' || !Array.isArray(root.content)) {
-      return false;
-    }
+    await page.contents.uploadContent(sharedPluginSource, 'text', sourcePath);
+    await page.goto();
 
-    for (const folder of root.content) {
-      if (folder.type !== 'directory') {
-        continue;
-      }
-      const directory = await page.contents.getContentMetadata(
-        folder.path,
+    await page.filebrowser.open(sourcePath);
+    expect(await page.activity.activateTab(sourceFilename)).toBe(true);
+
+    await page.waitForCondition(() =>
+      page.evaluate((id: string) => {
+        return window.jupyterapp.commands.hasCommand(id);
+      }, SHARE_COMMAND)
+    );
+
+    const shareResult = await page.evaluate((id: string) => {
+      return window.jupyterapp.commands.execute(id);
+    }, SHARE_COMMAND);
+    expect(shareResult.ok).toBe(true);
+    expect(typeof shareResult.link).toBe('string');
+
+    await Promise.all([
+      page.waitForLoadState('domcontentloaded'),
+      page.evaluate((url: string) => {
+        window.location.assign(url);
+      }, shareResult.link)
+    ]);
+
+    let restoredPath = '';
+    await page.waitForCondition(async () => {
+      const root = await page.contents.getContentMetadata(
+        'plugin-playground-shared',
         'directory'
       );
-      if (
-        !directory ||
-        directory.type !== 'directory' ||
-        !Array.isArray(directory.content)
-      ) {
-        continue;
+      if (!root || root.type !== 'directory' || !Array.isArray(root.content)) {
+        return false;
       }
-      const restoredFile = directory.content.find(
-        entry => entry.type === 'file' && entry.name === sourceFilename
-      );
-      if (!restoredFile) {
-        continue;
-      }
-      restoredPath = restoredFile.path;
-      return true;
-    }
 
-    return false;
-  }, 30000);
-
-  expect(restoredPath).not.toBe('');
-  if (!restoredPath) {
-    throw new Error(
-      'Shared file was not restored under plugin-playground-shared.'
-    );
-  }
-  const restoredSource = await page.evaluate(async (path: string) => {
-    const fileModel = await window.jupyterapp.serviceManager.contents.get(
-      path,
-      {
-        content: true,
-        format: 'text'
-      }
-    );
-    return typeof fileModel.content === 'string' ? fileModel.content : null;
-  }, restoredPath);
-  const browserState = await page.evaluate(() => {
-    const currentUrl = new URL(window.location.href);
-    return {
-      pluginQueryParam: currentUrl.searchParams.get('plugin'),
-      hasLoadedToggleCommand: window.jupyterapp.commands.hasCommand(
-        'share-load-command-test:toggle'
-      )
-    };
-  });
-  const hasUntitledFolderWithSameNamedFile = await page.evaluate(async () => {
-    const root = await window.jupyterapp.serviceManager.contents.get('', {
-      content: true
-    });
-    if (!root || root.type !== 'directory' || !Array.isArray(root.content)) {
-      return false;
-    }
-    const untitledPattern = /^untitled/i;
-    const entries = root.content as Contents.IModel[];
-    for (const entry of entries) {
-      if (
-        entry.type !== 'directory' ||
-        typeof entry.name !== 'string' ||
-        !untitledPattern.test(entry.name) ||
-        typeof entry.path !== 'string'
-      ) {
-        continue;
-      }
-      const directory = await window.jupyterapp.serviceManager.contents.get(
-        entry.path,
-        {
-          content: true
+      for (const folder of root.content) {
+        if (folder.type !== 'directory') {
+          continue;
         }
-      );
-      if (
-        !directory ||
-        directory.type !== 'directory' ||
-        !Array.isArray(directory.content)
-      ) {
-        continue;
-      }
-      const children = directory.content as Contents.IModel[];
-      const matchingFile = children.some(
-        child => child.type === 'file' && child.name === entry.name
-      );
-      if (matchingFile) {
+        const directory = await page.contents.getContentMetadata(
+          folder.path,
+          'directory'
+        );
+        if (
+          !directory ||
+          directory.type !== 'directory' ||
+          !Array.isArray(directory.content)
+        ) {
+          continue;
+        }
+        const restoredFile = directory.content.find(
+          entry => entry.type === 'file' && entry.name === sourceFilename
+        );
+        if (!restoredFile) {
+          continue;
+        }
+        restoredPath = restoredFile.path;
         return true;
       }
-    }
-    return false;
-  });
 
-  expect(restoredPath.includes('plugin-playground-shared/')).toBe(true);
-  expect(restoredPath.includes(`/${sourceFilename}`)).toBe(true);
-  expect(restoredSource?.trim()).toBe(sharedPluginSource.trim());
-  expect(browserState.pluginQueryParam).toBeNull();
-  expect(browserState.hasLoadedToggleCommand).toBe(false);
-  expect(hasUntitledFolderWithSameNamedFile).toBe(false);
+      return false;
+    }, 30000);
+
+    expect(restoredPath).not.toBe('');
+    if (!restoredPath) {
+      throw new Error(
+        'Shared file was not restored under plugin-playground-shared.'
+      );
+    }
+    const restoredSource = await page.evaluate(async (path: string) => {
+      const fileModel = await window.jupyterapp.serviceManager.contents.get(
+        path,
+        {
+          content: true,
+          format: 'text'
+        }
+      );
+      return typeof fileModel.content === 'string' ? fileModel.content : null;
+    }, restoredPath);
+    const browserState = await page.evaluate(() => {
+      const currentUrl = new URL(window.location.href);
+      return {
+        pluginQueryParam: currentUrl.searchParams.get('plugin'),
+        hasLoadedToggleCommand: window.jupyterapp.commands.hasCommand(
+          'share-load-command-test:toggle'
+        )
+      };
+    });
+    const hasUntitledFolderWithSameNamedFile = await page.evaluate(async () => {
+      const root = await window.jupyterapp.serviceManager.contents.get('', {
+        content: true
+      });
+      if (!root || root.type !== 'directory' || !Array.isArray(root.content)) {
+        return false;
+      }
+      const untitledPattern = /^untitled/i;
+      const entries = root.content as Contents.IModel[];
+      for (const entry of entries) {
+        if (
+          entry.type !== 'directory' ||
+          typeof entry.name !== 'string' ||
+          !untitledPattern.test(entry.name) ||
+          typeof entry.path !== 'string'
+        ) {
+          continue;
+        }
+        const directory = await window.jupyterapp.serviceManager.contents.get(
+          entry.path,
+          {
+            content: true
+          }
+        );
+        if (
+          !directory ||
+          directory.type !== 'directory' ||
+          !Array.isArray(directory.content)
+        ) {
+          continue;
+        }
+        const children = directory.content as Contents.IModel[];
+        const matchingFile = children.some(
+          child => child.type === 'file' && child.name === entry.name
+        );
+        if (matchingFile) {
+          return true;
+        }
+      }
+      return false;
+    });
+
+    expect(restoredPath.includes('plugin-playground-shared/')).toBe(true);
+    expect(restoredPath.includes(`/${sourceFilename}`)).toBe(true);
+    expect(restoredSource?.trim()).toBe(sharedPluginSource.trim());
+    expect(browserState.pluginQueryParam).toBeNull();
+    expect(browserState.hasLoadedToggleCommand).toBe(false);
+    expect(hasUntitledFolderWithSameNamedFile).toBe(false);
+  } finally {
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+  }
 });
 
 test('returns an error when sharing a directory path', async ({
@@ -870,15 +1039,16 @@ export default plugin;
   const separatorIndex = tokenName.indexOf(':');
   const packageName = tokenName.slice(0, separatorIndex).trim();
   const tokenSymbol = tokenName.slice(separatorIndex + 1).trim();
-  const expectedImport = `import { ${tokenSymbol} } from '${packageName}';`;
   const expectedDependency = `requires: [${tokenSymbol}]`;
   const expectedParameterName = parameterNameFromToken(tokenSymbol);
   const expectedTokenPattern = escapeRegExp(tokenSymbol);
   const expectedParameterPattern = escapeRegExp(expectedParameterName);
+  const expectedPackagePattern = escapeRegExp(packageName);
+  const expectedImportPattern = `import\\s*\\{[^}]*\\b${expectedTokenPattern}\\b[^}]*\\}\\s*from\\s*['"]${expectedPackagePattern}['"]\\s*;`;
 
   await page.waitForFunction(
     ({
-      expectedImportStatement,
+      expectedImportSourcePattern,
       expectedDependencyStatement,
       expectedToken,
       expectedParameter
@@ -893,13 +1063,13 @@ export default plugin;
         `activate:\\s*\\(app:\\s*JupyterFrontEnd,\\s*${expectedParameter}\\s*:\\s*${expectedToken}\\)`
       );
       return (
-        source.startsWith(expectedImportStatement) &&
+        new RegExp(expectedImportSourcePattern).test(source) &&
         source.includes(expectedDependencyStatement) &&
         activatePattern.test(source)
       );
     },
     {
-      expectedImportStatement: expectedImport,
+      expectedImportSourcePattern: expectedImportPattern,
       expectedDependencyStatement: expectedDependency,
       expectedToken: expectedTokenPattern,
       expectedParameter: expectedParameterPattern
@@ -914,24 +1084,41 @@ export default plugin;
   });
   await importButton.click();
   await page.waitForFunction(
-    ({ expectedImportStatement, expectedDependencyStatement }) => {
+    ({ expectedPackage, expectedTokenSymbol, expectedDependencyStatement }) => {
       const current = window.jupyterapp.shell
         .currentWidget as FileEditorWidget | null;
       const source = current?.content.model.sharedModel.getSource();
       if (typeof source !== 'string') {
         return false;
       }
+      const packageImportPattern = new RegExp(
+        `import\\s*\\{([^}]*)\\}\\s*from\\s*['"]${expectedPackage}['"]\\s*;`,
+        'g'
+      );
+      let canonicalSpecifierCount = 0;
+      let match = packageImportPattern.exec(source);
+      while (match) {
+        const specifiers = match[1]
+          .split(',')
+          .map(specifier => specifier.trim())
+          .filter(specifier => specifier.length > 0);
+        canonicalSpecifierCount += specifiers.filter(
+          specifier => specifier === expectedTokenSymbol
+        ).length;
+        match = packageImportPattern.exec(source);
+      }
       const highlightedLines = document.querySelectorAll(
         '.jp-FileEditor .jp-PluginPlayground-lineHighlight'
       ).length;
       return (
-        source.split(expectedImportStatement).length - 1 === 1 &&
+        canonicalSpecifierCount === 1 &&
         source.split(expectedDependencyStatement).length - 1 === 1 &&
         highlightedLines >= 2
       );
     },
     {
-      expectedImportStatement: expectedImport,
+      expectedPackage: expectedPackagePattern,
+      expectedTokenSymbol: tokenSymbol,
       expectedDependencyStatement: expectedDependency
     }
   );
@@ -998,12 +1185,13 @@ export default plugin;
   await expect(importButton).toBeEnabled();
   await importButton.click();
 
-  const expectedImport = `import { ${tokenSymbol} } from '${packageName}';`;
-  const aliasImport = `import { ${tokenSymbol} as existingAlias } from '${packageName}';`;
+  const expectedPackagePattern = escapeRegExp(packageName);
+  const aliasImport = `${tokenSymbol} as existingAlias`;
   const expectedDependency = `requires: [${tokenSymbol}]`;
   await page.waitForFunction(
     ({
-      expectedImportStatement,
+      expectedPackage,
+      expectedTokenSymbol,
       aliasImportStatement,
       expectedDependencyStatement
     }) => {
@@ -1013,14 +1201,34 @@ export default plugin;
       if (typeof source !== 'string') {
         return false;
       }
+      const packageImportPattern = new RegExp(
+        `import\\s*\\{([^}]*)\\}\\s*from\\s*['"]${expectedPackage}['"]\\s*;`,
+        'g'
+      );
+      let hasAliasImport = false;
+      let canonicalSpecifierCount = 0;
+      let match = packageImportPattern.exec(source);
+      while (match) {
+        const specifiers = match[1]
+          .split(',')
+          .map(specifier => specifier.trim())
+          .filter(specifier => specifier.length > 0);
+        hasAliasImport =
+          hasAliasImport || specifiers.includes(aliasImportStatement);
+        canonicalSpecifierCount += specifiers.filter(
+          specifier => specifier === expectedTokenSymbol
+        ).length;
+        match = packageImportPattern.exec(source);
+      }
       return (
-        source.startsWith(expectedImportStatement) &&
-        source.includes(aliasImportStatement) &&
+        hasAliasImport &&
+        canonicalSpecifierCount >= 1 &&
         source.includes(expectedDependencyStatement)
       );
     },
     {
-      expectedImportStatement: expectedImport,
+      expectedPackage: expectedPackagePattern,
+      expectedTokenSymbol: tokenSymbol,
       aliasImportStatement: aliasImport,
       expectedDependencyStatement: expectedDependency
     }
@@ -1142,10 +1350,12 @@ export default plugin;
   const separatorIndex = tokenName.indexOf(':');
   const packageName = tokenName.slice(0, separatorIndex).trim();
   const tokenSymbol = tokenName.slice(separatorIndex + 1).trim();
-  const expectedImport = `import { ${tokenSymbol} } from '${packageName}';`;
+  const expectedPackagePattern = escapeRegExp(packageName);
+  const expectedTokenPattern = escapeRegExp(tokenSymbol);
+  const expectedImportPattern = `import\\s*\\{[^}]*\\b${expectedTokenPattern}\\b[^}]*\\}\\s*from\\s*['"]${expectedPackagePattern}['"]\\s*;`;
 
   await page.waitForFunction(
-    ({ expectedImportStatement, token }) => {
+    ({ expectedImportSourcePattern, token }) => {
       const current = window.jupyterapp.shell
         .currentWidget as FileEditorWidget | null;
       const source = current?.content.model.sharedModel.getSource();
@@ -1153,7 +1363,7 @@ export default plugin;
         return false;
       }
       return (
-        source.startsWith(expectedImportStatement) &&
+        new RegExp(expectedImportSourcePattern).test(source) &&
         source.includes('requires: requiredServices') &&
         source.split('requires:').length - 1 === 1 &&
         !source.includes(`requires: [${token}]`) &&
@@ -1161,7 +1371,7 @@ export default plugin;
       );
     },
     {
-      expectedImportStatement: expectedImport,
+      expectedImportSourcePattern: expectedImportPattern,
       token: tokenSymbol
     }
   );
@@ -1258,6 +1468,527 @@ test('commands tab lists and filters available commands', async ({ page }) => {
   await expect(
     panel.locator('.jp-PluginPlayground-commandArgumentsText')
   ).toContainText(/(Usage:|Arguments Schema:)/);
+});
+
+test('commands tab inserts command execution at cursor position', async ({
+  page,
+  tmpPath
+}) => {
+  const editorPath = `${tmpPath}/command-sidebar-insert.ts`;
+
+  await page.contents.uploadContent(
+    `import { JupyterFrontEnd } from '@jupyterlab/application';
+
+const run = (application: JupyterFrontEnd) => {
+
+  const marker = 1;
+  void marker;
+};
+`,
+    'text',
+    editorPath
+  );
+  await page.goto();
+  await page.filebrowser.open(editorPath);
+  expect(await page.activity.activateTab('command-sidebar-insert.ts')).toBe(
+    true
+  );
+
+  await page.evaluate(() => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    const editor = current.content.editor;
+    editor.setCursorPosition({
+      line: 3,
+      column: 2
+    });
+    editor.focus();
+  });
+
+  const expectedSourceAfterInsert = await page.evaluate((commandId: string) => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    const editor = current.content.editor;
+    const source = current.content.model.sharedModel.getSource();
+    const insertionOffset = editor.getOffsetAt(editor.getCursorPosition());
+    const inserted = `app.commands.execute('${commandId}');`;
+    return `${source.slice(0, insertionOffset)}${inserted}${source.slice(
+      insertionOffset
+    )}`;
+  }, LOAD_COMMAND);
+
+  const panel = await openSidebarPanel(page, TOKEN_SECTION_ID);
+  await panel.getByRole('tab', { name: 'Commands', exact: true }).click();
+
+  const filterInput = panel.getByPlaceholder('Filter command ids');
+  await filterInput.fill(LOAD_COMMAND);
+  const commandListItem = panel.locator('.jp-PluginPlayground-listItem');
+  await expect(commandListItem).toHaveCount(1);
+
+  const insertButton = commandListItem.locator(
+    '.jp-PluginPlayground-commandInsertButton'
+  );
+  await expect(insertButton).toBeEnabled();
+  await insertButton.click();
+
+  await page.waitForFunction((expected: string) => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    const source = current.content.model.sharedModel.getSource();
+    return source === expected;
+  }, expectedSourceAfterInsert);
+});
+
+test('commands tab can prompt JupyterLite AI and remember last insertion mode', async ({
+  page,
+  tmpPath
+}) => {
+  const editorPath = `${tmpPath}/command-sidebar-ai-prompt.ts`;
+
+  await page.contents.uploadContent(
+    `import { JupyterFrontEnd, JupyterFrontEndPlugin } from '@jupyterlab/application';
+
+const extension: JupyterFrontEndPlugin<void> = {
+  id: 'command-sidebar-ai-prompt:plugin',
+  autoStart: true,
+  activate: activate
+};
+
+function activate(app: JupyterFrontEnd): void {
+  const marker = 1;
+  void marker;
+};
+
+export default extension;
+`,
+    'text',
+    editorPath
+  );
+  await page.goto();
+  await page.filebrowser.open(editorPath);
+  expect(await page.activity.activateTab('command-sidebar-ai-prompt.ts')).toBe(
+    true
+  );
+
+  await ensureMockJupyterLiteAIChat(page);
+
+  await page.evaluate(() => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    const editor = current.content.editor;
+    editor.setCursorPosition({
+      line: 9,
+      column: 2
+    });
+    editor.focus();
+  });
+
+  const sourceBefore = await page.evaluate(() => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    return current.content.model.sharedModel.getSource();
+  });
+  const suggestedSnippet = `app.commands.execute('${LOAD_COMMAND}');`;
+  const chatInput = page.locator(
+    '.jp-chat-input-textfield[data-playground-test="ai-input"] textarea'
+  );
+
+  const panel = await openSidebarPanel(page, TOKEN_SECTION_ID);
+  await panel.getByRole('tab', { name: 'Commands', exact: true }).click();
+  await panel.getByPlaceholder('Filter command ids').fill(LOAD_COMMAND);
+  const commandListItem = panel.locator('.jp-PluginPlayground-listItem');
+  await expect(commandListItem).toHaveCount(1);
+
+  const modeMenuButton = commandListItem.locator(
+    '.jp-PluginPlayground-commandInsertMenuButton'
+  );
+  const primaryInsertButton = commandListItem.locator(
+    '.jp-PluginPlayground-commandInsertButton'
+  );
+  await expect(modeMenuButton).toBeEnabled();
+  await expect(primaryInsertButton).toBeEnabled();
+  await modeMenuButton.click();
+  await page.getByRole('menuitem', { name: 'Prompt AI to insert' }).click();
+  await primaryInsertButton.click();
+
+  await expect(chatInput).toHaveValue(
+    new RegExp(escapeRegExp(`Command ID: ${LOAD_COMMAND}`))
+  );
+  await expect(chatInput).toHaveValue(
+    new RegExp(escapeRegExp(`Suggested command call: ${suggestedSnippet}`))
+  );
+  await expect(chatInput).toHaveValue(
+    new RegExp(escapeRegExp('Use the activate() app variable: app.'))
+  );
+  await expect
+    .poll(async () =>
+      chatInput.evaluate(input => {
+        if (!(input instanceof HTMLTextAreaElement)) {
+          return false;
+        }
+        return input.selectionStart === input.value.length;
+      })
+    )
+    .toBe(true);
+  await expect(chatInput).not.toHaveValue(
+    new RegExp(
+      escapeRegExp(
+        'If app is missing, add JupyterFrontEnd import and declare activate(app: JupyterFrontEnd, ...).'
+      )
+    )
+  );
+
+  const sourceAfterAIAction = await page.evaluate(() => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    return current.content.model.sharedModel.getSource();
+  });
+  expect(sourceAfterAIAction).toBe(sourceBefore);
+
+  await chatInput.fill('');
+
+  await primaryInsertButton.click();
+
+  await expect(chatInput).toHaveValue(
+    new RegExp(escapeRegExp(`Command ID: ${LOAD_COMMAND}`))
+  );
+  await expect(chatInput).toHaveValue(
+    new RegExp(escapeRegExp(`Suggested command call: ${suggestedSnippet}`))
+  );
+
+  const sourceAfterSecondAction = await page.evaluate(() => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    return current.content.model.sharedModel.getSource();
+  });
+  expect(sourceAfterSecondAction).toBe(sourceBefore);
+  await page.evaluate(() => {
+    document
+      .querySelector(
+        '.jp-chat-input-textfield[data-playground-test="ai-input"]'
+      )
+      ?.remove();
+  });
+});
+
+test('commands tab AI prompt includes command argument schema when available', async ({
+  page,
+  tmpPath
+}) => {
+  const editorPath = `${tmpPath}/command-sidebar-ai-prompt-args.ts`;
+
+  await page.contents.uploadContent(
+    `import { JupyterFrontEnd, JupyterFrontEndPlugin } from '@jupyterlab/application';
+
+const extension: JupyterFrontEndPlugin<void> = {
+  id: 'command-sidebar-ai-prompt-args:plugin',
+  autoStart: true,
+  activate: activate
+};
+
+function activate(app: JupyterFrontEnd): void {
+  const marker = 1;
+  void marker;
+}
+
+export default extension;
+`,
+    'text',
+    editorPath
+  );
+  await page.goto();
+  await page.filebrowser.open(editorPath);
+  expect(
+    await page.activity.activateTab('command-sidebar-ai-prompt-args.ts')
+  ).toBe(true);
+
+  await ensureMockJupyterLiteAIChat(page);
+
+  await page.evaluate((commandId: string) => {
+    const commands = window.jupyterapp.commands;
+    if (!commands.hasCommand(commandId)) {
+      commands.addCommand(commandId, {
+        label: 'Playground command with args',
+        usage: () =>
+          `app.commands.execute('${commandId}', { path: '/tmp/example.ts' });`,
+        describedBy: {
+          args: {
+            type: 'object',
+            required: ['path'],
+            properties: {
+              path: {
+                type: 'string',
+                description: 'Path to open.'
+              },
+              factory: {
+                type: 'string',
+                description: 'Widget factory name.'
+              }
+            }
+          }
+        },
+        execute: () => undefined
+      });
+    }
+  }, TEST_ARGS_COMMAND);
+
+  await page.evaluate(() => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    const editor = current.content.editor;
+    editor.setCursorPosition({
+      line: 9,
+      column: 2
+    });
+    editor.focus();
+  });
+
+  const chatInput = page.locator(
+    '.jp-chat-input-textfield[data-playground-test="ai-input"] textarea'
+  );
+
+  const panel = await openSidebarPanel(page, TOKEN_SECTION_ID);
+  await panel.getByRole('tab', { name: 'Commands', exact: true }).click();
+  await panel.getByPlaceholder('Filter command ids').fill(TEST_ARGS_COMMAND);
+  const commandListItem = panel.locator('.jp-PluginPlayground-listItem');
+  await expect(commandListItem).toHaveCount(1);
+
+  const modeMenuButton = commandListItem.locator(
+    '.jp-PluginPlayground-commandInsertMenuButton'
+  );
+  const primaryInsertButton = commandListItem.locator(
+    '.jp-PluginPlayground-commandInsertButton'
+  );
+  await expect(modeMenuButton).toBeEnabled();
+  await expect(primaryInsertButton).toBeEnabled();
+  await modeMenuButton.click();
+  await page.getByRole('menuitem', { name: 'Prompt AI to insert' }).click();
+  await primaryInsertButton.click();
+
+  await expect(chatInput).toHaveValue(
+    new RegExp(escapeRegExp(`Command ID: ${TEST_ARGS_COMMAND}`))
+  );
+  await expect(chatInput).toHaveValue(/Command Arguments:/);
+  await expect(chatInput).toHaveValue(/Arguments Schema:/);
+  await expect(chatInput).toHaveValue(/"path"/);
+  await expect(chatInput).toHaveValue(/"factory"/);
+
+  await page.evaluate(() => {
+    document
+      .querySelector(
+        '.jp-chat-input-textfield[data-playground-test="ai-input"]'
+      )
+      ?.remove();
+  });
+});
+
+test('commands tab AI prompt detects activate app in default-export plugin arrays', async ({
+  page,
+  tmpPath
+}) => {
+  const editorPath = `${tmpPath}/command-sidebar-ai-prompt-array.ts`;
+
+  await page.contents.uploadContent(
+    `import { JupyterFrontEnd, JupyterFrontEndPlugin } from '@jupyterlab/application';
+
+const simple: JupyterFrontEndPlugin<void> = {
+  id: 'command-sidebar-ai-prompt-array:simple',
+  autoStart: true,
+  activate: (app: JupyterFrontEnd) => {
+    const marker = 1;
+    void marker;
+  }
+};
+
+const advanced: JupyterFrontEndPlugin<void> = {
+  id: 'command-sidebar-ai-prompt-array:advanced',
+  autoStart: true,
+  activate: (app: JupyterFrontEnd, palette: unknown) => {
+    void app;
+    void palette;
+  }
+};
+
+export default [advanced, simple];
+`,
+    'text',
+    editorPath
+  );
+  await page.goto();
+  await page.filebrowser.open(editorPath);
+  expect(
+    await page.activity.activateTab('command-sidebar-ai-prompt-array.ts')
+  ).toBe(true);
+
+  await ensureMockJupyterLiteAIChat(page);
+
+  await page.evaluate(() => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    const editor = current.content.editor;
+    editor.setCursorPosition({
+      line: 6,
+      column: 4
+    });
+    editor.focus();
+  });
+
+  const sourceBefore = await page.evaluate(() => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    return current.content.model.sharedModel.getSource();
+  });
+  const suggestedSnippet = `app.commands.execute('${LOAD_COMMAND}');`;
+  const chatInput = page.locator(
+    '.jp-chat-input-textfield[data-playground-test="ai-input"] textarea'
+  );
+
+  const panel = await openSidebarPanel(page, TOKEN_SECTION_ID);
+  await panel.getByRole('tab', { name: 'Commands', exact: true }).click();
+  await panel.getByPlaceholder('Filter command ids').fill(LOAD_COMMAND);
+  const commandListItem = panel.locator('.jp-PluginPlayground-listItem');
+  await expect(commandListItem).toHaveCount(1);
+
+  const modeMenuButton = commandListItem.locator(
+    '.jp-PluginPlayground-commandInsertMenuButton'
+  );
+  const primaryInsertButton = commandListItem.locator(
+    '.jp-PluginPlayground-commandInsertButton'
+  );
+  await expect(modeMenuButton).toBeEnabled();
+  await expect(primaryInsertButton).toBeEnabled();
+  await modeMenuButton.click();
+  await page.getByRole('menuitem', { name: 'Prompt AI to insert' }).click();
+  await primaryInsertButton.click();
+
+  await expect(chatInput).toHaveValue(
+    new RegExp(escapeRegExp(`Command ID: ${LOAD_COMMAND}`))
+  );
+  await expect(chatInput).toHaveValue(
+    new RegExp(escapeRegExp(`Suggested command call: ${suggestedSnippet}`))
+  );
+  await expect(chatInput).toHaveValue(
+    new RegExp(escapeRegExp('Use the activate() app variable: app.'))
+  );
+  await expect(chatInput).not.toHaveValue(
+    new RegExp(
+      escapeRegExp(
+        'If app is missing, add JupyterFrontEnd import and declare activate(app: JupyterFrontEnd, ...).'
+      )
+    )
+  );
+
+  const sourceAfterAIAction = await page.evaluate(() => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    return current.content.model.sharedModel.getSource();
+  });
+  expect(sourceAfterAIAction).toBe(sourceBefore);
+  await page.evaluate(() => {
+    document
+      .querySelector(
+        '.jp-chat-input-textfield[data-playground-test="ai-input"]'
+      )
+      ?.remove();
+  });
+});
+
+test('commands tab AI prompt detects activate app in exported plugin array variables', async ({
+  page,
+  tmpPath
+}) => {
+  const editorPath = `${tmpPath}/command-sidebar-ai-prompt-plugins-var.ts`;
+
+  await page.contents.uploadContent(
+    `import { JupyterFrontEnd, JupyterFrontEndPlugin } from '@jupyterlab/application';
+
+const simple: JupyterFrontEndPlugin<void> = {
+  id: 'command-sidebar-ai-prompt-plugins-var:simple',
+  autoStart: true,
+  activate: (app: JupyterFrontEnd) => {
+    const marker = 1;
+    void marker;
+  }
+};
+
+const advanced: JupyterFrontEndPlugin<void> = {
+  id: 'command-sidebar-ai-prompt-plugins-var:advanced',
+  autoStart: true,
+  activate: (app: JupyterFrontEnd, palette: unknown) => {
+    void app;
+    void palette;
+  }
+};
+
+const plugins: JupyterFrontEndPlugin<void>[] = [advanced, simple];
+export default plugins;
+`,
+    'text',
+    editorPath
+  );
+  await page.goto();
+  await page.filebrowser.open(editorPath);
+  expect(
+    await page.activity.activateTab('command-sidebar-ai-prompt-plugins-var.ts')
+  ).toBe(true);
+
+  await ensureMockJupyterLiteAIChat(page);
+
+  await page.evaluate(() => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    const editor = current.content.editor;
+    editor.setCursorPosition({
+      line: 6,
+      column: 4
+    });
+    editor.focus();
+  });
+
+  const sourceBefore = await page.evaluate(() => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    return current.content.model.sharedModel.getSource();
+  });
+  const suggestedSnippet = `app.commands.execute('${LOAD_COMMAND}');`;
+  const chatInput = page.locator(
+    '.jp-chat-input-textfield[data-playground-test="ai-input"] textarea'
+  );
+
+  const panel = await openSidebarPanel(page, TOKEN_SECTION_ID);
+  await panel.getByRole('tab', { name: 'Commands', exact: true }).click();
+  await panel.getByPlaceholder('Filter command ids').fill(LOAD_COMMAND);
+  const commandListItem = panel.locator('.jp-PluginPlayground-listItem');
+  await expect(commandListItem).toHaveCount(1);
+
+  const modeMenuButton = commandListItem.locator(
+    '.jp-PluginPlayground-commandInsertMenuButton'
+  );
+  const primaryInsertButton = commandListItem.locator(
+    '.jp-PluginPlayground-commandInsertButton'
+  );
+  await expect(modeMenuButton).toBeEnabled();
+  await expect(primaryInsertButton).toBeEnabled();
+  await modeMenuButton.click();
+  await page.getByRole('menuitem', { name: 'Prompt AI to insert' }).click();
+  await primaryInsertButton.click();
+
+  await expect(chatInput).toHaveValue(
+    new RegExp(escapeRegExp(`Command ID: ${LOAD_COMMAND}`))
+  );
+  await expect(chatInput).toHaveValue(
+    new RegExp(escapeRegExp(`Suggested command call: ${suggestedSnippet}`))
+  );
+  await expect(chatInput).toHaveValue(
+    new RegExp(escapeRegExp('Use the activate() app variable: app.'))
+  );
+  await expect(chatInput).not.toHaveValue(
+    new RegExp(
+      escapeRegExp(
+        'If app is missing, add JupyterFrontEnd import and declare activate(app: JupyterFrontEnd, ...).'
+      )
+    )
+  );
+
+  const sourceAfterAIAction = await page.evaluate(() => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    return current.content.model.sharedModel.getSource();
+  });
+  expect(sourceAfterAIAction).toBe(sourceBefore);
+  await page.evaluate(() => {
+    document
+      .querySelector(
+        '.jp-chat-input-textfield[data-playground-test="ai-input"]'
+      )
+      ?.remove();
+  });
 });
 
 test('command completer suggests command ids inside execute calls', async ({

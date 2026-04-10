@@ -22,6 +22,13 @@ jobs:
     - name: Install dependencies
       run: python -m pip install -U "jupyterlab>=4,<5"
 
+    - name: Check lockfiles are deduplicated
+      run: |
+        set -eux
+        jlpm dedupe --check
+        cd ui-tests
+        jlpm dedupe --check
+
     - name: Lint the extension
       run: |
         set -eux
@@ -134,6 +141,12 @@ jobs:
         set -eux
         jlpm test
 
+    - name: Execute docs screenshot tests
+      working-directory: ui-tests
+      run: |
+        set -eux
+        jlpm test:docs-screenshots
+
     - name: Upload Playwright Test report
       if: always()
       uses: actions/upload-artifact@v4
@@ -142,6 +155,8 @@ jobs:
         path: |
           ui-tests/test-results
           ui-tests/playwright-report
+          ui-tests/test-results-docs-screenshots
+          ui-tests/playwright-report-docs-screenshots
 
   integration_tests_notebook_v7:
     name: Integration tests (Notebook v7)
