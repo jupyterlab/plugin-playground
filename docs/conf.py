@@ -16,6 +16,21 @@ highlight_language = "python"
 pygments_style = "sphinx"
 
 html_theme = "pydata_sphinx_theme"
+html_theme_options = {
+    "icon_links": [
+        {
+            "name": "jupyter.org",
+            "url": "https://jupyter.org",
+            "icon": "_static/jupyter_logo.svg",
+            "type": "local",
+        },
+        {
+            "name": "GitHub",
+            "url": "https://github.com/jupyterlab/plugin-playground",
+            "icon": "fab fa-github-square",
+        },
+    ],
+}
 html_static_path = ["_static"]
 
 html_css_files = ["custom.css"]
