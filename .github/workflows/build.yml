@@ -145,12 +145,13 @@ jobs:
       run: |
         set -eux
         python -m pip install twine wheel
-        test -f /tmp/plugin-playground-exported.whl
-        python -m twine check /tmp/plugin-playground-exported.whl
+        wheel_file="$(find /tmp -maxdepth 1 -type f -name '*-py3-none-any.whl' -print | head -n 1)"
+        test -n "$wheel_file"
+        python -m twine check "$wheel_file"
         if python -m wheel --help | grep -q 'verify'; then
-          python -m wheel verify /tmp/plugin-playground-exported.whl
+          python -m wheel verify "$wheel_file"
         else
-          python -m wheel unpack /tmp/plugin-playground-exported.whl --dest /tmp/plugin-playground-exported-wheel-unpacked
+          python -m wheel unpack "$wheel_file" --dest /tmp/plugin-playground-exported-wheel-unpacked
         fi
 
     - name: Execute docs screenshot tests
