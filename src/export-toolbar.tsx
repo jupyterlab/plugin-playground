@@ -28,7 +28,7 @@ const EXPORT_ARCHIVE_MENU_ITEMS = [
 ];
 
 function exportArchiveFormatLabel(format: ExportArchiveFormat): string {
-  return format === 'wheel' ? 'Python wheel (.whl)' : 'ZIP (.zip)';
+  return format === 'wheel' ? 'Python package (.whl)' : 'ZIP (.zip)';
 }
 
 function registerExportArchiveMenuCommands(
@@ -45,7 +45,7 @@ function registerExportArchiveMenuCommands(
     }
   });
   commands.addCommand(EXPORT_ARCHIVE_MENU_SELECT_WHEEL, {
-    label: 'Export as Python wheel (.whl)',
+    label: 'Export as Python package (.whl)',
     describedBy: { args: null },
     isToggled: () => getSelectedFormat() === 'wheel',
     execute: () => {

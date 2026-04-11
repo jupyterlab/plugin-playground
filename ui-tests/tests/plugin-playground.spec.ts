@@ -664,7 +664,7 @@ test('exports active extension folder as a zip archive', async ({
   expect(downloadCount).toBeGreaterThan(0);
 });
 
-test('exports active extension folder as a Python wheel from toolbar dropdown', async ({
+test('exports active extension folder as a Python package from toolbar dropdown', async ({
   page,
   tmpPath
 }) => {
@@ -734,7 +734,7 @@ test('exports active extension folder as a Python wheel from toolbar dropdown', 
   const wheelMenuItem = page
     .locator('.lm-Menu-item', {
       has: page.locator('.lm-Menu-itemLabel', {
-        hasText: 'Export as Python wheel (.whl)'
+        hasText: 'Export as Python package (.whl)'
       })
     })
     .first();
@@ -761,7 +761,7 @@ test('exports active extension folder as a Python wheel from toolbar dropdown', 
   );
 });
 
-test('exports active extension folder as a Python wheel', async ({
+test('exports active extension folder as a Python package', async ({
   page,
   tmpPath
 }) => {

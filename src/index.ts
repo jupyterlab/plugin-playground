@@ -241,7 +241,7 @@ const EXPORT_AS_EXTENSION_ARGS_SCHEMA = {
       type: 'string',
       enum: ['zip', 'wheel'],
       description:
-        'Optional archive format. Use "zip" for folder export or "wheel" for a Python wheel (.whl).'
+        'Optional archive format (default: "zip"). Use "zip" for folder export or "wheel" for a Python package (.whl).'
     }
   }
 };
