@@ -920,14 +920,15 @@ class PluginPlayground {
         archiveEntries = wheelArchive.entries;
       }
       downloadArchive(archiveEntries, archiveName);
+      const exportedFileCount = archiveEntries.length;
       const templateMessage = exportContext.usedTemplate
         ? ' A minimal extension-template scaffold was generated from the active file.'
         : '';
 
       Notification.success(
         `Downloaded "${archiveName}" with ` +
-          `${exportContext.archiveEntries.length} file` +
-          `${exportContext.archiveEntries.length === 1 ? '' : 's'} from ` +
+          `${exportedFileCount} file` +
+          `${exportedFileCount === 1 ? '' : 's'} from ` +
           `"${exportContext.rootPath}".${templateMessage}`,
         {
           autoClose: 5000
@@ -938,7 +939,7 @@ class PluginPlayground {
         ok: true,
         archiveName,
         rootPath: exportContext.rootPath,
-        fileCount: exportContext.archiveEntries.length
+        fileCount: exportedFileCount
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
