@@ -79,12 +79,48 @@ interface ICDNConsent {
 }
 
 export class ImportResolver {
+  private static _localCssStyles = new Map<string, HTMLStyleElement>();
+  private _localCssSnapshots = new Map<string, string | null>();
+  private _loadedLocalStylePaths = new Set<string>();
+
   constructor(private _options: ImportResolver.IOptions) {
     // no-op
   }
 
+  get loadedLocalStylePaths(): ReadonlySet<string> {
+    return this._loadedLocalStylePaths;
+  }
+
   set dynamicLoader(loader: (transpiledCode: string) => Promise<IModule>) {
     this._options.dynamicLoader = loader;
+  }
+
+  rollbackLocalStyleMutations(): void {
+    for (const [path, previousCss] of this._localCssSnapshots) {
+      if (previousCss === null) {
+        ImportResolver.removeLocalStyles([path]);
+        continue;
+      }
+
+      const styleElement = this._ensureLocalStyleElement(path);
+      styleElement.textContent = previousCss;
+    }
+    this._localCssSnapshots.clear();
+    this._loadedLocalStylePaths.clear();
+  }
+
+  commitLocalStyleMutations(): void {
+    this._localCssSnapshots.clear();
+  }
+
+  static removeLocalStyles(paths: Iterable<string>): void {
+    for (const path of paths) {
+      const styleElement = ImportResolver._localCssStyles.get(path);
+      if (styleElement) {
+        styleElement.remove();
+      }
+      ImportResolver._localCssStyles.delete(path);
+    }
   }
 
   /**
@@ -229,16 +265,21 @@ export class ImportResolver {
         continue;
       }
 
-      console.log(`Resolved ${module} to ${file.path}`);
+      const resolvedPath = ContentUtils.normalizeContentsPath(file.path);
+      console.log(`Resolved ${module} to ${resolvedPath}`);
       const content = ContentUtils.fileModelToText(file);
       if (content === null) {
         continue;
       }
 
-      if (file.path.endsWith('.svg')) {
+      const normalizedResolvedPath = resolvedPath.toLowerCase();
+      if (normalizedResolvedPath.endsWith('.svg')) {
         return {
           default: content as unknown as IModuleMember
         };
+      }
+      if (normalizedResolvedPath.endsWith('.css')) {
+        return this._loadLocalStyle(resolvedPath, content);
       }
 
       return await this._options.dynamicLoader(content);
@@ -261,11 +302,43 @@ export class ImportResolver {
       candidates.add(`${baseCandidate}.ts`);
       candidates.add(`${baseCandidate}.tsx`);
       candidates.add(`${baseCandidate}.js`);
+      candidates.add(`${baseCandidate}.css`);
       candidates.add(PathExt.join(baseCandidate, 'index.ts'));
       candidates.add(PathExt.join(baseCandidate, 'index.tsx'));
       candidates.add(PathExt.join(baseCandidate, 'index.js'));
+      candidates.add(PathExt.join(baseCandidate, 'index.css'));
     }
 
     return Array.from(candidates);
+  }
+
+  private _loadLocalStyle(path: string, css: string): IModule {
+    if (!this._localCssSnapshots.has(path)) {
+      const existing = ImportResolver._localCssStyles.get(path);
+      this._localCssSnapshots.set(
+        path,
+        existing && existing.isConnected ? existing.textContent ?? '' : null
+      );
+    }
+    this._loadedLocalStylePaths.add(path);
+    const styleElement = this._ensureLocalStyleElement(path);
+    if (styleElement.textContent !== css) {
+      styleElement.textContent = css;
+    }
+    return {
+      default: path as unknown as IModuleMember
+    };
+  }
+
+  private _ensureLocalStyleElement(path: string): HTMLStyleElement {
+    const head = document.head ?? document.documentElement;
+    let styleElement = ImportResolver._localCssStyles.get(path);
+    if (!styleElement || !styleElement.isConnected) {
+      styleElement = document.createElement('style');
+      styleElement.setAttribute('data-plugin-playground-style-path', path);
+      head.appendChild(styleElement);
+      ImportResolver._localCssStyles.set(path, styleElement);
+    }
+    return styleElement;
   }
 }
