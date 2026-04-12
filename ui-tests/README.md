@@ -28,6 +28,9 @@ cd ui-tests && jlpm playwright test --list
 
 # Run only this plugin spec
 cd ui-tests && jlpm playwright test tests/plugin-playground.spec.ts --workers=1
+
+# Generate README screenshots (writes to docs/images/readme)
+cd ui-tests && jlpm test:docs-screenshots
 ```
 
 ## Outputs

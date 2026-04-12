@@ -54,7 +54,8 @@
     "watch:src": "tsc -w",
     "watch:labextension": "jupyter labextension watch .",
     "test:integration": "cd ui-tests && jlpm test",
-    "test:integration:update": "cd ui-tests && jlpm test:update"
+    "test:integration:update": "cd ui-tests && jlpm test:update",
+    "docs:screenshots": "cd ui-tests && jlpm test:docs-screenshots"
   },
   "dependencies": {
     "@codemirror/state": "^6.5.4",

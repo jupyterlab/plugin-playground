@@ -19,23 +19,46 @@ pip install jupyterlab-plugin-playground
 
 ## How to use the Plugin Playground
 
-This extension provides a new command, `Load Current File As Extension`, available in the text editor.
+### Feature Highlights
 
-It also adds a single right sidebar panel with two collapsible sections:
+Plugin Playground is built to keep the full plugin prototyping workflow inside JupyterLab. In the editor toolbar, you can load the active file as an extension, export the current plugin folder as a starter extension archive, copy a shareable plugin link, and enable per-file `Auto Load on Save` for faster iteration while editing.
 
-- **Extension Points**: token string IDs and command IDs, with a `Tokens` / `Commands` switch. Tokens support search, copy, and import actions. Commands support search, copy, and insert-at-cursor actions.
-- **Extension Examples**: discovered examples from a local checkout of [`jupyterlab/extension-examples`](https://github.com/jupyterlab/extension-examples), so you can open them directly from the panel.
+![Plugin Playground editor toolbar actions](docs/images/readme/editor-toolbar-actions.png)
 
-If examples are missing:
+The right sidebar includes a single Plugin Playground panel with two collapsible sections. In **Extension Points**, the `Tokens` tab helps you discover available token strings and insert import/dependency updates, the `Commands` tab lets you search command IDs, inspect argument docs, and insert execution snippets (either directly or through AI-assisted prompt mode), and the `Packages` tab surfaces package docs plus npm and repository links for known modules.
+
+![Extension Points token discovery and insertion actions](docs/images/readme/extension-points-tokens.png)
+![Extension Points command discovery and insertion actions](docs/images/readme/extension-points-commands.png)
+![Packages reference tab in Extension Points](docs/images/readme/packages-reference.png)
+
+The **Extension Examples** section lists discovered examples from `extension-examples/` and lets you open source entrypoints and README files directly. This keeps reference implementations close while you prototype.
+
+![Extension Examples section with code and README actions](docs/images/readme/extension-examples.png)
+
+Command completion is also included for `app.commands.execute(...)` / `commands.execute(...)` in JavaScript and TypeScript editors, and Notebook v7 integrates `Plugin (Playground)` into New-file flows so you can create starter plugin files from the tree interface.
+
+To regenerate the screenshots used in this README:
+
+```bash
+jlpm docs:screenshots
+```
+
+### Quick Start
+
+1. Create a file with `TypeScript File (Playground)` (Command Palette) or `Plugin (Playground)` (Notebook v7 New menu).
+2. Paste plugin code into the active editor.
+3. Run `Load Current File As Extension` from the editor toolbar or Command Palette.
+4. Use `Auto Load on Save` for fast iteration on one file.
+5. Use the sidebar to discover tokens, commands, packages, and extension examples.
+
+For extension examples availability:
 
 - For source checkouts: run `git submodule update --init --recursive`.
-- For PyPI installs: clone `https://github.com/jupyterlab/extension-examples` into an `extension-examples/` folder in your working directory.
+- PyPI installs: bundled examples are copied into `extension-examples/` automatically when the server extension starts.
 
-When reloading a plugin with the same `id`, the playground attempts to deactivate the previously loaded plugin first. Defining `deactivate()` in examples is recommended for clean reruns.
+When reloading a plugin with the same `id`, Plugin Playground attempts to deactivate and deregister the previous plugin before loading the new one. Defining `deactivate()` is still recommended for clean reruns.
 
-When typing inside `commands.execute(` or `app.commands.execute(` in JavaScript and TypeScript editors, the completer will also suggest available command IDs.
-
-As an example, open the text editor by creating a new text file and paste this small JupyterLab plugin into it. This plugin will create a simple command `My Super Cool Toggle` in the command palette that can be toggled on and off.
+As an example, open the text editor by creating a new text file and paste this small JupyterLab plugin into it. This plugin creates a simple command `My Super Cool Toggle` in the command palette that can be toggled on and off.
 
 ```typescript
 import { ICommandPalette } from '@jupyterlab/apputils';
@@ -96,13 +119,13 @@ const plugin = {
 export default plugin;
 ```
 
-There are a few differences in how to write plugins in the Plugin Playground compared to writing plugins in a JupyterLab extension:
+There are a few differences in how to write plugins in Plugin Playground compared to writing a full JupyterLab extension:
 
-- The playground is more understanding: you can use JavaScript-like code rather than fully typed TypeScript and it will still compile.
-- You can only load a plugin with a given id more than once, but the previous version will not be unloaded. If you make changes to your plugin, save it and refresh the JupyterLab page to be able to load it afresh again.
-- To load code from an external package, RequireJS is used (it is hidden behind ES6-compatible import syntax) which means that the import statements need to be slightly modified to point to appropriate version or file in the package.
-  - In addition to JupyterLab and Lumino packages, only AMD modules can be imported; ES6 modules and modules compiled for consumption by Webpack/Node will not work in the current version and an attempt to load such modules will result in `Uncaught SyntaxError: Unexpected token 'export'` error.
-- While the playground will attempt to import relative files (with `.ts` suffix), SVG (as strings), and to load `plugin.json` schema, these are experimental features for rapid prototyping and details are subject to change; other resources like CSS styles are not yet supported (but the support is planned)
+- The playground is more forgiving: you can use JavaScript-like code rather than strictly typed TypeScript and it will still compile.
+- You can load a plugin with a given `id` more than once during iteration. Plugin Playground attempts to deactivate and deregister the previous version before registering the new one. Defining `deactivate()` in your plugin is still recommended for predictable cleanup between reloads.
+- To load code from an external package, RequireJS is used (hidden behind ES module-compatible import syntax), so import statements may need explicit version or file paths.
+  - In addition to JupyterLab and Lumino packages, only AMD modules can be imported; ES modules and modules compiled for Webpack/Node are not supported directly and can fail with `Uncaught SyntaxError: Unexpected token 'export'`.
+- While the playground can import relative files (`.ts`), load SVG as strings, and load `plugin.json` schema for rapid prototyping, these capabilities are still evolving; other resources such as CSS files are not currently supported.
 
 ### Migrating from version 0.3.0
 
@@ -141,17 +164,23 @@ Plugin Playground supports AI-assisted extension prototyping in both JupyterLite
 
 ### Command Insert Modes (Default + AI Prompt)
 
-The `+` action in the `Commands` tab depends on mode:
+In the `Commands` tab, each command row includes a split `+` action and a mode dropdown:
 
 - `Insert in selection` inserts:
 
-```ts
-app.commands.execute('<command-id>');
-```
+  ```ts
+  app.commands.execute('<command-id>');
+  ```
 
-at the active cursor position.
+  at the active cursor position in the current editor.
 
-- `Prompt AI to insert` does not insert directly. It opens JupyterLite AI chat and prefills a prompt with file context so AI can choose the best insertion location before you submit.
+- `Prompt AI to insert` does not insert directly. It opens JupyterLite AI chat and prefills a contextual prompt so AI can choose a better insertion location before you submit.
+
+![Command insert mode dropdown with AI option](docs/images/readme/command-insert-mode-dropdown.png)
+
+The same command row also includes the `f(n)` button to inspect command argument docs inline before insertion.
+
+![Command argument documentation expanded in Commands tab](docs/images/readme/command-argument-docs.png)
 
 The sidebar remembers your last-used command insert mode in:
 
@@ -159,17 +188,25 @@ The sidebar remembers your last-used command insert mode in:
 
 ### Commands for AI Agents and Automation
 
-Plugin Playground now exposes command APIs that mirror sidebar data and support optional `query` filtering:
+Plugin Playground exposes command APIs for scripting, agents, and automation:
 
-- `plugin-playground:list-tokens`
-- `plugin-playground:list-commands`
-- `plugin-playground:list-extension-examples`
-- `plugin-playground:export-as-extension` (supports optional `{ path: string }`)
-- `plugin-playground:share-via-link` (supports optional `{ path: string }`)
+- `plugin-playground:create-new-plugin` (supports optional `{ cwd?: string, path?: string }`)
+- `plugin-playground:load-as-extension`
+- `plugin-playground:open-js-explorer`
+- `plugin-playground:list-tokens` (supports optional `{ query?: string }`)
+- `plugin-playground:list-commands` (supports optional `{ query?: string }`)
+- `plugin-playground:list-extension-examples` (supports optional `{ query?: string }`)
+- `plugin-playground:export-as-extension` (supports optional `{ path?: string }`)
+- `plugin-playground:share-via-link` (supports optional `{ path?: string }`)
 
 Example:
 
 ```typescript
+await app.commands.execute('plugin-playground:create-new-plugin', {
+  cwd: 'my-extension/src',
+  path: 'index.ts'
+});
+
 await app.commands.execute('plugin-playground:list-tokens', {
   query: 'notebook'
 });
@@ -205,23 +242,43 @@ return a JSON object with:
 
 ## Advanced Settings
 
-The Advanced Settings for the Plugin Playground enable you to configure plugins to load every time JupyterLab starts up. Automatically loaded plugins can be configured in two ways:
+Plugin Playground settings are available in `Settings > Settings Editor > Plugin Playground`. These settings are intended to support both quick experiments and repeatable startup workflows.
 
-- `urls` is a list of URLs that will be fetched and loaded as plugins automatically when JupyterLab starts up. For example, you can point to a GitHub gist or a file you host on a local server that serves text files like the above examples.
-- `plugins` is a list of strings of plugin text, like the examples above, that are loaded automatically when JupyterLab starts up. Since JSON strings cannot have multiple lines, you will need to encode any newlines in your plugin text directly as `\n\` (the second backslash is to allow the string to continue on the next line). For example, here is a user setting to encode a small plugin to run at startup:
-  ```json5
-  {
-    plugins: [
-      "{ \n\
-        id: 'MyConsoleLoggingPlugin', \n\
-        autoStart: true, \n\
-        activate: function(app) { \n\
-          console.log('Activated!'); \n\
-        } \n\
-      }"
-    ]
-  }
-  ```
+`allowCDN` controls whether unknown packages can be executed from a CDN. The default `awaiting-decision` mode keeps things explicit, while `always-insecure` and `never` let you enforce a fixed policy.
+
+`requirejsCDN` defines the base URL used by RequireJS to resolve unknown package imports (for example `https://cdn.jsdelivr.net/npm/`). If you rely on external AMD packages in prototypes, this setting determines where those packages are fetched from.
+
+`loadOnSave` enables automatic load-as-extension behavior on save for supported editor files (JavaScript and TypeScript). This is useful when iterating quickly without repeatedly triggering the load command manually.
+
+`commandInsertDefaultMode` sets the default behavior for the `+` action in the Commands tab (`insert` for direct insertion or `ai` for AI-assisted prompt flow).
+
+![Plugin Playground settings showing command insert default mode](docs/images/readme/settings-command-insert-default-mode.png)
+
+For startup automation, there are two complementary settings:
+
+- `urls` is a list of plugin URLs that are fetched and loaded at startup. This is useful for hosting a plugin source file externally (for example, a gist or internal text endpoint) and keeping clients in sync.
+- `plugins` is a list of plugin source strings loaded at startup. This is useful for embedding short startup plugins directly in settings. Because these are JSON strings, multiline code must encode line breaks as `\n\`.
+
+Example:
+
+```json5
+{
+  allowCDN: 'awaiting-decision',
+  requirejsCDN: 'https://cdn.jsdelivr.net/npm/',
+  loadOnSave: false,
+  commandInsertDefaultMode: 'insert',
+  urls: ['https://gist.githubusercontent.com/.../raw/plugin.ts'],
+  plugins: [
+    "{ \n\
+      id: 'MyConsoleLoggingPlugin', \n\
+      autoStart: true, \n\
+      activate: function(app) { \n\
+        console.log('Activated!'); \n\
+      } \n\
+    }"
+  ]
+}
+```
 
 ## Contributing
 
@@ -286,6 +343,7 @@ Run from repository root:
 ```bash
 jlpm run build:prod
 jlpm run test:integration
+jlpm run docs:screenshots
 ```
 
 setup:
