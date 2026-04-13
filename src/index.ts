@@ -1612,6 +1612,24 @@ class PluginPlayground {
     const newlyRegisteredPluginIds: string[] = [];
 
     try {
+      for (const declaredStylePath of result.declaredStylePaths) {
+        if (!path) {
+          continue;
+        }
+        const normalizedImportPath = ContentUtils.normalizeContentsPath(path);
+        const normalizedDeclaredStylePath =
+          ContentUtils.normalizeContentsPath(declaredStylePath);
+        const importBaseDirectory = PathExt.dirname(normalizedImportPath);
+        const relativeStylePath = PathExt.relative(
+          importBaseDirectory,
+          normalizedDeclaredStylePath
+        );
+        const styleModule = relativeStylePath.startsWith('.')
+          ? relativeStylePath
+          : `./${relativeStylePath}`;
+        await importResolver.resolve(styleModule);
+      }
+
       for (const plugin of plugins) {
         const schema = result.schemas[plugin.id];
         if (!schema) {
