@@ -406,6 +406,9 @@ export class TokenSidebar extends ReactWidget {
                       </code>
                       <div className="jp-PluginPlayground-tokenActions">
                         <SplitActionButton
+                          containerClassName="jp-PluginPlayground-commandInsertSplit"
+                          primaryClassName="jp-PluginPlayground-commandInsertButton"
+                          menuClassName="jp-PluginPlayground-commandInsertMenuButton jp-PluginPlayground-commandInsertDropdownButton"
                           disabled={!canInsertCommand}
                           onPrimaryMouseDown={event => {
                             event.preventDefault();

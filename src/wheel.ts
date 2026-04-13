@@ -118,7 +118,7 @@ function createWheelMetadata(
 }
 
 function escapeCsv(value: string): string {
-  if (!/[",\n]/.test(value)) {
+  if (!/[",\r\n]/.test(value)) {
     return value;
   }
   return `"${value.replace(/"/g, '""')}"`;

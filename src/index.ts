@@ -1237,7 +1237,9 @@ class PluginPlayground {
       path
     );
     if (source === null) {
-      throw new Error(`Could not read file "${path}".`);
+      throw new Error(
+        `Could not read file "${path}" as text. The file may not exist or may not be readable as text.`
+      );
     }
     return source;
   }

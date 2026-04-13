@@ -2,12 +2,11 @@ import { MenuSvg } from '@jupyterlab/ui-components';
 import type { ReadonlyJSONObject } from '@lumino/coreutils';
 import * as React from 'react';
 
-const SPLIT_ACTION_CONTAINER_CLASSNAME =
-  'jp-PluginPlayground-commandInsertSplit';
+const SPLIT_ACTION_CONTAINER_CLASSNAME = 'jp-PluginPlayground-splitAction';
 const SPLIT_ACTION_PRIMARY_BUTTON_CLASSNAME =
-  'jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-commandInsertButton';
+  'jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-splitActionPrimaryButton';
 const SPLIT_ACTION_MENU_BUTTON_CLASSNAME =
-  'jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-commandInsertMenuButton jp-PluginPlayground-commandInsertDropdownButton';
+  'jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-splitActionMenuButton jp-PluginPlayground-splitActionDropdownButton';
 
 export interface IMenuCommandItem {
   command: string;
@@ -40,13 +39,26 @@ interface ISplitActionButtonProps {
   menuContent: React.ReactNode;
   onPrimaryMouseDown?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   onMenuMouseDown?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  containerClassName?: string;
+  primaryClassName?: string;
+  menuClassName?: string;
 }
 
 export function SplitActionButton(props: ISplitActionButtonProps): JSX.Element {
+  const containerClassName = props.containerClassName
+    ? `${SPLIT_ACTION_CONTAINER_CLASSNAME} ${props.containerClassName}`
+    : SPLIT_ACTION_CONTAINER_CLASSNAME;
+  const primaryClassName = props.primaryClassName
+    ? `${SPLIT_ACTION_PRIMARY_BUTTON_CLASSNAME} ${props.primaryClassName}`
+    : SPLIT_ACTION_PRIMARY_BUTTON_CLASSNAME;
+  const menuClassName = props.menuClassName
+    ? `${SPLIT_ACTION_MENU_BUTTON_CLASSNAME} ${props.menuClassName}`
+    : SPLIT_ACTION_MENU_BUTTON_CLASSNAME;
+
   return (
-    <div className={SPLIT_ACTION_CONTAINER_CLASSNAME}>
+    <div className={containerClassName}>
       <button
-        className={SPLIT_ACTION_PRIMARY_BUTTON_CLASSNAME}
+        className={primaryClassName}
         type="button"
         onMouseDown={props.onPrimaryMouseDown}
         onClick={props.onPrimaryClick}
@@ -57,7 +69,7 @@ export function SplitActionButton(props: ISplitActionButtonProps): JSX.Element {
         {props.primaryContent}
       </button>
       <button
-        className={SPLIT_ACTION_MENU_BUTTON_CLASSNAME}
+        className={menuClassName}
         type="button"
         onMouseDown={props.onMenuMouseDown}
         onClick={event => {
