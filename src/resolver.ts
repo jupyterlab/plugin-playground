@@ -4,7 +4,7 @@ import { formatImportError } from './errors';
 
 import { Token } from '@lumino/coreutils';
 
-import { PathExt } from '@jupyterlab/coreutils';
+import { PageConfig, PathExt } from '@jupyterlab/coreutils';
 
 import { IRequireJS } from './requirejs';
 
@@ -321,13 +321,65 @@ export class ImportResolver {
       );
     }
     this._loadedLocalStylePaths.add(path);
+    const rewrittenCss = this._rewriteRelativeCssImports(css, path);
     const styleElement = this._ensureLocalStyleElement(path);
-    if (styleElement.textContent !== css) {
-      styleElement.textContent = css;
+    if (styleElement.textContent !== rewrittenCss) {
+      styleElement.textContent = rewrittenCss;
     }
     return {
       default: path as unknown as IModuleMember
     };
+  }
+
+  private _rewriteRelativeCssImports(css: string, path: string): string {
+    const applicationBaseUrl = new URL(
+      PageConfig.getBaseUrl(),
+      window.location.href
+    );
+    const filesBaseUrl = new URL('files/', applicationBaseUrl);
+    const baseDirectory = PathExt.dirname(path);
+    return css.replace(
+      /@import\s+(url\(\s*)?(["']?)([^"')\s;]+)\2\s*\)?/gi,
+      (
+        match,
+        urlPrefix: string | undefined,
+        quote: string,
+        specifier: string
+      ) => {
+        if (!this._isRelativeCssSpecifier(specifier)) {
+          return match;
+        }
+        const resolvedPath = ContentUtils.normalizeContentsPath(
+          PathExt.join(baseDirectory, specifier)
+        );
+        const routedSpecifier = new URL(
+          encodeURI(resolvedPath),
+          filesBaseUrl
+        ).toString();
+        const normalizedQuote = quote || "'";
+        if (urlPrefix) {
+          return `@import ${urlPrefix}${normalizedQuote}${routedSpecifier}${normalizedQuote})`;
+        }
+        return `@import ${normalizedQuote}${routedSpecifier}${normalizedQuote}`;
+      }
+    );
+  }
+
+  private _isRelativeCssSpecifier(specifier: string): boolean {
+    const normalizedSpecifier = specifier.trim().toLowerCase();
+    if (!normalizedSpecifier || normalizedSpecifier.startsWith('/')) {
+      return false;
+    }
+    if (normalizedSpecifier.startsWith('//')) {
+      return false;
+    }
+    if (normalizedSpecifier.startsWith('#')) {
+      return false;
+    }
+    if (/^[a-z][a-z0-9+.-]*:/.test(normalizedSpecifier)) {
+      return false;
+    }
+    return true;
   }
 
   private _ensureLocalStyleElement(path: string): HTMLStyleElement {

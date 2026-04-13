@@ -141,6 +141,10 @@ const CSS_IMPORT_TEST_STYLE_UPDATED = `
 }
 `;
 
+const CSS_IMPORT_TEST_STYLE_WITH_RELATIVE_IMPORT = `
+@import url('base.css');
+`;
+
 const CSS_IMPORT_TEST_BROKEN_MODULE = `
 throw new Error('${CSS_IMPORT_TEST_BROKEN_MODULE_ERROR}');
 `;
@@ -835,6 +839,80 @@ test('loads package.json style entry without explicit source CSS import', async 
     packageJsonPath
   );
   await page.contents.uploadContent(CSS_IMPORT_TEST_STYLE, 'text', stylePath);
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_SOURCE_WITHOUT_STYLE,
+    'text',
+    sourcePath
+  );
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+  const loadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(loadResult.ok).toBe(true);
+  expect(loadResult.status).toBe('loaded');
+  expect(loadResult.pluginIds).toContain(CSS_IMPORT_TEST_PLUGIN_ID);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, color }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return window.getComputedStyle(marker).backgroundColor === color;
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        color: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await expect(
+    page.evaluate((markerId: string) => {
+      const marker = document.getElementById(markerId);
+      if (!marker) {
+        return null;
+      }
+      return window.getComputedStyle(marker).backgroundColor;
+    }, CSS_IMPORT_TEST_MARKER_ID)
+  ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
+});
+
+test('loads package.json style entry with relative CSS @import', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/css-package-style-import-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+  const indexStylePath = `${projectRoot}/style/index.css`;
+  const baseStylePath = `${projectRoot}/style/base.css`;
+
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_PACKAGE_JSON_WITH_STYLE,
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_STYLE_WITH_RELATIVE_IMPORT,
+    'text',
+    indexStylePath
+  );
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_STYLE,
+    'text',
+    baseStylePath
+  );
   await page.contents.uploadContent(
     CSS_IMPORT_TEST_SOURCE_WITHOUT_STYLE,
     'text',
