@@ -386,6 +386,19 @@
 
 .jp-Toolbar > .jp-Toolbar-item[data-jp-item-name='export-extension'] {
   margin-left: auto;
+  order: 1001;
+}
+
+.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name='share-extension-link'] {
+  order: 1002;
+}
+
+.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name='reject-all-diff'] {
+  order: 1003;
+}
+
+.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name='accept-all-diff'] {
+  order: 1004;
 }
 
 @keyframes jp-PluginPlayground-lineChangePulse {
