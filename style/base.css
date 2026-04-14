@@ -384,6 +384,119 @@
   color: var(--jp-ui-font-color2);
 }
 
+.jp-PluginPlayground-urlLoadedEditorHint
+  .jp-Toolbar
+  > .jp-Toolbar-item[data-jp-item-name='insert']
+  .jp-ToolbarButtonComponent {
+  color: var(--jp-success-color1, #2e7d32);
+}
+
+.jp-PluginPlayground-urlLoadedEditorHint
+  .jp-Toolbar
+  > .jp-Toolbar-item[data-jp-item-name='insert']
+  .jp-ToolbarButtonComponent:hover,
+.jp-PluginPlayground-urlLoadedEditorHint
+  .jp-Toolbar
+  > .jp-Toolbar-item[data-jp-item-name='insert']
+  .jp-ToolbarButtonComponent:focus-visible {
+  color: var(--jp-success-color0, #1f7a1f);
+}
+
+.jp-PluginPlayground-urlLoadedEditorHint
+  .jp-Toolbar
+  > .jp-Toolbar-item[data-jp-item-name='insert']
+  .jp-ToolbarButtonComponent
+  svg {
+  color: currentColor;
+}
+
+.jp-PluginPlayground-urlLoadedEditorHint
+  .jp-Toolbar
+  > .jp-Toolbar-item[data-jp-item-name='insert']
+  .jp-ToolbarButtonComponent
+  svg
+  * {
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+.jp-PluginPlayground-urlLoadedHintCard {
+  background: var(--jp-layout-color1);
+  border: 1px solid var(--jp-border-color1);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  color: var(--jp-ui-font-color1);
+  display: flex;
+  flex-direction: column;
+  font-size: var(--jp-ui-font-size0);
+  gap: 4px;
+  line-height: 1.3;
+  max-width: 240px;
+  min-width: 200px;
+  padding: 10px 12px;
+  position: relative;
+}
+
+.jp-PluginPlayground-urlLoadedFloatingHint {
+  left: 0;
+  position: absolute;
+  top: 0;
+  z-index: 20;
+}
+
+.jp-PluginPlayground-urlLoadedHintCard::before {
+  background: var(--jp-layout-color1);
+  border-left: 1px solid var(--jp-border-color1);
+  border-top: 1px solid var(--jp-border-color1);
+  content: '';
+  height: 12px;
+  left: 6px;
+  position: absolute;
+  top: -7px;
+  transform: rotate(45deg);
+  width: 12px;
+}
+
+.jp-PluginPlayground-urlLoadedHintText {
+  font-size: var(--jp-ui-font-size1);
+  font-weight: 600;
+  line-height: 1.2;
+  padding-right: 18px;
+}
+
+.jp-PluginPlayground-urlLoadedHintDescription {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1.35;
+}
+
+.jp-PluginPlayground-urlLoadedHintClose {
+  align-items: center;
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  color: var(--jp-ui-font-color2);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 15px;
+  height: 20px;
+  justify-content: center;
+  line-height: 1;
+  margin: 0;
+  padding: 0;
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  width: 20px;
+}
+
+.jp-PluginPlayground-urlLoadedHintClose:hover,
+.jp-PluginPlayground-urlLoadedHintClose:focus-visible {
+  background: var(--jp-layout-color2);
+  color: var(--jp-ui-font-color0);
+  outline: none;
+}
+
 .jp-Toolbar > .jp-Toolbar-item[data-jp-item-name='export-extension'] {
   margin-left: auto;
   order: 1001;

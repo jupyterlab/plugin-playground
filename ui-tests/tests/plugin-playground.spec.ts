@@ -731,15 +731,17 @@ test('loads a shared plugin from URL and clears query param', async ({
   tmpPath
 }) => {
   const projectRoot = `${tmpPath}/share-load-command-test`;
+  const sharedPluginId = 'share-load-command-test:plugin';
+  const sharedToggleCommand = 'share-load-command-test:toggle';
   const sourceFilename = 'share-load-entry.ts';
   const sourcePath = `${projectRoot}/src/${sourceFilename}`;
   const packageJsonPath = `${projectRoot}/package.json`;
   const sharedPluginSource = `
 const plugin = {
-  id: 'share-load-command-test:plugin',
+  id: '${sharedPluginId}',
   autoStart: true,
   activate: app => {
-    app.commands.addCommand('share-load-command-test:toggle', {
+    app.commands.addCommand('${sharedToggleCommand}', {
       label: 'Share Load Toggle',
       execute: () => {
         return undefined;
@@ -834,6 +836,89 @@ export default plugin;
         'Shared file was not restored under plugin-playground-shared.'
       );
     }
+    await page.filebrowser.open(restoredPath);
+    expect(await page.activity.activateTab(sourceFilename)).toBe(true);
+
+    const toolbarState = await page.evaluate(() => {
+      const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+      const root = current?.node as HTMLElement | undefined;
+      if (!root) {
+        return null;
+      }
+      const loadItem = root.querySelector(
+        '.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name="insert"]'
+      ) as HTMLElement | null;
+      const loadButton = loadItem?.querySelector(
+        '.jp-ToolbarButtonComponent'
+      ) as HTMLElement | null;
+      const floatingHint = root.querySelector(
+        '.jp-PluginPlayground-urlLoadedFloatingHint'
+      ) as HTMLElement | null;
+      const exportButton = root.querySelector(
+        '.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name="export-extension"] .jp-ToolbarButtonComponent'
+      ) as HTMLElement | null;
+      const loadIcon = loadButton?.querySelector('svg') as SVGElement | null;
+      const exportIcon = exportButton?.querySelector(
+        'svg'
+      ) as SVGElement | null;
+      return {
+        hasHintClass: root.classList.contains(
+          'jp-PluginPlayground-urlLoadedEditorHint'
+        ),
+        hintLabel:
+          floatingHint
+            ?.querySelector('.jp-PluginPlayground-urlLoadedHintText')
+            ?.textContent?.trim() ?? '',
+        hasHintCloseButton: !!floatingHint?.querySelector(
+          '.jp-PluginPlayground-urlLoadedHintClose'
+        ),
+        hasVisibleFloatingHint:
+          !!floatingHint &&
+          window.getComputedStyle(floatingHint).display !== 'none',
+        loadButtonIconColor: loadIcon
+          ? window.getComputedStyle(loadIcon).color
+          : '',
+        exportButtonIconColor: exportIcon
+          ? window.getComputedStyle(exportIcon).color
+          : ''
+      };
+    });
+    expect(toolbarState).not.toBeNull();
+    expect(toolbarState?.hasHintClass).toBe(true);
+    expect(toolbarState?.hintLabel).toBe('Load as Extension');
+    expect(toolbarState?.hasHintCloseButton).toBe(true);
+    expect(toolbarState?.hasVisibleFloatingHint).toBe(true);
+    expect(toolbarState?.loadButtonIconColor).not.toBe(
+      toolbarState?.exportButtonIconColor
+    );
+
+    const loadResult = await page.evaluate((id: string) => {
+      return window.jupyterapp.commands.execute(id);
+    }, LOAD_COMMAND);
+    expect(loadResult.ok).toBe(true);
+    expect(loadResult.status).toBe('loaded');
+    expect(loadResult.pluginIds).toContain(sharedPluginId);
+
+    await page.waitForCondition(() =>
+      page.evaluate(() => {
+        const current = window.jupyterapp.shell
+          .currentWidget as FileEditorWidget;
+        const root = current?.node as HTMLElement | undefined;
+        const floatingHint = root?.querySelector(
+          '.jp-PluginPlayground-urlLoadedFloatingHint'
+        ) as HTMLElement | null;
+        const hintDisplay = floatingHint
+          ? window.getComputedStyle(floatingHint).display
+          : 'none';
+        return (
+          !!current &&
+          !!root &&
+          !root.classList.contains('jp-PluginPlayground-urlLoadedEditorHint') &&
+          hintDisplay === 'none'
+        );
+      })
+    );
+
     const restoredSource = await page.evaluate(async (path: string) => {
       const fileModel = await window.jupyterapp.serviceManager.contents.get(
         path,
@@ -844,15 +929,14 @@ export default plugin;
       );
       return typeof fileModel.content === 'string' ? fileModel.content : null;
     }, restoredPath);
-    const browserState = await page.evaluate(() => {
+    const browserState = await page.evaluate((toggleCommand: string) => {
       const currentUrl = new URL(window.location.href);
       return {
         pluginQueryParam: currentUrl.searchParams.get('plugin'),
-        hasLoadedToggleCommand: window.jupyterapp.commands.hasCommand(
-          'share-load-command-test:toggle'
-        )
+        hasLoadedToggleCommand:
+          window.jupyterapp.commands.hasCommand(toggleCommand)
       };
-    });
+    }, sharedToggleCommand);
     const hasUntitledFolderWithSameNamedFile = await page.evaluate(async () => {
       const root = await window.jupyterapp.serviceManager.contents.get('', {
         content: true
@@ -899,7 +983,7 @@ export default plugin;
     expect(restoredPath.includes(`/${sourceFilename}`)).toBe(true);
     expect(restoredSource?.trim()).toBe(sharedPluginSource.trim());
     expect(browserState.pluginQueryParam).toBeNull();
-    expect(browserState.hasLoadedToggleCommand).toBe(false);
+    expect(browserState.hasLoadedToggleCommand).toBe(true);
     expect(hasUntitledFolderWithSameNamedFile).toBe(false);
   } finally {
     await page.unrouteAll({ behavior: 'ignoreErrors' });

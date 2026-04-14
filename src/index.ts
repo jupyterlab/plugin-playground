@@ -72,6 +72,7 @@ import {
 } from './token-sidebar';
 
 import { ExampleSidebar, filterExampleRecords } from './example-sidebar';
+import { createFloatingUrlLoadHint } from './components/url-load-hint';
 
 import { tokenSidebarIcon } from './icons';
 
@@ -298,6 +299,11 @@ const ARCHIVE_FILE_READ_CONCURRENCY = 8;
 const SHARE_URL_WARN_LENGTH = 1800;
 const SHARE_URL_MAX_LENGTH = 8000;
 const SHARED_LINKS_ROOT = 'plugin-playground-shared';
+const URL_LOADED_EDITOR_HINT_CLASS = 'jp-PluginPlayground-urlLoadedEditorHint';
+const URL_LOADED_EDITOR_HINT_TITLE = 'Load as Extension';
+const URL_LOADED_EDITOR_HINT_MESSAGE =
+  'Run this shared file in the playground.';
+const URL_LOADED_EDITOR_HINT_DISMISS_LABEL = 'Close load as extension hint';
 const NOTEBOOK_FILE_BROWSER_FACTORY = 'FileBrowser';
 const NOTEBOOK_NEW_DROPDOWN_TOOLBAR_ITEM = 'new-dropdown';
 const NOTEBOOK_TREE_OPEN_SIDEBAR_KEY =
@@ -349,6 +355,9 @@ class PluginPlayground {
       execute: async () => {
         const currentWidget = editorTracker.currentWidget;
         if (currentWidget) {
+          if (this._sharedFileCueWidgetId === currentWidget.id) {
+            this._dismissSharedFileCue?.();
+          }
           const currentText = currentWidget.context.model.toString();
           return this._queuePluginLoad(currentText, currentWidget.context.path);
         }
@@ -813,6 +822,89 @@ class PluginPlayground {
     return toggleWidget;
   }
 
+  private _showSharedFileToolbarCue(
+    widget: IDocumentWidget<FileEditor>,
+    sourcePath: string
+  ): void {
+    this._dismissSharedFileCue?.();
+
+    let isDisposed = false;
+    let rafId: number | null = null;
+    const normalizedSourcePath = ContentUtils.normalizeContentsPath(sourcePath);
+    const loadToolbarItemSelector =
+      '.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name="insert"]';
+
+    const queueHintPositionRefresh = () => {
+      if (rafId !== null || isDisposed) {
+        return;
+      }
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        if (isDisposed) {
+          return;
+        }
+        const loadItemNode = widget.node.querySelector(
+          loadToolbarItemSelector
+        ) as HTMLElement | null;
+        if (!loadItemNode) {
+          return;
+        }
+        floatingHint.setPosition(
+          loadItemNode.offsetLeft,
+          loadItemNode.offsetTop + loadItemNode.offsetHeight + 3
+        );
+      });
+    };
+
+    const disposeCue = () => {
+      if (isDisposed) {
+        return;
+      }
+      isDisposed = true;
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      widget.removeClass(URL_LOADED_EDITOR_HINT_CLASS);
+      window.removeEventListener('resize', queueHintPositionRefresh);
+      widget.context.pathChanged.disconnect(onPathChanged);
+      widget.disposed.disconnect(disposeCue);
+      if (this._sharedFileCueWidgetId === widget.id) {
+        this._sharedFileCueWidgetId = null;
+        this._dismissSharedFileCue = null;
+      }
+      floatingHint.dispose();
+    };
+
+    const floatingHint = createFloatingUrlLoadHint({
+      parent: widget.node,
+      title: URL_LOADED_EDITOR_HINT_TITLE,
+      description: URL_LOADED_EDITOR_HINT_MESSAGE,
+      closeAriaLabel: URL_LOADED_EDITOR_HINT_DISMISS_LABEL,
+      onClose: disposeCue
+    });
+
+    widget.addClass(URL_LOADED_EDITOR_HINT_CLASS);
+    floatingHint.show();
+    queueHintPositionRefresh();
+    window.addEventListener('resize', queueHintPositionRefresh);
+
+    this._sharedFileCueWidgetId = widget.id;
+    this._dismissSharedFileCue = disposeCue;
+    const onPathChanged = (
+      _context: DocumentRegistry.Context,
+      newPath: string
+    ) => {
+      if (
+        ContentUtils.normalizeContentsPath(newPath) !== normalizedSourcePath
+      ) {
+        disposeCue();
+      }
+    };
+    widget.context.pathChanged.connect(onPathChanged);
+    widget.disposed.connect(disposeCue);
+  }
+
   private _queuePluginLoad(
     pluginSource: string,
     path: string
@@ -1171,6 +1263,19 @@ class PluginPlayground {
         path: restoredPath,
         factory: 'Editor'
       });
+      let restoredWidget: IDocumentWidget<FileEditor> | null = null;
+      this.editorTracker.forEach(candidate => {
+        if (
+          !restoredWidget &&
+          ContentUtils.normalizeContentsPath(candidate.context.path) ===
+            restoredPath
+        ) {
+          restoredWidget = candidate;
+        }
+      });
+      if (restoredWidget) {
+        this._showSharedFileToolbarCue(restoredWidget, restoredPath);
+      }
       Notification.success(
         `Opened shared plugin from URL at "${restoredPath}" (1 file). `,
         {
@@ -2764,6 +2869,8 @@ class PluginPlayground {
   >();
   private readonly _loadOnSaveByFile = new Set<string>();
   private readonly _loadOnSaveToggleRefreshers = new Set<() => void>();
+  private _sharedFileCueWidgetId: string | null = null;
+  private _dismissSharedFileCue: (() => void) | null = null;
   private readonly _tokenMap = new Map<string, Token<string>>();
   private readonly _tokenDescriptionMap = new Map<string, string>();
   private readonly _documentationWidgets = new Map<
