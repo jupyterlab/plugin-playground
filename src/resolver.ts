@@ -78,8 +78,21 @@ interface ICDNConsent {
   readonly agreed: boolean;
 }
 
+interface ILocalCssSnapshotEntry {
+  id: number;
+  previousCss: string | null;
+}
+
 export class ImportResolver {
   private static _localCssStyles = new Map<string, HTMLStyleElement>();
+  private static _localCssSnapshotStacks = new Map<
+    string,
+    ILocalCssSnapshotEntry[]
+  >();
+  private static _nextLocalCssSnapshotId = 0;
+
+  private readonly _localCssSnapshotId =
+    ImportResolver._nextLocalCssSnapshotId++;
   private _localCssSnapshots = new Map<string, string | null>();
   private _loadedLocalStylePaths = new Set<string>();
 
@@ -97,19 +110,58 @@ export class ImportResolver {
 
   rollbackLocalStyleMutations(): void {
     for (const [path, previousCss] of this._localCssSnapshots) {
-      if (previousCss === null) {
-        ImportResolver.removeLocalStyles([path]);
+      const stack = ImportResolver._localCssSnapshotStacks.get(path);
+      if (!stack) {
         continue;
       }
 
-      const styleElement = this._ensureLocalStyleElement(path);
-      styleElement.textContent = previousCss;
+      const index = stack.findIndex(
+        entry => entry.id === this._localCssSnapshotId
+      );
+      if (index === -1) {
+        continue;
+      }
+
+      const isTopOfStack = index === stack.length - 1;
+      if (isTopOfStack) {
+        this._restoreLocalStyle(path, previousCss);
+      } else {
+        stack[index + 1].previousCss = previousCss;
+      }
+
+      stack.splice(index, 1);
+      if (stack.length === 0) {
+        ImportResolver._localCssSnapshotStacks.delete(path);
+      }
     }
     this._localCssSnapshots.clear();
     this._loadedLocalStylePaths.clear();
   }
 
   commitLocalStyleMutations(): void {
+    for (const path of this._localCssSnapshots.keys()) {
+      const stack = ImportResolver._localCssSnapshotStacks.get(path);
+      if (!stack) {
+        continue;
+      }
+
+      const index = stack.findIndex(
+        entry => entry.id === this._localCssSnapshotId
+      );
+      if (index === -1) {
+        continue;
+      }
+
+      const isTopOfStack = index === stack.length - 1;
+      if (isTopOfStack && index > 0) {
+        stack[index - 1].previousCss = ImportResolver._getCurrentLocalCss(path);
+      }
+
+      stack.splice(index, 1);
+      if (stack.length === 0) {
+        ImportResolver._localCssSnapshotStacks.delete(path);
+      }
+    }
     this._localCssSnapshots.clear();
   }
 
@@ -313,13 +365,7 @@ export class ImportResolver {
   }
 
   private _loadLocalStyle(path: string, css: string): IModule {
-    if (!this._localCssSnapshots.has(path)) {
-      const existing = ImportResolver._localCssStyles.get(path);
-      this._localCssSnapshots.set(
-        path,
-        existing && existing.isConnected ? existing.textContent ?? '' : null
-      );
-    }
+    this._snapshotLocalStyle(path);
     this._loadedLocalStylePaths.add(path);
     const rewrittenCss = this._rewriteRelativeCssImports(css, path);
     const styleElement = this._ensureLocalStyleElement(path);
@@ -392,5 +438,39 @@ export class ImportResolver {
       ImportResolver._localCssStyles.set(path, styleElement);
     }
     return styleElement;
+  }
+
+  private _snapshotLocalStyle(path: string): void {
+    if (this._localCssSnapshots.has(path)) {
+      return;
+    }
+
+    const previousCss = ImportResolver._getCurrentLocalCss(path);
+    this._localCssSnapshots.set(path, previousCss);
+
+    const stack = ImportResolver._localCssSnapshotStacks.get(path) ?? [];
+    stack.push({
+      id: this._localCssSnapshotId,
+      previousCss
+    });
+    ImportResolver._localCssSnapshotStacks.set(path, stack);
+  }
+
+  private _restoreLocalStyle(path: string, previousCss: string | null): void {
+    if (previousCss === null) {
+      ImportResolver.removeLocalStyles([path]);
+      return;
+    }
+
+    const styleElement = this._ensureLocalStyleElement(path);
+    styleElement.textContent = previousCss;
+  }
+
+  private static _getCurrentLocalCss(path: string): string | null {
+    const styleElement = ImportResolver._localCssStyles.get(path);
+    if (!styleElement || !styleElement.isConnected) {
+      return null;
+    }
+    return styleElement.textContent ?? '';
   }
 }
