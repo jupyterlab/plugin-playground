@@ -830,9 +830,11 @@ class PluginPlayground {
 
     let isDisposed = false;
     let rafId: number | null = null;
+    let hasShownFloatingHint = false;
+    let remainingPositionRetries = 10;
     const normalizedSourcePath = ContentUtils.normalizeContentsPath(sourcePath);
     const loadToolbarItemSelector =
-      '.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name="insert"]';
+      '.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name="load-as-extension"]';
 
     const queueHintPositionRefresh = () => {
       if (rafId !== null || isDisposed) {
@@ -847,12 +849,20 @@ class PluginPlayground {
           loadToolbarItemSelector
         ) as HTMLElement | null;
         if (!loadItemNode) {
+          if (!hasShownFloatingHint && remainingPositionRetries > 0) {
+            remainingPositionRetries--;
+            queueHintPositionRefresh();
+          }
           return;
         }
         floatingHint.setPosition(
           loadItemNode.offsetLeft,
           loadItemNode.offsetTop + loadItemNode.offsetHeight + 3
         );
+        if (!hasShownFloatingHint) {
+          hasShownFloatingHint = true;
+          floatingHint.show();
+        }
       });
     };
 
@@ -885,7 +895,6 @@ class PluginPlayground {
     });
 
     widget.addClass(URL_LOADED_EDITOR_HINT_CLASS);
-    floatingHint.show();
     queueHintPositionRefresh();
     window.addEventListener('resize', queueHintPositionRefresh);
 

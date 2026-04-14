@@ -846,7 +846,7 @@ export default plugin;
         return null;
       }
       const loadItem = root.querySelector(
-        '.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name="insert"]'
+        '.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name="load-as-extension"]'
       ) as HTMLElement | null;
       const loadButton = loadItem?.querySelector(
         '.jp-ToolbarButtonComponent'

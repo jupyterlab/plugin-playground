@@ -386,25 +386,25 @@
 
 .jp-PluginPlayground-urlLoadedEditorHint
   .jp-Toolbar
-  > .jp-Toolbar-item[data-jp-item-name='insert']
+  > .jp-Toolbar-item[data-jp-item-name='load-as-extension']
   .jp-ToolbarButtonComponent {
   color: var(--jp-success-color1, #2e7d32);
 }
 
 .jp-PluginPlayground-urlLoadedEditorHint
   .jp-Toolbar
-  > .jp-Toolbar-item[data-jp-item-name='insert']
+  > .jp-Toolbar-item[data-jp-item-name='load-as-extension']
   .jp-ToolbarButtonComponent:hover,
 .jp-PluginPlayground-urlLoadedEditorHint
   .jp-Toolbar
-  > .jp-Toolbar-item[data-jp-item-name='insert']
+  > .jp-Toolbar-item[data-jp-item-name='load-as-extension']
   .jp-ToolbarButtonComponent:focus-visible {
   color: var(--jp-success-color0, #1f7a1f);
 }
 
 .jp-PluginPlayground-urlLoadedEditorHint
   .jp-Toolbar
-  > .jp-Toolbar-item[data-jp-item-name='insert']
+  > .jp-Toolbar-item[data-jp-item-name='load-as-extension']
   .jp-ToolbarButtonComponent
   svg {
   color: currentColor;
@@ -412,7 +412,7 @@
 
 .jp-PluginPlayground-urlLoadedEditorHint
   .jp-Toolbar
-  > .jp-Toolbar-item[data-jp-item-name='insert']
+  > .jp-Toolbar-item[data-jp-item-name='load-as-extension']
   .jp-ToolbarButtonComponent
   svg
   * {
@@ -474,7 +474,6 @@
   align-items: center;
   background: transparent;
   border: none;
-  border-radius: 999px;
   color: var(--jp-ui-font-color2);
   cursor: pointer;
   display: inline-flex;
@@ -490,11 +489,16 @@
   width: 20px;
 }
 
-.jp-PluginPlayground-urlLoadedHintClose:hover,
+.jp-PluginPlayground-urlLoadedHintClose:hover {
+  background: var(--jp-layout-color2);
+  color: var(--jp-ui-font-color0);
+}
+
 .jp-PluginPlayground-urlLoadedHintClose:focus-visible {
   background: var(--jp-layout-color2);
   color: var(--jp-ui-font-color0);
-  outline: none;
+  outline: var(--jp-border-width) solid var(--jp-brand-color1);
+  outline-offset: 2px;
 }
 
 .jp-Toolbar > .jp-Toolbar-item[data-jp-item-name='export-extension'] {
