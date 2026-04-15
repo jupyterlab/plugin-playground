@@ -19,18 +19,15 @@ const TEST_PLUGIN_ID = 'playground-integration-test:plugin';
 const TEST_TOGGLE_COMMAND = 'playground-integration-test:toggle';
 const TEST_ARGS_COMMAND = 'playground-integration-test:with-args';
 const TEST_FILE = 'playground-integration-test.ts';
-<<<<<<< runtimeImport
 const FEDERATED_RUNTIME_PACKAGE = '@jupyterlab/plugin-playground';
 const FEDERATED_RUNTIME_CONSUMER_PLUGIN_ID = 'runtime-consumer-test:plugin';
 const FEDERATED_RUNTIME_CONSUMER_COMMAND = 'runtime-consumer-test:check';
 const FEDERATED_RUNTIME_CONSUMER_FILE = 'runtime-consumer-test.ts';
-=======
 const CSS_IMPORT_TEST_PLUGIN_ID = 'playground-css-import-test:plugin';
 const CSS_IMPORT_TEST_MARKER_ID = 'playground-css-import-test-marker';
 const CSS_IMPORT_TEST_COLOR = 'rgb(17, 34, 51)';
 const CSS_IMPORT_TEST_UPDATED_COLOR = 'rgb(34, 68, 102)';
 const CSS_IMPORT_TEST_BROKEN_MODULE_ERROR = 'css import rollback test failure';
->>>>>>> main
 const COMMAND_COMPLETION_FILE = 'command-completion.ts';
 const INVOKE_FILE_COMPLETER_COMMAND = 'completer:invoke-file';
 const JUPYTERLITE_AI_OPEN_CHAT_COMMAND = '@jupyterlite/ai:open-chat';
@@ -742,7 +739,6 @@ test('loads current editor file as a plugin extension', async ({
   ).resolves.toBe(true);
 });
 
-<<<<<<< runtimeImport
 test('loads plugin importing runtime federated module outside known module map', async ({
   page,
   tmpPath
@@ -771,29 +767,11 @@ export default plugin;
   await page.contents.uploadContent(consumerSource, 'text', consumerPath);
   await page.goto();
 
-=======
-test('loads local CSS imports and cleans stale styles on reload', async ({
-  page,
-  tmpPath
-}) => {
-  const projectRoot = `${tmpPath}/css-import-test`;
-  const sourcePath = `${projectRoot}/index.ts`;
-  const stylePath = `${projectRoot}/style.css`;
-
-  await page.contents.uploadContent(CSS_IMPORT_TEST_STYLE, 'text', stylePath);
-  await page.contents.uploadContent(CSS_IMPORT_TEST_SOURCE, 'text', sourcePath);
-  await page.goto();
-
-  await page.filebrowser.open(sourcePath);
-  expect(await page.activity.activateTab('index.ts')).toBe(true);
-
->>>>>>> main
   await page.waitForCondition(() =>
     page.evaluate((id: string) => {
       return window.jupyterapp.commands.hasCommand(id);
     }, LOAD_COMMAND)
   );
-<<<<<<< runtimeImport
 
   await page.filebrowser.open(consumerPath);
   expect(await page.activity.activateTab(FEDERATED_RUNTIME_CONSUMER_FILE)).toBe(
@@ -820,7 +798,28 @@ test('loads local CSS imports and cleans stale styles on reload', async ({
       return window.jupyterapp.commands.execute(id);
     }, FEDERATED_RUNTIME_CONSUMER_COMMAND)
   ).resolves.toBe(true);
-=======
+});
+
+test('loads local CSS imports and cleans stale styles on reload', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/css-import-test`;
+  const sourcePath = `${projectRoot}/index.ts`;
+  const stylePath = `${projectRoot}/style.css`;
+
+  await page.contents.uploadContent(CSS_IMPORT_TEST_STYLE, 'text', stylePath);
+  await page.contents.uploadContent(CSS_IMPORT_TEST_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
   const loadResult = await page.evaluate((id: string) => {
     return window.jupyterapp.commands.execute(id);
   }, LOAD_COMMAND);
@@ -1173,7 +1172,6 @@ test('rolls back CSS changes when plugin schema parsing fails', async ({
       return window.getComputedStyle(marker).backgroundColor;
     }, CSS_IMPORT_TEST_MARKER_ID)
   ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
->>>>>>> main
 });
 
 test('exports active extension folder as a zip archive', async ({

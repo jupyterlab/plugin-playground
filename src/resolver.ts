@@ -82,14 +82,13 @@ interface ICDNConsent {
   readonly agreed: boolean;
 }
 
-<<<<<<< runtimeImport
-interface IFederatedExtensionContainer {
-  get: (key: string) => Promise<(() => IModule) | IModule>;
-=======
 interface ILocalCssSnapshotEntry {
   id: number;
   previousCss: string | null;
->>>>>>> main
+}
+
+interface IFederatedExtensionContainer {
+  get: (key: string) => Promise<(() => IModule) | IModule>;
 }
 
 export class ImportResolver {
