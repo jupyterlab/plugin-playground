@@ -1693,7 +1693,8 @@ class PluginPlayground {
       transpiler: new PluginTranspiler({
         compilerOptions: {
           target: ts.ScriptTarget.ES2017,
-          jsx: ts.JsxEmit.React
+          jsx: ts.JsxEmit.React,
+          esModuleInterop: true
         }
       }),
       importFunction: importResolver.resolve.bind(importResolver),

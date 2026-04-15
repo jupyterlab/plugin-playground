@@ -145,10 +145,17 @@ jobs:
       run: |
         set -eux
         python -m pip install twine wheel
-        wheel_file="$(find /tmp -maxdepth 1 -type f -name '*-py3-none-any.whl' -print | head -n 1)"
-        test -n "$wheel_file"
+        wheel_file="/tmp/playground_wheel_installed_smoke-0.1.0-py3-none-any.whl"
+        test -f "$wheel_file"
         python -m twine check "$wheel_file"
         python -m wheel unpack "$wheel_file" --dest /tmp/plugin-playground-exported-wheel-unpacked
+
+    - name: Install exported wheel and run installed-wheel smoke test
+      working-directory: ui-tests
+      run: |
+        set -eux
+        python -m pip install --force-reinstall /tmp/playground_wheel_installed_smoke-0.1.0-py3-none-any.whl
+        PLAYGROUND_TEST_INSTALLED_WHEEL=1 jlpm playwright test tests/wheel-installed.spec.ts --workers=1
 
     - name: Execute docs screenshot tests
       working-directory: ui-tests

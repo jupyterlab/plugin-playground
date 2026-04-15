@@ -38,7 +38,7 @@ async function readStreamBytes(
   return merged;
 }
 
-export function bytesToBase64Url(bytes: Uint8Array): string {
+export function bytesToBase64(bytes: Uint8Array): string {
   const chunkSize = 0x8000;
   const chunkStrings: string[] = [];
   for (let start = 0; start < bytes.length; start += chunkSize) {
@@ -46,7 +46,11 @@ export function bytesToBase64Url(bytes: Uint8Array): string {
     chunkStrings.push(String.fromCharCode(...chunk));
   }
   const binary = chunkStrings.join('');
-  return btoa(binary)
+  return btoa(binary);
+}
+
+export function bytesToBase64Url(bytes: Uint8Array): string {
+  return bytesToBase64(bytes)
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/g, '');

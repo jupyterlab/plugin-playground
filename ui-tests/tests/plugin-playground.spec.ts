@@ -61,6 +61,32 @@ const plugin = {
 export default plugin;
 `;
 
+const INSTALLED_WHEEL_PROJECT_NAME = 'playground-wheel-installed-smoke';
+const INSTALLED_WHEEL_ARTIFACT_PATH =
+  '/tmp/playground_wheel_installed_smoke-0.1.0-py3-none-any.whl';
+const INSTALLED_WHEEL_MARKER_ID = 'jp-plugin-playground-wheel-installed-marker';
+const INSTALLED_WHEEL_MARKER_TEXT = 'wheel-installed-marker-ready';
+const INSTALLED_WHEEL_PLUGIN_SOURCE = `
+const MARKER_ID = '${INSTALLED_WHEEL_MARKER_ID}';
+const MARKER_TEXT = '${INSTALLED_WHEEL_MARKER_TEXT}';
+
+const plugin = {
+  id: 'playground-wheel-installed-smoke:plugin',
+  autoStart: true,
+  activate: () => {
+    let marker = document.getElementById(MARKER_ID);
+    if (!marker) {
+      marker = document.createElement('div');
+      marker.id = MARKER_ID;
+      marker.textContent = MARKER_TEXT;
+      document.body.appendChild(marker);
+    }
+  }
+};
+
+export default plugin;
+`;
+
 const CSS_IMPORT_TEST_SOURCE = `
 import './style.css';
 
@@ -1328,6 +1354,60 @@ test('exports active extension folder as a Python package', async ({
     return (window as IWindowWithExportCounter).__exportDownloadCount ?? 0;
   });
   expect(downloadCount).toBeGreaterThan(0);
+});
+
+test('exports deterministic wheel artifact for installed-wheel smoke test', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/${INSTALLED_WHEEL_PROJECT_NAME}`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: INSTALLED_WHEEL_PROJECT_NAME,
+        version: '0.1.0',
+        main: 'src/index.ts',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(
+    INSTALLED_WHEEL_PLUGIN_SOURCE,
+    'text',
+    sourcePath
+  );
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, EXPORT_COMMAND)
+  );
+
+  const exportedWheelDownload = page.waitForEvent('download');
+  const exportResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id, {
+      format: 'wheel'
+    });
+  }, EXPORT_COMMAND);
+
+  expect(exportResult.ok).toBe(true);
+  expect(exportResult.archiveName).toMatch(
+    /^playground[_-]wheel[_-]installed[_-]smoke-0\.1\.0-py3-none-any\.whl$/
+  );
+
+  const downloadedWheel = await exportedWheelDownload;
+  await downloadedWheel.saveAs(INSTALLED_WHEEL_ARTIFACT_PATH);
 });
 
 test('wheel export includes license files and sanitized METADATA fields', async ({
