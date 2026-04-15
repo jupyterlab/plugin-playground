@@ -72,6 +72,7 @@ import {
 } from './token-sidebar';
 
 import { ExampleSidebar, filterExampleRecords } from './example-sidebar';
+import { createFloatingUrlLoadHint } from './components/url-load-hint';
 
 import { tokenSidebarIcon } from './icons';
 
@@ -298,6 +299,11 @@ const ARCHIVE_FILE_READ_CONCURRENCY = 8;
 const SHARE_URL_WARN_LENGTH = 1800;
 const SHARE_URL_MAX_LENGTH = 8000;
 const SHARED_LINKS_ROOT = 'plugin-playground-shared';
+const URL_LOADED_EDITOR_HINT_CLASS = 'jp-PluginPlayground-urlLoadedEditorHint';
+const URL_LOADED_EDITOR_HINT_TITLE = 'Load as Extension';
+const URL_LOADED_EDITOR_HINT_MESSAGE =
+  'Run this shared file in the playground.';
+const URL_LOADED_EDITOR_HINT_DISMISS_LABEL = 'Close load as extension hint';
 const NOTEBOOK_FILE_BROWSER_FACTORY = 'FileBrowser';
 const NOTEBOOK_NEW_DROPDOWN_TOOLBAR_ITEM = 'new-dropdown';
 const NOTEBOOK_TREE_OPEN_SIDEBAR_KEY =
@@ -349,6 +355,9 @@ class PluginPlayground {
       execute: async () => {
         const currentWidget = editorTracker.currentWidget;
         if (currentWidget) {
+          if (this._sharedFileCueWidgetId === currentWidget.id) {
+            this._dismissSharedFileCue?.();
+          }
           const currentText = currentWidget.context.model.toString();
           return this._queuePluginLoad(currentText, currentWidget.context.path);
         }
@@ -813,6 +822,98 @@ class PluginPlayground {
     return toggleWidget;
   }
 
+  private _showSharedFileToolbarCue(
+    widget: IDocumentWidget<FileEditor>,
+    sourcePath: string
+  ): void {
+    this._dismissSharedFileCue?.();
+
+    let isDisposed = false;
+    let rafId: number | null = null;
+    let hasShownFloatingHint = false;
+    let remainingPositionRetries = 10;
+    const normalizedSourcePath = ContentUtils.normalizeContentsPath(sourcePath);
+    const loadToolbarItemSelector =
+      '.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name="load-as-extension"]';
+
+    const queueHintPositionRefresh = () => {
+      if (rafId !== null || isDisposed) {
+        return;
+      }
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        if (isDisposed) {
+          return;
+        }
+        const loadItemNode = widget.node.querySelector(
+          loadToolbarItemSelector
+        ) as HTMLElement | null;
+        if (!loadItemNode) {
+          if (!hasShownFloatingHint && remainingPositionRetries > 0) {
+            remainingPositionRetries--;
+            queueHintPositionRefresh();
+          }
+          return;
+        }
+        floatingHint.setPosition(
+          loadItemNode.offsetLeft,
+          loadItemNode.offsetTop + loadItemNode.offsetHeight + 3
+        );
+        if (!hasShownFloatingHint) {
+          hasShownFloatingHint = true;
+          floatingHint.show();
+        }
+      });
+    };
+
+    const disposeCue = () => {
+      if (isDisposed) {
+        return;
+      }
+      isDisposed = true;
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      widget.removeClass(URL_LOADED_EDITOR_HINT_CLASS);
+      window.removeEventListener('resize', queueHintPositionRefresh);
+      widget.context.pathChanged.disconnect(onPathChanged);
+      widget.disposed.disconnect(disposeCue);
+      if (this._sharedFileCueWidgetId === widget.id) {
+        this._sharedFileCueWidgetId = null;
+        this._dismissSharedFileCue = null;
+      }
+      floatingHint.dispose();
+    };
+
+    const floatingHint = createFloatingUrlLoadHint({
+      parent: widget.node,
+      title: URL_LOADED_EDITOR_HINT_TITLE,
+      description: URL_LOADED_EDITOR_HINT_MESSAGE,
+      closeAriaLabel: URL_LOADED_EDITOR_HINT_DISMISS_LABEL,
+      onClose: disposeCue
+    });
+
+    widget.addClass(URL_LOADED_EDITOR_HINT_CLASS);
+    queueHintPositionRefresh();
+    window.addEventListener('resize', queueHintPositionRefresh);
+
+    this._sharedFileCueWidgetId = widget.id;
+    this._dismissSharedFileCue = disposeCue;
+    const onPathChanged = (
+      _context: DocumentRegistry.Context,
+      newPath: string
+    ) => {
+      if (
+        ContentUtils.normalizeContentsPath(newPath) !== normalizedSourcePath
+      ) {
+        disposeCue();
+      }
+    };
+    widget.context.pathChanged.connect(onPathChanged);
+    widget.disposed.connect(disposeCue);
+  }
+
   private _queuePluginLoad(
     pluginSource: string,
     path: string
@@ -1171,6 +1272,19 @@ class PluginPlayground {
         path: restoredPath,
         factory: 'Editor'
       });
+      let restoredWidget: IDocumentWidget<FileEditor> | null = null;
+      this.editorTracker.forEach(candidate => {
+        if (
+          !restoredWidget &&
+          ContentUtils.normalizeContentsPath(candidate.context.path) ===
+            restoredPath
+        ) {
+          restoredWidget = candidate;
+        }
+      });
+      if (restoredWidget) {
+        this._showSharedFileToolbarCue(restoredWidget, restoredPath);
+      }
       Notification.success(
         `Opened shared plugin from URL at "${restoredPath}" (1 file). `,
         {
@@ -1574,6 +1688,7 @@ class PluginPlayground {
     try {
       result = await pluginLoader.load(code, path);
     } catch (error) {
+      importResolver.rollbackLocalStyleMutations();
       if (error instanceof PluginLoadingError) {
         const internalError = error.error;
         showDialog({
@@ -1607,36 +1722,88 @@ class PluginPlayground {
     );
     const pluginIds = plugins.map(plugin => plugin.id);
     const skippedAutoStartPluginIds: string[] = [];
+    const loadedLocalStylePaths = importResolver.loadedLocalStylePaths;
+    const newlyRegisteredPluginIds: string[] = [];
 
-    for (const plugin of plugins) {
-      const schema = result.schemas[plugin.id];
-      if (!schema) {
-        continue;
+    try {
+      for (const declaredStylePath of result.declaredStylePaths) {
+        if (!path) {
+          continue;
+        }
+        const normalizedImportPath = ContentUtils.normalizeContentsPath(path);
+        const normalizedDeclaredStylePath =
+          ContentUtils.normalizeContentsPath(declaredStylePath);
+        const importBaseDirectory = PathExt.dirname(normalizedImportPath);
+        const relativeStylePath = PathExt.relative(
+          importBaseDirectory,
+          normalizedDeclaredStylePath
+        );
+        const styleModule = relativeStylePath.startsWith('.')
+          ? relativeStylePath
+          : `./${relativeStylePath}`;
+        await importResolver.resolve(styleModule);
       }
-      // TODO: this is mostly fine to get the menus and toolbars, but:
-      // - transforms are not applied
-      // - any refresh from the server might overwrite the data
-      // - it is not a good long term solution in general
-      this.settingRegistry.plugins[plugin.id] = {
-        id: plugin.id,
-        schema: JSON.parse(schema),
-        raw: schema,
-        data: {
-          composite: {},
-          user: {}
-        },
-        version: '0.0.0'
+
+      for (const plugin of plugins) {
+        const schema = result.schemas[plugin.id];
+        if (!schema) {
+          continue;
+        }
+        // TODO: this is mostly fine to get the menus and toolbars, but:
+        // - transforms are not applied
+        // - any refresh from the server might overwrite the data
+        // - it is not a good long term solution in general
+        this.settingRegistry.plugins[plugin.id] = {
+          id: plugin.id,
+          schema: JSON.parse(schema),
+          raw: schema,
+          data: {
+            composite: {},
+            user: {}
+          },
+          version: '0.0.0'
+        };
+        (
+          this.settingRegistry.pluginChanged as Signal<ISettingRegistry, string>
+        ).emit(plugin.id);
+      }
+
+      for (const plugin of plugins) {
+        await this._deactivateAndDeregisterPlugin(plugin.id);
+        this.app.registerPlugin(plugin);
+        newlyRegisteredPluginIds.push(plugin.id);
+      }
+      this._refreshExtensionPoints();
+    } catch (error) {
+      importResolver.rollbackLocalStyleMutations();
+      for (let i = newlyRegisteredPluginIds.length - 1; i >= 0; i--) {
+        try {
+          await this._deactivateAndDeregisterPlugin(
+            newlyRegisteredPluginIds[i]
+          );
+        } catch (cleanupError) {
+          console.warn(
+            `Failed to clean up partially registered plugin "${newlyRegisteredPluginIds[i]}"`,
+            cleanupError
+          );
+        }
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      showErrorMessage('Plugin loading failed', message);
+      return {
+        status: 'loading-failed',
+        ok: false,
+        path,
+        pluginIds: [],
+        transpiled: null,
+        message
       };
-      (
-        this.settingRegistry.pluginChanged as Signal<ISettingRegistry, string>
-      ).emit(plugin.id);
     }
 
+    importResolver.commitLocalStyleMutations();
     for (const plugin of plugins) {
-      await this._deactivateAndDeregisterPlugin(plugin.id);
-      this.app.registerPlugin(plugin);
+      this._syncPluginLocalStyles(plugin.id, loadedLocalStylePaths);
     }
-    this._refreshExtensionPoints();
 
     for (const plugin of plugins) {
       if (!plugin.autoStart) {
@@ -1704,6 +1871,45 @@ class PluginPlayground {
     }
 
     this._tokenSidebar?.update();
+  }
+
+  private _syncPluginLocalStyles(
+    pluginId: string,
+    nextPaths: ReadonlySet<string>
+  ): void {
+    const previousPaths = this._pluginLocalStylePaths.get(pluginId);
+    if (previousPaths) {
+      for (const previousPath of previousPaths) {
+        if (nextPaths.has(previousPath)) {
+          continue;
+        }
+        if (this._isStylePathUsedByOtherPlugins(previousPath, pluginId)) {
+          continue;
+        }
+        ImportResolver.removeLocalStyles([previousPath]);
+      }
+    }
+
+    if (nextPaths.size === 0) {
+      this._pluginLocalStylePaths.delete(pluginId);
+      return;
+    }
+    this._pluginLocalStylePaths.set(pluginId, new Set(nextPaths));
+  }
+
+  private _isStylePathUsedByOtherPlugins(
+    stylePath: string,
+    excludedPluginId: string
+  ): boolean {
+    for (const [pluginId, paths] of this._pluginLocalStylePaths) {
+      if (pluginId === excludedPluginId) {
+        continue;
+      }
+      if (paths.has(stylePath)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public async registerKnownModule(known: IKnownModule): Promise<void> {
@@ -2764,12 +2970,15 @@ class PluginPlayground {
   >();
   private readonly _loadOnSaveByFile = new Set<string>();
   private readonly _loadOnSaveToggleRefreshers = new Set<() => void>();
+  private _sharedFileCueWidgetId: string | null = null;
+  private _dismissSharedFileCue: (() => void) | null = null;
   private readonly _tokenMap = new Map<string, Token<string>>();
   private readonly _tokenDescriptionMap = new Map<string, string>();
   private readonly _documentationWidgets = new Map<
     string,
     MainAreaWidget<IFrame>
   >();
+  private readonly _pluginLocalStylePaths = new Map<string, Set<string>>();
   private _commandInsertMode: CommandInsertMode = DEFAULT_COMMAND_INSERT_MODE;
   private _copiedCommandId: string | null = null;
   private _copiedCommandTimer: number | null = null;
