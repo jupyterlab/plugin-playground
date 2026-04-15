@@ -1688,6 +1688,7 @@ class PluginPlayground {
     try {
       result = await pluginLoader.load(code, path);
     } catch (error) {
+      importResolver.rollbackLocalStyleMutations();
       if (error instanceof PluginLoadingError) {
         const internalError = error.error;
         showDialog({
@@ -1721,36 +1722,88 @@ class PluginPlayground {
     );
     const pluginIds = plugins.map(plugin => plugin.id);
     const skippedAutoStartPluginIds: string[] = [];
+    const loadedLocalStylePaths = importResolver.loadedLocalStylePaths;
+    const newlyRegisteredPluginIds: string[] = [];
 
-    for (const plugin of plugins) {
-      const schema = result.schemas[plugin.id];
-      if (!schema) {
-        continue;
+    try {
+      for (const declaredStylePath of result.declaredStylePaths) {
+        if (!path) {
+          continue;
+        }
+        const normalizedImportPath = ContentUtils.normalizeContentsPath(path);
+        const normalizedDeclaredStylePath =
+          ContentUtils.normalizeContentsPath(declaredStylePath);
+        const importBaseDirectory = PathExt.dirname(normalizedImportPath);
+        const relativeStylePath = PathExt.relative(
+          importBaseDirectory,
+          normalizedDeclaredStylePath
+        );
+        const styleModule = relativeStylePath.startsWith('.')
+          ? relativeStylePath
+          : `./${relativeStylePath}`;
+        await importResolver.resolve(styleModule);
       }
-      // TODO: this is mostly fine to get the menus and toolbars, but:
-      // - transforms are not applied
-      // - any refresh from the server might overwrite the data
-      // - it is not a good long term solution in general
-      this.settingRegistry.plugins[plugin.id] = {
-        id: plugin.id,
-        schema: JSON.parse(schema),
-        raw: schema,
-        data: {
-          composite: {},
-          user: {}
-        },
-        version: '0.0.0'
+
+      for (const plugin of plugins) {
+        const schema = result.schemas[plugin.id];
+        if (!schema) {
+          continue;
+        }
+        // TODO: this is mostly fine to get the menus and toolbars, but:
+        // - transforms are not applied
+        // - any refresh from the server might overwrite the data
+        // - it is not a good long term solution in general
+        this.settingRegistry.plugins[plugin.id] = {
+          id: plugin.id,
+          schema: JSON.parse(schema),
+          raw: schema,
+          data: {
+            composite: {},
+            user: {}
+          },
+          version: '0.0.0'
+        };
+        (
+          this.settingRegistry.pluginChanged as Signal<ISettingRegistry, string>
+        ).emit(plugin.id);
+      }
+
+      for (const plugin of plugins) {
+        await this._deactivateAndDeregisterPlugin(plugin.id);
+        this.app.registerPlugin(plugin);
+        newlyRegisteredPluginIds.push(plugin.id);
+      }
+      this._refreshExtensionPoints();
+    } catch (error) {
+      importResolver.rollbackLocalStyleMutations();
+      for (let i = newlyRegisteredPluginIds.length - 1; i >= 0; i--) {
+        try {
+          await this._deactivateAndDeregisterPlugin(
+            newlyRegisteredPluginIds[i]
+          );
+        } catch (cleanupError) {
+          console.warn(
+            `Failed to clean up partially registered plugin "${newlyRegisteredPluginIds[i]}"`,
+            cleanupError
+          );
+        }
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      showErrorMessage('Plugin loading failed', message);
+      return {
+        status: 'loading-failed',
+        ok: false,
+        path,
+        pluginIds: [],
+        transpiled: null,
+        message
       };
-      (
-        this.settingRegistry.pluginChanged as Signal<ISettingRegistry, string>
-      ).emit(plugin.id);
     }
 
+    importResolver.commitLocalStyleMutations();
     for (const plugin of plugins) {
-      await this._deactivateAndDeregisterPlugin(plugin.id);
-      this.app.registerPlugin(plugin);
+      this._syncPluginLocalStyles(plugin.id, loadedLocalStylePaths);
     }
-    this._refreshExtensionPoints();
 
     for (const plugin of plugins) {
       if (!plugin.autoStart) {
@@ -1818,6 +1871,45 @@ class PluginPlayground {
     }
 
     this._tokenSidebar?.update();
+  }
+
+  private _syncPluginLocalStyles(
+    pluginId: string,
+    nextPaths: ReadonlySet<string>
+  ): void {
+    const previousPaths = this._pluginLocalStylePaths.get(pluginId);
+    if (previousPaths) {
+      for (const previousPath of previousPaths) {
+        if (nextPaths.has(previousPath)) {
+          continue;
+        }
+        if (this._isStylePathUsedByOtherPlugins(previousPath, pluginId)) {
+          continue;
+        }
+        ImportResolver.removeLocalStyles([previousPath]);
+      }
+    }
+
+    if (nextPaths.size === 0) {
+      this._pluginLocalStylePaths.delete(pluginId);
+      return;
+    }
+    this._pluginLocalStylePaths.set(pluginId, new Set(nextPaths));
+  }
+
+  private _isStylePathUsedByOtherPlugins(
+    stylePath: string,
+    excludedPluginId: string
+  ): boolean {
+    for (const [pluginId, paths] of this._pluginLocalStylePaths) {
+      if (pluginId === excludedPluginId) {
+        continue;
+      }
+      if (paths.has(stylePath)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public async registerKnownModule(known: IKnownModule): Promise<void> {
@@ -2886,6 +2978,7 @@ class PluginPlayground {
     string,
     MainAreaWidget<IFrame>
   >();
+  private readonly _pluginLocalStylePaths = new Map<string, Set<string>>();
   private _commandInsertMode: CommandInsertMode = DEFAULT_COMMAND_INSERT_MODE;
   private _copiedCommandId: string | null = null;
   private _copiedCommandTimer: number | null = null;
