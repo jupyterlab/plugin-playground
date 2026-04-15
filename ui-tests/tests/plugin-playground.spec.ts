@@ -1210,6 +1210,7 @@ test('exports active extension folder as a Python package from toolbar dropdown'
       {
         name: 'export-toolbar-wheel-test',
         version: '0.1.0',
+        main: 'src/index.ts',
         jupyterlab: { extension: true }
       },
       null,
@@ -1307,6 +1308,7 @@ test('exports active extension folder as a Python package', async ({
       {
         name: 'export-command-wheel-test',
         version: '0.1.0',
+        main: 'src/index.ts',
         jupyterlab: { extension: true }
       },
       null,
@@ -1426,6 +1428,7 @@ test('wheel export includes license files and sanitized METADATA fields', async 
       {
         name: '../export-command-wheel-metadata-test',
         version: '0.1.0',
+        main: 'src/index.ts',
         description: 'Wheel summary line\nwith newline',
         homepage: 'https://example.test/docs\nINJECTED-HOMEPAGE-LINE',
         author: {
