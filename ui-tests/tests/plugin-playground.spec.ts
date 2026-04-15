@@ -18,6 +18,11 @@ const TEST_PLUGIN_ID = 'playground-integration-test:plugin';
 const TEST_TOGGLE_COMMAND = 'playground-integration-test:toggle';
 const TEST_ARGS_COMMAND = 'playground-integration-test:with-args';
 const TEST_FILE = 'playground-integration-test.ts';
+const CSS_IMPORT_TEST_PLUGIN_ID = 'playground-css-import-test:plugin';
+const CSS_IMPORT_TEST_MARKER_ID = 'playground-css-import-test-marker';
+const CSS_IMPORT_TEST_COLOR = 'rgb(17, 34, 51)';
+const CSS_IMPORT_TEST_UPDATED_COLOR = 'rgb(34, 68, 102)';
+const CSS_IMPORT_TEST_BROKEN_MODULE_ERROR = 'css import rollback test failure';
 const COMMAND_COMPLETION_FILE = 'command-completion.ts';
 const INVOKE_FILE_COMPLETER_COMMAND = 'completer:invoke-file';
 const JUPYTERLITE_AI_OPEN_CHAT_COMMAND = '@jupyterlite/ai:open-chat';
@@ -52,6 +57,124 @@ const plugin = {
 
 export default plugin;
 `;
+
+const CSS_IMPORT_TEST_SOURCE = `
+import './style.css';
+
+const plugin = {
+  id: '${CSS_IMPORT_TEST_PLUGIN_ID}',
+  autoStart: true,
+  activate: () => {
+    const existing = document.getElementById('${CSS_IMPORT_TEST_MARKER_ID}');
+    if (existing) {
+      existing.remove();
+    }
+    const marker = document.createElement('div');
+    marker.id = '${CSS_IMPORT_TEST_MARKER_ID}';
+    marker.textContent = 'css import marker';
+    document.body.appendChild(marker);
+  },
+  deactivate: () => {
+    document.getElementById('${CSS_IMPORT_TEST_MARKER_ID}')?.remove();
+  }
+};
+
+export default plugin;
+`;
+
+const CSS_IMPORT_TEST_SOURCE_WITHOUT_STYLE = `
+const plugin = {
+  id: '${CSS_IMPORT_TEST_PLUGIN_ID}',
+  autoStart: true,
+  activate: () => {
+    const existing = document.getElementById('${CSS_IMPORT_TEST_MARKER_ID}');
+    if (existing) {
+      existing.remove();
+    }
+    const marker = document.createElement('div');
+    marker.id = '${CSS_IMPORT_TEST_MARKER_ID}';
+    marker.textContent = 'css import marker';
+    document.body.appendChild(marker);
+  },
+  deactivate: () => {
+    document.getElementById('${CSS_IMPORT_TEST_MARKER_ID}')?.remove();
+  }
+};
+
+export default plugin;
+`;
+
+const CSS_IMPORT_TEST_SOURCE_WITH_FAILING_IMPORT = `
+import './style.css';
+import './broken';
+
+const plugin = {
+  id: '${CSS_IMPORT_TEST_PLUGIN_ID}',
+  autoStart: true,
+  activate: () => {
+    const existing = document.getElementById('${CSS_IMPORT_TEST_MARKER_ID}');
+    if (existing) {
+      existing.remove();
+    }
+    const marker = document.createElement('div');
+    marker.id = '${CSS_IMPORT_TEST_MARKER_ID}';
+    marker.textContent = 'css import marker';
+    document.body.appendChild(marker);
+  },
+  deactivate: () => {
+    document.getElementById('${CSS_IMPORT_TEST_MARKER_ID}')?.remove();
+  }
+};
+
+export default plugin;
+`;
+
+const CSS_IMPORT_TEST_STYLE = `
+#${CSS_IMPORT_TEST_MARKER_ID} {
+  background-color: ${CSS_IMPORT_TEST_COLOR};
+}
+`;
+
+const CSS_IMPORT_TEST_STYLE_UPDATED = `
+#${CSS_IMPORT_TEST_MARKER_ID} {
+  background-color: ${CSS_IMPORT_TEST_UPDATED_COLOR};
+}
+`;
+
+const CSS_IMPORT_TEST_STYLE_WITH_RELATIVE_IMPORT = `
+@import url('base.css');
+`;
+
+const CSS_IMPORT_TEST_BROKEN_MODULE = `
+throw new Error('${CSS_IMPORT_TEST_BROKEN_MODULE_ERROR}');
+`;
+
+const CSS_IMPORT_TEST_VALID_SCHEMA = JSON.stringify(
+  {
+    title: 'CSS Import Test Settings',
+    type: 'object',
+    properties: {}
+  },
+  null,
+  2
+);
+
+const CSS_IMPORT_TEST_INVALID_SCHEMA = `{
+  "title": "CSS Import Test Settings",
+`;
+
+const CSS_IMPORT_TEST_PACKAGE_JSON_WITH_STYLE = JSON.stringify(
+  {
+    name: 'css-import-package-style-test',
+    version: '0.1.0',
+    style: 'style/index.css',
+    jupyterlab: {
+      extension: true
+    }
+  },
+  null,
+  2
+);
 
 async function openSidebarPanel(
   page: IJupyterLabPageFixture,
@@ -119,6 +242,16 @@ async function focusActiveEditor(page: IJupyterLabPageFixture): Promise<void> {
     const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
     current.content.editor.focus();
   });
+}
+
+async function setActiveEditorSource(
+  page: IJupyterLabPageFixture,
+  source: string
+): Promise<void> {
+  await page.evaluate((nextSource: string) => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    current.content.model.sharedModel.setSource(nextSource);
+  }, source);
 }
 
 async function ensureMockJupyterLiteAIChat(
@@ -599,6 +732,380 @@ test('loads current editor file as a plugin extension', async ({
       return window.jupyterapp.commands.isToggled(id);
     }, TEST_TOGGLE_COMMAND)
   ).resolves.toBe(true);
+});
+
+test('loads local CSS imports and cleans stale styles on reload', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/css-import-test`;
+  const sourcePath = `${projectRoot}/index.ts`;
+  const stylePath = `${projectRoot}/style.css`;
+
+  await page.contents.uploadContent(CSS_IMPORT_TEST_STYLE, 'text', stylePath);
+  await page.contents.uploadContent(CSS_IMPORT_TEST_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+  const loadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(loadResult.ok).toBe(true);
+  expect(loadResult.status).toBe('loaded');
+  expect(loadResult.pluginIds).toContain(CSS_IMPORT_TEST_PLUGIN_ID);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, color }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return window.getComputedStyle(marker).backgroundColor === color;
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        color: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await expect(
+    page.evaluate((markerId: string) => {
+      const marker = document.getElementById(markerId);
+      if (!marker) {
+        return null;
+      }
+      return window.getComputedStyle(marker).backgroundColor;
+    }, CSS_IMPORT_TEST_MARKER_ID)
+  ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
+
+  await setActiveEditorSource(page, CSS_IMPORT_TEST_SOURCE_WITHOUT_STYLE);
+  const reloadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(reloadResult.ok).toBe(true);
+  expect(reloadResult.status).toBe('loaded');
+  expect(reloadResult.pluginIds).toContain(CSS_IMPORT_TEST_PLUGIN_ID);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, originalColor }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return (
+          window.getComputedStyle(marker).backgroundColor !== originalColor
+        );
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        originalColor: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await expect(
+    page.evaluate((path: string) => {
+      return Array.from(
+        document.querySelectorAll('style[data-plugin-playground-style-path]')
+      ).some(
+        node => node.getAttribute('data-plugin-playground-style-path') === path
+      );
+    }, stylePath)
+  ).resolves.toBe(false);
+});
+
+test('loads package.json style entry without explicit source CSS import', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/css-package-style-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const stylePath = `${projectRoot}/style/index.css`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_PACKAGE_JSON_WITH_STYLE,
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(CSS_IMPORT_TEST_STYLE, 'text', stylePath);
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_SOURCE_WITHOUT_STYLE,
+    'text',
+    sourcePath
+  );
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+  const loadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(loadResult.ok).toBe(true);
+  expect(loadResult.status).toBe('loaded');
+  expect(loadResult.pluginIds).toContain(CSS_IMPORT_TEST_PLUGIN_ID);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, color }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return window.getComputedStyle(marker).backgroundColor === color;
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        color: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await expect(
+    page.evaluate((markerId: string) => {
+      const marker = document.getElementById(markerId);
+      if (!marker) {
+        return null;
+      }
+      return window.getComputedStyle(marker).backgroundColor;
+    }, CSS_IMPORT_TEST_MARKER_ID)
+  ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
+});
+
+test('loads package.json style entry with relative CSS @import', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/css-package-style-import-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+  const indexStylePath = `${projectRoot}/style/index.css`;
+  const baseStylePath = `${projectRoot}/style/base.css`;
+
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_PACKAGE_JSON_WITH_STYLE,
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_STYLE_WITH_RELATIVE_IMPORT,
+    'text',
+    indexStylePath
+  );
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_STYLE,
+    'text',
+    baseStylePath
+  );
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_SOURCE_WITHOUT_STYLE,
+    'text',
+    sourcePath
+  );
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+  const loadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(loadResult.ok).toBe(true);
+  expect(loadResult.status).toBe('loaded');
+  expect(loadResult.pluginIds).toContain(CSS_IMPORT_TEST_PLUGIN_ID);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, color }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return window.getComputedStyle(marker).backgroundColor === color;
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        color: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await expect(
+    page.evaluate((markerId: string) => {
+      const marker = document.getElementById(markerId);
+      if (!marker) {
+        return null;
+      }
+      return window.getComputedStyle(marker).backgroundColor;
+    }, CSS_IMPORT_TEST_MARKER_ID)
+  ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
+});
+
+test('rolls back CSS changes when plugin load fails', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/css-import-rollback-test`;
+  const sourcePath = `${projectRoot}/index.ts`;
+  const stylePath = `${projectRoot}/style.css`;
+  const brokenModulePath = `${projectRoot}/broken.ts`;
+
+  await page.contents.uploadContent(CSS_IMPORT_TEST_STYLE, 'text', stylePath);
+  await page.contents.uploadContent(CSS_IMPORT_TEST_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+  const initialLoadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(initialLoadResult.ok).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, color }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return window.getComputedStyle(marker).backgroundColor === color;
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        color: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_STYLE_UPDATED,
+    'text',
+    stylePath
+  );
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_BROKEN_MODULE,
+    'text',
+    brokenModulePath
+  );
+  await setActiveEditorSource(page, CSS_IMPORT_TEST_SOURCE_WITH_FAILING_IMPORT);
+
+  const failingLoadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(failingLoadResult.ok).toBe(false);
+  expect(failingLoadResult.status).toBe('loading-failed');
+
+  await expect(
+    page.evaluate((markerId: string) => {
+      const marker = document.getElementById(markerId);
+      if (!marker) {
+        return null;
+      }
+      return window.getComputedStyle(marker).backgroundColor;
+    }, CSS_IMPORT_TEST_MARKER_ID)
+  ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
+});
+
+test('rolls back CSS changes when plugin schema parsing fails', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/css-import-schema-rollback-test`;
+  const sourcePath = `${projectRoot}/index.ts`;
+  const stylePath = `${projectRoot}/style.css`;
+  const schemaPath = `${projectRoot}/plugin.json`;
+
+  await page.contents.uploadContent(CSS_IMPORT_TEST_STYLE, 'text', stylePath);
+  await page.contents.uploadContent(CSS_IMPORT_TEST_SOURCE, 'text', sourcePath);
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_VALID_SCHEMA,
+    'text',
+    schemaPath
+  );
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+  const initialLoadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(initialLoadResult.ok).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, color }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return window.getComputedStyle(marker).backgroundColor === color;
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        color: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_STYLE_UPDATED,
+    'text',
+    stylePath
+  );
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_INVALID_SCHEMA,
+    'text',
+    schemaPath
+  );
+
+  const failingLoadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(failingLoadResult.ok).toBe(false);
+  expect(failingLoadResult.status).toBe('loading-failed');
+
+  await expect(
+    page.evaluate((markerId: string) => {
+      const marker = document.getElementById(markerId);
+      if (!marker) {
+        return null;
+      }
+      return window.getComputedStyle(marker).backgroundColor;
+    }, CSS_IMPORT_TEST_MARKER_ID)
+  ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
 });
 
 test('exports active extension folder as a zip archive', async ({

@@ -4,7 +4,7 @@ import { formatImportError } from './errors';
 
 import { Token } from '@lumino/coreutils';
 
-import { PathExt } from '@jupyterlab/coreutils';
+import { PageConfig, PathExt } from '@jupyterlab/coreutils';
 
 import { IRequireJS } from './requirejs';
 
@@ -78,13 +78,101 @@ interface ICDNConsent {
   readonly agreed: boolean;
 }
 
+interface ILocalCssSnapshotEntry {
+  id: number;
+  previousCss: string | null;
+}
+
 export class ImportResolver {
+  private static _localCssStyles = new Map<string, HTMLStyleElement>();
+  private static _localCssSnapshotStacks = new Map<
+    string,
+    ILocalCssSnapshotEntry[]
+  >();
+  private static _nextLocalCssSnapshotId = 0;
+
+  private readonly _localCssSnapshotId =
+    ImportResolver._nextLocalCssSnapshotId++;
+  private _localCssSnapshots = new Map<string, string | null>();
+  private _loadedLocalStylePaths = new Set<string>();
+
   constructor(private _options: ImportResolver.IOptions) {
     // no-op
   }
 
+  get loadedLocalStylePaths(): ReadonlySet<string> {
+    return this._loadedLocalStylePaths;
+  }
+
   set dynamicLoader(loader: (transpiledCode: string) => Promise<IModule>) {
     this._options.dynamicLoader = loader;
+  }
+
+  rollbackLocalStyleMutations(): void {
+    for (const [path, previousCss] of this._localCssSnapshots) {
+      const stack = ImportResolver._localCssSnapshotStacks.get(path);
+      if (!stack) {
+        continue;
+      }
+
+      const index = stack.findIndex(
+        entry => entry.id === this._localCssSnapshotId
+      );
+      if (index === -1) {
+        continue;
+      }
+
+      const isTopOfStack = index === stack.length - 1;
+      if (isTopOfStack) {
+        this._restoreLocalStyle(path, previousCss);
+      } else {
+        stack[index + 1].previousCss = previousCss;
+      }
+
+      stack.splice(index, 1);
+      if (stack.length === 0) {
+        ImportResolver._localCssSnapshotStacks.delete(path);
+      }
+    }
+    this._localCssSnapshots.clear();
+    this._loadedLocalStylePaths.clear();
+  }
+
+  commitLocalStyleMutations(): void {
+    for (const path of this._localCssSnapshots.keys()) {
+      const stack = ImportResolver._localCssSnapshotStacks.get(path);
+      if (!stack) {
+        continue;
+      }
+
+      const index = stack.findIndex(
+        entry => entry.id === this._localCssSnapshotId
+      );
+      if (index === -1) {
+        continue;
+      }
+
+      const isTopOfStack = index === stack.length - 1;
+      if (isTopOfStack && index > 0) {
+        stack[index - 1].previousCss = ImportResolver._getCurrentLocalCss(path);
+      }
+
+      stack.splice(index, 1);
+      if (stack.length === 0) {
+        ImportResolver._localCssSnapshotStacks.delete(path);
+      }
+    }
+    this._localCssSnapshots.clear();
+  }
+
+  static removeLocalStyles(paths: Iterable<string>): void {
+    for (const path of paths) {
+      const styleElement = ImportResolver._localCssStyles.get(path);
+      if (styleElement) {
+        styleElement.remove();
+      }
+      ImportResolver._localCssStyles.delete(path);
+    }
   }
 
   /**
@@ -229,16 +317,21 @@ export class ImportResolver {
         continue;
       }
 
-      console.log(`Resolved ${module} to ${file.path}`);
+      const resolvedPath = ContentUtils.normalizeContentsPath(file.path);
+      console.log(`Resolved ${module} to ${resolvedPath}`);
       const content = ContentUtils.fileModelToText(file);
       if (content === null) {
         continue;
       }
 
-      if (file.path.endsWith('.svg')) {
+      const normalizedResolvedPath = resolvedPath.toLowerCase();
+      if (normalizedResolvedPath.endsWith('.svg')) {
         return {
           default: content as unknown as IModuleMember
         };
+      }
+      if (normalizedResolvedPath.endsWith('.css')) {
+        return this._loadLocalStyle(resolvedPath, content);
       }
 
       return await this._options.dynamicLoader(content);
@@ -261,11 +354,123 @@ export class ImportResolver {
       candidates.add(`${baseCandidate}.ts`);
       candidates.add(`${baseCandidate}.tsx`);
       candidates.add(`${baseCandidate}.js`);
+      candidates.add(`${baseCandidate}.css`);
       candidates.add(PathExt.join(baseCandidate, 'index.ts'));
       candidates.add(PathExt.join(baseCandidate, 'index.tsx'));
       candidates.add(PathExt.join(baseCandidate, 'index.js'));
+      candidates.add(PathExt.join(baseCandidate, 'index.css'));
     }
 
     return Array.from(candidates);
+  }
+
+  private _loadLocalStyle(path: string, css: string): IModule {
+    this._snapshotLocalStyle(path);
+    this._loadedLocalStylePaths.add(path);
+    const rewrittenCss = this._rewriteRelativeCssImports(css, path);
+    const styleElement = this._ensureLocalStyleElement(path);
+    if (styleElement.textContent !== rewrittenCss) {
+      styleElement.textContent = rewrittenCss;
+    }
+    return {
+      default: path as unknown as IModuleMember
+    };
+  }
+
+  private _rewriteRelativeCssImports(css: string, path: string): string {
+    const applicationBaseUrl = new URL(
+      PageConfig.getBaseUrl(),
+      window.location.href
+    );
+    const filesBaseUrl = new URL('files/', applicationBaseUrl);
+    const baseDirectory = PathExt.dirname(path);
+    return css.replace(
+      /@import\s+(url\(\s*)?(["']?)([^"')\s;]+)\2\s*\)?/gi,
+      (
+        match,
+        urlPrefix: string | undefined,
+        quote: string,
+        specifier: string
+      ) => {
+        if (!this._isRelativeCssSpecifier(specifier)) {
+          return match;
+        }
+        const resolvedPath = ContentUtils.normalizeContentsPath(
+          PathExt.join(baseDirectory, specifier)
+        );
+        const routedSpecifier = new URL(
+          encodeURI(resolvedPath),
+          filesBaseUrl
+        ).toString();
+        const normalizedQuote = quote || "'";
+        if (urlPrefix) {
+          return `@import ${urlPrefix}${normalizedQuote}${routedSpecifier}${normalizedQuote})`;
+        }
+        return `@import ${normalizedQuote}${routedSpecifier}${normalizedQuote}`;
+      }
+    );
+  }
+
+  private _isRelativeCssSpecifier(specifier: string): boolean {
+    const normalizedSpecifier = specifier.trim().toLowerCase();
+    if (!normalizedSpecifier || normalizedSpecifier.startsWith('/')) {
+      return false;
+    }
+    if (normalizedSpecifier.startsWith('//')) {
+      return false;
+    }
+    if (normalizedSpecifier.startsWith('#')) {
+      return false;
+    }
+    if (/^[a-z][a-z0-9+.-]*:/.test(normalizedSpecifier)) {
+      return false;
+    }
+    return true;
+  }
+
+  private _ensureLocalStyleElement(path: string): HTMLStyleElement {
+    const head = document.head ?? document.documentElement;
+    let styleElement = ImportResolver._localCssStyles.get(path);
+    if (!styleElement || !styleElement.isConnected) {
+      styleElement = document.createElement('style');
+      styleElement.setAttribute('data-plugin-playground-style-path', path);
+      head.appendChild(styleElement);
+      ImportResolver._localCssStyles.set(path, styleElement);
+    }
+    return styleElement;
+  }
+
+  private _snapshotLocalStyle(path: string): void {
+    if (this._localCssSnapshots.has(path)) {
+      return;
+    }
+
+    const previousCss = ImportResolver._getCurrentLocalCss(path);
+    this._localCssSnapshots.set(path, previousCss);
+
+    const stack = ImportResolver._localCssSnapshotStacks.get(path) ?? [];
+    stack.push({
+      id: this._localCssSnapshotId,
+      previousCss
+    });
+    ImportResolver._localCssSnapshotStacks.set(path, stack);
+  }
+
+  private _restoreLocalStyle(path: string, previousCss: string | null): void {
+    if (previousCss === null) {
+      ImportResolver.removeLocalStyles([path]);
+      return;
+    }
+
+    const styleElement = this._ensureLocalStyleElement(path);
+    styleElement.textContent = previousCss;
+  }
+
+  private static _getCurrentLocalCss(path: string): string | null {
+    const styleElement = ImportResolver._localCssStyles.get(path);
+    if (!styleElement || !styleElement.isConnected) {
+      return null;
+    }
+    return styleElement.textContent ?? '';
   }
 }
