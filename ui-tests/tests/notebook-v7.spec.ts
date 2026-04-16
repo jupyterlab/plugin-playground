@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 const BASE_URL = 'http://localhost:8888';
-const TREE_CREATE_COMMAND_LABEL = 'Start from File (Playground)';
+const TREE_CREATE_COMMAND_LABEL = 'Start from File';
 const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
 const TOKEN_SECTION_ID = 'jp-plugin-token-sidebar';
 const EXAMPLE_SECTION_ID = 'jp-plugin-example-sidebar';
