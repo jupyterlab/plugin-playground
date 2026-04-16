@@ -290,10 +290,8 @@ const LOAD_ON_SAVE_DISABLED_DESCRIPTION =
 const JUPYTERLITE_AI_OPEN_CHAT_COMMAND = '@jupyterlite/ai:open-chat';
 const JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND = '@jupyterlite/ai:open-settings';
 const JUPYTERLITE_AI_CHAT_PANEL_ID = '@jupyterlite/ai:chat-panel';
-const JUPYTERLITE_AI_INSTALL_HINT =
-  'JupyterLite AI is unavailable. Install the "jupyterlite-ai" extension and reload.';
-const JUPYTERLITE_AI_PROVIDER_SETUP_HINT =
-  'JupyterLite AI provider is not configured. Configure a provider and try again.';
+const JUPYTERLITE_AI_INSTALL_HINT = 'JupyterLite AI is unavailable.';
+const JUPYTERLITE_AI_PROVIDER_SETUP_HINT = 'No AI provider configured.';
 const DEFAULT_COMMAND_INSERT_MODE: CommandInsertMode = 'insert';
 const ARCHIVE_EXCLUDED_DIRECTORIES = new Set([
   '.git',
@@ -2667,15 +2665,22 @@ class PluginPlayground {
   }
 
   private async _openJupyterLiteAIChatPanel(): Promise<void> {
-    if (!this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_CHAT_COMMAND)) {
-      throw new Error(
-        `${JUPYTERLITE_AI_INSTALL_HINT} Missing command: "${JUPYTERLITE_AI_OPEN_CHAT_COMMAND}".`
-      );
+    const hasOpenChatCommand = await this._waitForCommand(
+      JUPYTERLITE_AI_OPEN_CHAT_COMMAND
+    );
+    if (!hasOpenChatCommand) {
+      throw new Error(JUPYTERLITE_AI_INSTALL_HINT);
     }
 
-    await this.app.commands.execute(JUPYTERLITE_AI_OPEN_CHAT_COMMAND, {
-      area: 'side'
-    });
+    const openResult = await this.app.commands.execute(
+      JUPYTERLITE_AI_OPEN_CHAT_COMMAND,
+      {
+        area: 'side'
+      }
+    );
+    if (openResult === false) {
+      throw new Error(JUPYTERLITE_AI_PROVIDER_SETUP_HINT);
+    }
     this.app.shell.activateById(JUPYTERLITE_AI_CHAT_PANEL_ID);
   }
 
@@ -2687,31 +2692,42 @@ class PluginPlayground {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const isProviderSetupIssue =
-        message === JUPYTERLITE_AI_PROVIDER_SETUP_HINT ||
-        message.startsWith(JUPYTERLITE_AI_INSTALL_HINT);
-      if (!isProviderSetupIssue) {
-        Notification.warning(`Could not open AI chat: ${message}`, {
-          autoClose: 5000
+        message === JUPYTERLITE_AI_PROVIDER_SETUP_HINT;
+      const isInstallIssue = message === JUPYTERLITE_AI_INSTALL_HINT;
+
+      if (isProviderSetupIssue) {
+        const didOpenSettings = await this._openAISettingsInMainArea();
+        Notification.warning(
+          didOpenSettings
+            ? 'No AI provider configured. Opened AI Settings.'
+            : 'No AI provider configured. Open AI Settings to continue.',
+          {
+            autoClose: 4500
+          }
+        );
+        return;
+      }
+
+      if (isInstallIssue) {
+        Notification.warning(JUPYTERLITE_AI_INSTALL_HINT, {
+          autoClose: 4500
         });
         return;
       }
 
-      const didOpenSettings = await this._openAISettingsInMainArea();
-      Notification.warning(
-        `${message}${
-          didOpenSettings
-            ? ' Opened AI settings so you can configure provider settings.'
-            : ''
-        }`,
-        {
-          autoClose: 7000
-        }
-      );
+      if (!isProviderSetupIssue && !isInstallIssue) {
+        Notification.warning(`Could not open AI chat: ${message}`, {
+          autoClose: 5000
+        });
+      }
     }
   }
 
   private async _openAISettingsInMainArea(): Promise<boolean> {
-    if (!this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND)) {
+    const hasOpenSettingsCommand = await this._waitForCommand(
+      JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND
+    );
+    if (!hasOpenSettingsCommand) {
       return false;
     }
     try {
@@ -2729,17 +2745,23 @@ class PluginPlayground {
     const chatTracker =
       this.chatTracker ?? (await this.app.resolveOptionalService(IChatTracker));
     if (!chatTracker) {
-      throw new Error(
-        `${JUPYTERLITE_AI_INSTALL_HINT} Missing service: "@jupyter/chat:IChatTracker".`
-      );
+      throw new Error(JUPYTERLITE_AI_INSTALL_HINT);
     }
 
-    const chatWidget =
-      chatTracker.currentWidget ?? chatTracker.find(() => true);
+    let chatWidget = chatTracker.currentWidget ?? chatTracker.find(() => true);
     if (!chatWidget) {
-      throw new Error(
-        `${JUPYTERLITE_AI_INSTALL_HINT} Chat tracker has no active widgets.`
-      );
+      for (let attempt = 0; attempt < 15; attempt++) {
+        await new Promise<void>(resolve => {
+          window.setTimeout(resolve, 50);
+        });
+        chatWidget = chatTracker.currentWidget ?? chatTracker.find(() => true);
+        if (chatWidget) {
+          break;
+        }
+      }
+    }
+    if (!chatWidget) {
+      throw new Error(JUPYTERLITE_AI_PROVIDER_SETUP_HINT);
     }
 
     const inputModel = (
@@ -2753,6 +2775,27 @@ class PluginPlayground {
       return inputModel;
     }
     throw new Error(JUPYTERLITE_AI_PROVIDER_SETUP_HINT);
+  }
+
+  private async _waitForCommand(
+    commandId: string,
+    timeoutMs = 1500
+  ): Promise<boolean> {
+    if (this.app.commands.hasCommand(commandId)) {
+      return true;
+    }
+
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      await new Promise<void>(resolve => {
+        window.setTimeout(resolve, 50);
+      });
+      if (this.app.commands.hasCommand(commandId)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private _isJupyterLiteAIChatInputModel(candidate: unknown): candidate is {
