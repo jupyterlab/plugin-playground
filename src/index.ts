@@ -31,9 +31,10 @@ import { IChatTracker } from '@jupyter/chat';
 
 import {
   checkIcon,
-  downloadIcon,
   extensionIcon,
+  fileUploadIcon,
   IFrame,
+  offlineBoltIcon,
   shareIcon,
   SidePanel
 } from '@jupyterlab/ui-components';
@@ -74,7 +75,7 @@ import {
 import { ExampleSidebar, filterExampleRecords } from './example-sidebar';
 import { createFloatingUrlLoadHint } from './components/url-load-hint';
 
-import { tokenSidebarIcon } from './icons';
+import { loadOnSaveToggleIcon, tokenSidebarIcon } from './icons';
 
 import {
   CommandCompletionProvider,
@@ -105,8 +106,12 @@ import { IPlugin } from '@lumino/application';
 
 namespace CommandIDs {
   export const createNewFile = 'plugin-playground:create-new-plugin';
+  export const createNewFileWithAI =
+    'plugin-playground:create-new-plugin-with-ai';
   export const createNewFileFromNotebookTree =
     'plugin-playground:create-new-plugin-from-notebook-tree';
+  export const createNewFileWithAIFromNotebookTree =
+    'plugin-playground:create-new-plugin-with-ai-from-notebook-tree';
   export const loadCurrentAsExtension = 'plugin-playground:load-as-extension';
   export const exportAsExtension = 'plugin-playground:export-as-extension';
   export const shareViaLink = 'plugin-playground:share-via-link';
@@ -308,6 +313,8 @@ const NOTEBOOK_FILE_BROWSER_FACTORY = 'FileBrowser';
 const NOTEBOOK_NEW_DROPDOWN_TOOLBAR_ITEM = 'new-dropdown';
 const NOTEBOOK_TREE_OPEN_SIDEBAR_KEY =
   'plugin-playground:open-sidebar-from-tree';
+const NOTEBOOK_TREE_OPEN_AI_CHAT_KEY =
+  'plugin-playground:open-ai-chat-from-tree';
 const NOTEBOOK_SHELL_PLUGIN_ID =
   '@jupyter-notebook/application-extension:shell';
 const NOTEBOOK_TREE_WIDGET_PLUGIN_ID =
@@ -376,7 +383,7 @@ class PluginPlayground {
       label: 'Export Plugin Folder As Extension',
       caption: 'Download the active plugin folder as an extension zip archive',
       describedBy: { args: EXPORT_AS_EXTENSION_ARGS_SCHEMA },
-      icon: downloadIcon,
+      icon: fileUploadIcon,
       isEnabled: () => this.documentManager !== null,
       execute: async args => {
         const requestedPath =
@@ -483,10 +490,11 @@ class PluginPlayground {
     });
 
     app.commands.addCommand(CommandIDs.createNewFile, {
-      label: 'TypeScript File (Playground)',
-      caption: 'Create a new TypeScript file',
+      label: 'Start from File',
+      caption:
+        'Create a new TypeScript plugin file and open the playground sidebar',
       describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
-      icon: extensionIcon,
+      icon: tokenSidebarIcon,
       execute: async args => {
         const rawPathArg =
           typeof args.path === 'string' ? args.path.trim() : '';
@@ -551,8 +559,37 @@ class PluginPlayground {
             activeWidget.content.model.sharedModel.setSource(PLUGIN_TEMPLATE);
           });
         }
+        this._openPlaygroundSidebar();
         return activeWidget;
       }
+    });
+
+    commandPalette.addItem({
+      command: CommandIDs.createNewFile,
+      category: 'Plugin Playground',
+      args: {}
+    });
+
+    app.commands.addCommand(CommandIDs.createNewFileWithAI, {
+      label: 'Built with AI',
+      caption:
+        'Create a new TypeScript plugin file and open AI chat setup for guided building',
+      describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
+      icon: offlineBoltIcon,
+      execute: async args => {
+        const activeWidget = (await app.commands.execute(
+          CommandIDs.createNewFile,
+          args
+        )) as IDocumentWidget<FileEditor> | null;
+        await this._openJupyterLiteAIChatWithSetupFallback();
+        return activeWidget;
+      }
+    });
+
+    commandPalette.addItem({
+      command: CommandIDs.createNewFileWithAI,
+      category: 'Plugin Playground',
+      args: {}
     });
 
     app.commands.addCommand(CommandIDs.listTokens, {
@@ -659,9 +696,14 @@ class PluginPlayground {
         );
         if (shouldOpenFromTree === '1') {
           window.sessionStorage.removeItem(NOTEBOOK_TREE_OPEN_SIDEBAR_KEY);
-          if (!playgroundSidebar.isVisible) {
-            this.app.shell.activateById(playgroundSidebar.id);
-          }
+          this._openPlaygroundSidebar();
+        }
+        const shouldOpenAIChatFromTree = window.sessionStorage.getItem(
+          NOTEBOOK_TREE_OPEN_AI_CHAT_KEY
+        );
+        if (shouldOpenAIChatFromTree === '1') {
+          window.sessionStorage.removeItem(NOTEBOOK_TREE_OPEN_AI_CHAT_KEY);
+          void this._openJupyterLiteAIChatWithSetupFallback();
         }
       }
 
@@ -680,8 +722,13 @@ class PluginPlayground {
       if (launcher && (settings.composite.showIconInLauncher as boolean)) {
         launcher.add({
           command: CommandIDs.createNewFile,
-          category: 'Other',
+          category: 'Plugin Playground',
           rank: 1
+        });
+        launcher.add({
+          command: CommandIDs.createNewFileWithAI,
+          category: 'Plugin Playground',
+          rank: 2
         });
       }
 
@@ -729,18 +776,23 @@ class PluginPlayground {
   private _createLoadOnSaveToggleWidget(
     widget: IDocumentWidget<FileEditor>
   ): Widget {
-    const toggleNode = document.createElement('label');
+    const toggleNode = document.createElement('span');
     toggleNode.className = 'jp-PluginPlayground-loadOnSaveToggle';
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'jp-PluginPlayground-loadOnSaveCheckbox';
-    checkbox.setAttribute('aria-label', LOAD_ON_SAVE_CHECKBOX_LABEL);
+    const toggleButton = document.createElement('button');
+    toggleButton.type = 'button';
+    toggleButton.className =
+      'jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-loadOnSaveToggleIconButton';
+    toggleButton.setAttribute('aria-label', LOAD_ON_SAVE_CHECKBOX_LABEL);
+    toggleButton.setAttribute('aria-pressed', 'false');
+    const icon = loadOnSaveToggleIcon.element({
+      tag: 'span',
+      className: 'jp-PluginPlayground-loadOnSaveIcon'
+    });
     const label = document.createElement('span');
     label.className = 'jp-PluginPlayground-loadOnSaveText';
-    label.id = `${widget.id}-load-on-save-label`;
-    checkbox.setAttribute('aria-describedby', label.id);
     label.textContent = LOAD_ON_SAVE_CHECKBOX_LABEL;
-    toggleNode.append(checkbox, label);
+    toggleButton.append(icon);
+    toggleNode.append(toggleButton, label);
 
     const toggleWidget = new Widget({ node: toggleNode });
     toggleWidget.addClass('jp-PluginPlayground-loadOnSaveWidget');
@@ -748,34 +800,38 @@ class PluginPlayground {
     let currentPath = ContentUtils.normalizeContentsPath(widget.context.path);
     const refresh = () => {
       if (this._isGlobalLoadOnSaveEnabled()) {
-        checkbox.disabled = true;
-        checkbox.setAttribute('aria-hidden', 'true');
-        checkbox.setAttribute('aria-disabled', 'true');
+        toggleButton.disabled = true;
+        toggleButton.setAttribute('aria-pressed', 'false');
+        toggleButton.setAttribute('aria-disabled', 'true');
+        toggleNode.classList.add('jp-mod-disabled');
         toggleWidget.hide();
         return;
       }
       toggleWidget.show();
-      checkbox.removeAttribute('aria-hidden');
       currentPath = ContentUtils.normalizeContentsPath(widget.context.path);
       const enabled = this._isSupportedLoadOnSaveFile(currentPath);
-      checkbox.disabled = !enabled;
-      checkbox.setAttribute('aria-disabled', String(!enabled));
-      checkbox.checked = enabled && this._shouldLoadOnSave(currentPath);
+      const isPressed = enabled && this._shouldLoadOnSave(currentPath);
+      toggleButton.disabled = !enabled;
+      toggleButton.setAttribute('aria-pressed', String(isPressed));
+      toggleButton.setAttribute('aria-disabled', String(!enabled));
+      toggleNode.classList.toggle('jp-mod-disabled', !enabled);
       const description = enabled
         ? LOAD_ON_SAVE_ENABLED_DESCRIPTION
         : LOAD_ON_SAVE_DISABLED_DESCRIPTION;
-      toggleNode.title = description;
+      toggleButton.title = description;
     };
 
-    const onCheckboxChanged = () => {
-      if (
-        this._isSupportedLoadOnSaveFile(currentPath) &&
-        !this._isGlobalLoadOnSaveEnabled() &&
-        checkbox.checked
-      ) {
-        this._loadOnSaveByFile.add(currentPath);
-      } else {
+    const onToggleClicked = () => {
+      if (this._isGlobalLoadOnSaveEnabled()) {
+        return;
+      }
+      if (!this._isSupportedLoadOnSaveFile(currentPath)) {
+        return;
+      }
+      if (this._loadOnSaveByFile.has(currentPath)) {
         this._loadOnSaveByFile.delete(currentPath);
+      } else {
+        this._loadOnSaveByFile.add(currentPath);
       }
       for (const refreshState of this._loadOnSaveToggleRefreshers) {
         refreshState();
@@ -800,7 +856,7 @@ class PluginPlayground {
       refresh();
     };
 
-    checkbox.addEventListener('change', onCheckboxChanged);
+    toggleButton.addEventListener('click', onToggleClicked);
     widget.context.pathChanged.connect(onPathChanged);
     this._loadOnSaveToggleRefreshers.add(refresh);
     refresh();
@@ -811,7 +867,7 @@ class PluginPlayground {
         return;
       }
       isDisposed = true;
-      checkbox.removeEventListener('change', onCheckboxChanged);
+      toggleButton.removeEventListener('click', onToggleClicked);
       widget.context.pathChanged.disconnect(onPathChanged);
       this._loadOnSaveToggleRefreshers.delete(refresh);
     };
@@ -927,8 +983,12 @@ class PluginPlayground {
           })
           .then(() => this._loadPlugin(pluginSource, path))
       : this._loadPlugin(pluginSource, path);
+    const notifiedNext = next.then(result => {
+      this._notifyPluginLoadResult(result, normalizedPath);
+      return result;
+    });
 
-    const guardedNext = next.finally(() => {
+    const guardedNext = notifiedNext.finally(() => {
       if (this._inFlightLoads.get(normalizedPath) === guardedNext) {
         this._inFlightLoads.delete(normalizedPath);
       }
@@ -936,6 +996,38 @@ class PluginPlayground {
 
     this._inFlightLoads.set(normalizedPath, guardedNext);
     return guardedNext;
+  }
+
+  private _notifyPluginLoadResult(
+    result: IPluginLoadResult,
+    normalizedPath: string
+  ): void {
+    if (!result.ok || result.status !== 'loaded' || !normalizedPath) {
+      return;
+    }
+    const pluginCount = result.pluginIds.length;
+    const pluginLabel = pluginCount === 1 ? 'plugin' : 'plugins';
+    if (
+      result.skippedAutoStartPluginIds &&
+      result.skippedAutoStartPluginIds.length > 0
+    ) {
+      Notification.warning(
+        `Loaded ${pluginCount} ${pluginLabel} from "${normalizedPath}", but skipped auto-start for ${result.skippedAutoStartPluginIds.join(
+          ', '
+        )}.`,
+        {
+          autoClose: 7000
+        }
+      );
+      return;
+    }
+
+    Notification.success(
+      `Loaded ${pluginCount} ${pluginLabel} from "${normalizedPath}".`,
+      {
+        autoClose: 3500
+      }
+    );
   }
 
   private async _exportAsExtension(
@@ -1917,18 +2009,25 @@ class PluginPlayground {
     this._tokenSidebar?.update();
   }
 
+  private _openPlaygroundSidebar(): void {
+    if (!this._playgroundSidebar) {
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.setItem(NOTEBOOK_TREE_OPEN_SIDEBAR_KEY, '1');
+      }
+      return;
+    }
+
+    this.app.shell.activateById(this._playgroundSidebar.id);
+    (this._playgroundSidebar.content as AccordionPanel).expand(0);
+  }
+
   private _openPackagesReference(): void {
     if (!this._tokenSidebar) {
       return;
     }
 
     this._tokenSidebar.showPackagesView();
-    this.app.shell.activateById(
-      this._playgroundSidebar?.id ?? this._tokenSidebar.id
-    );
-    if (this._playgroundSidebar) {
-      (this._playgroundSidebar.content as AccordionPanel).expand(0);
-    }
+    this._openPlaygroundSidebar();
   }
 
   private _openDocumentationLink(
@@ -2548,16 +2647,7 @@ class PluginPlayground {
       commandArguments
     });
 
-    if (!this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_CHAT_COMMAND)) {
-      throw new Error(
-        `${JUPYTERLITE_AI_INSTALL_HINT} Missing command: "${JUPYTERLITE_AI_OPEN_CHAT_COMMAND}".`
-      );
-    }
-
-    await this.app.commands.execute(JUPYTERLITE_AI_OPEN_CHAT_COMMAND, {
-      area: 'side'
-    });
-    this.app.shell.activateById(JUPYTERLITE_AI_CHAT_PANEL_ID);
+    await this._openJupyterLiteAIChatPanel();
 
     const inputModel = await this._requireJupyterLiteAIChatInputModel();
     inputModel.value = prompt;
@@ -2573,6 +2663,73 @@ class PluginPlayground {
         activeElement.scrollTop = activeElement.scrollHeight;
       }
     });
+  }
+
+  private async _openJupyterLiteAIChatPanel(): Promise<void> {
+    if (!this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_CHAT_COMMAND)) {
+      throw new Error(
+        `${JUPYTERLITE_AI_INSTALL_HINT} Missing command: "${JUPYTERLITE_AI_OPEN_CHAT_COMMAND}".`
+      );
+    }
+
+    await this.app.commands.execute(JUPYTERLITE_AI_OPEN_CHAT_COMMAND, {
+      area: 'side'
+    });
+    this.app.shell.activateById(JUPYTERLITE_AI_CHAT_PANEL_ID);
+  }
+
+  private async _openJupyterLiteAIChatWithSetupFallback(): Promise<void> {
+    try {
+      await this._openJupyterLiteAIChatPanel();
+      const inputModel = await this._requireJupyterLiteAIChatInputModel();
+      inputModel.focus();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const isProviderSetupIssue =
+        message === JUPYTERLITE_AI_PROVIDER_SETUP_HINT ||
+        message.startsWith(JUPYTERLITE_AI_INSTALL_HINT);
+      if (!isProviderSetupIssue) {
+        Notification.warning(`Could not open AI chat: ${message}`, {
+          autoClose: 5000
+        });
+        return;
+      }
+
+      const didOpenSettings = await this._openAISettingsInMainArea();
+      Notification.warning(
+        `${message}${
+          didOpenSettings
+            ? ' Opened Settings editor so you can configure AI provider settings.'
+            : ''
+        }`,
+        {
+          autoClose: 7000
+        }
+      );
+    }
+  }
+
+  private async _openAISettingsInMainArea(): Promise<boolean> {
+    const settingsCommand = 'settingeditor:open';
+    if (!this.app.commands.hasCommand(settingsCommand)) {
+      return false;
+    }
+
+    const candidates: Array<Record<string, string>> = [
+      { query: 'jupyterlite-ai' },
+      { query: 'AI' },
+      {}
+    ];
+    for (const args of candidates) {
+      try {
+        await this.app.commands.execute(settingsCommand, args);
+        return true;
+      } catch {
+        continue;
+      }
+    }
+
+    return false;
   }
 
   private async _requireJupyterLiteAIChatInputModel(): Promise<{
@@ -3108,11 +3265,11 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
 
     if (!app.commands.hasCommand(CommandIDs.createNewFileFromNotebookTree)) {
       app.commands.addCommand(CommandIDs.createNewFileFromNotebookTree, {
-        label: 'Plugin (Playground)',
+        label: 'Start from File',
         caption:
           'Create a new TypeScript plugin file and open the playground sidebar',
         describedBy: { args: CREATE_PLUGIN_FROM_NOTEBOOK_TREE_ARGS_SCHEMA },
-        icon: extensionIcon,
+        icon: tokenSidebarIcon,
         execute: async args => {
           const rawCwdArg = typeof args.cwd === 'string' ? args.cwd.trim() : '';
           const normalizedCwdArg =
@@ -3141,15 +3298,46 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
       });
     }
 
+    if (
+      !app.commands.hasCommand(CommandIDs.createNewFileWithAIFromNotebookTree)
+    ) {
+      app.commands.addCommand(CommandIDs.createNewFileWithAIFromNotebookTree, {
+        label: 'Built with AI',
+        caption:
+          'Create a new TypeScript plugin file and open AI chat setup for guided building',
+        describedBy: { args: CREATE_PLUGIN_FROM_NOTEBOOK_TREE_ARGS_SCHEMA },
+        icon: offlineBoltIcon,
+        execute: async args => {
+          if (typeof window !== 'undefined') {
+            window.sessionStorage.setItem(NOTEBOOK_TREE_OPEN_AI_CHAT_KEY, '1');
+          }
+          return app.commands.execute(
+            CommandIDs.createNewFileFromNotebookTree,
+            args
+          );
+        }
+      });
+    }
+
     if (mainMenu) {
-      const hasPluginEntryInFileNewMenu = mainMenu.fileMenu.newMenu.items.some(
+      const hasStartFromFileEntry = mainMenu.fileMenu.newMenu.items.some(
         item =>
           item.type === 'command' &&
           item.command === CommandIDs.createNewFileFromNotebookTree
       );
-      if (!hasPluginEntryInFileNewMenu) {
+      if (!hasStartFromFileEntry) {
         mainMenu.fileMenu.newMenu.addItem({
           command: CommandIDs.createNewFileFromNotebookTree
+        });
+      }
+      const hasBuiltWithAIEntry = mainMenu.fileMenu.newMenu.items.some(
+        item =>
+          item.type === 'command' &&
+          item.command === CommandIDs.createNewFileWithAIFromNotebookTree
+      );
+      if (!hasBuiltWithAIEntry) {
+        mainMenu.fileMenu.newMenu.addItem({
+          command: CommandIDs.createNewFileWithAIFromNotebookTree
         });
       }
     }
@@ -3169,14 +3357,24 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
         return widget;
       }
       const newMenu = widget.menus[0];
-      const hasPluginEntry = newMenu.items.some(
+      const hasStartFromFileEntry = newMenu.items.some(
         item =>
           item.type === 'command' &&
           item.command === CommandIDs.createNewFileFromNotebookTree
       );
-      if (!hasPluginEntry) {
+      if (!hasStartFromFileEntry) {
         newMenu.addItem({
           command: CommandIDs.createNewFileFromNotebookTree
+        });
+      }
+      const hasBuiltWithAIEntry = newMenu.items.some(
+        item =>
+          item.type === 'command' &&
+          item.command === CommandIDs.createNewFileWithAIFromNotebookTree
+      );
+      if (!hasBuiltWithAIEntry) {
+        newMenu.addItem({
+          command: CommandIDs.createNewFileWithAIFromNotebookTree
         });
       }
       return widget;

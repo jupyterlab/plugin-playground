@@ -24,7 +24,8 @@ import {
   docsLinkIcon,
   gitRepositoryIcon,
   githubRepositoryIcon,
-  npmPackageIcon
+  npmPackageIcon,
+  schemaNumberIcon
 } from './icons';
 
 export type CommandInsertMode = 'insert' | 'ai';
@@ -250,6 +251,22 @@ export class TokenSidebar extends ReactWidget {
       : isCommandView
       ? 'commands'
       : 'packages';
+    const countSummary = `${itemCount} of ${totalCount} ${itemType}`;
+    const viewDescription = isTokenView
+      ? 'Dependencies your plugin needs from other plugins.'
+      : isCommandView
+      ? 'Actions that JupyterLab can do that your plugin can trigger.'
+      : 'External code libraries your plugin can import.';
+    const filterPlaceholder = isTokenView
+      ? 'Filter token strings'
+      : isCommandView
+      ? 'Filter command ids'
+      : 'Filter package names';
+    const filterAriaLabel = isTokenView
+      ? 'Filter token strings'
+      : isCommandView
+      ? 'Filter command ids'
+      : 'Filter packages';
 
     return (
       <div className="jp-PluginPlayground-sidebarInner">
@@ -269,28 +286,25 @@ export class TokenSidebar extends ReactWidget {
           role="tabpanel"
           aria-labelledby={activeTabId}
         >
-          <input
-            className="jp-PluginPlayground-filter"
-            type="search"
-            placeholder={
-              isTokenView
-                ? 'Filter token strings'
-                : isCommandView
-                ? 'Filter command ids'
-                : 'Filter package names'
-            }
-            aria-label={
-              isTokenView
-                ? 'Filter token strings'
-                : isCommandView
-                ? 'Filter command ids'
-                : 'Filter packages'
-            }
-            value={this._query}
-            onChange={this._onQueryChange}
-          />
-          <p className="jp-PluginPlayground-count">
-            {itemCount} of {totalCount} {itemType}
+          <div className="jp-PluginPlayground-filterRow">
+            <input
+              className="jp-PluginPlayground-filter"
+              type="search"
+              placeholder={filterPlaceholder}
+              aria-label={filterAriaLabel}
+              title={countSummary}
+              value={this._query}
+              onChange={this._onQueryChange}
+            />
+            <span
+              className="jp-PluginPlayground-filterCount"
+              aria-hidden="true"
+            >
+              {itemCount}/{totalCount}
+            </span>
+          </div>
+          <p className="jp-PluginPlayground-viewDescription">
+            {viewDescription}
           </p>
           {isPackagesView && this._isDiscoveringKnownModules ? (
             <p className="jp-PluginPlayground-count">
@@ -489,14 +503,18 @@ export class TokenSidebar extends ReactWidget {
                           }
                         >
                           <span
-                            className="jp-PluginPlayground-argumentFunctionLabel"
+                            className="jp-PluginPlayground-argumentSchemaIcon"
                             aria-hidden="true"
                           >
-                            <span>f(</span>
-                            <span className="jp-PluginPlayground-argumentCountBadge">
+                            {React.createElement(schemaNumberIcon.react, {
+                              tag: 'span',
+                              elementSize: 'normal',
+                              className:
+                                'jp-PluginPlayground-actionIcon jp-PluginPlayground-argumentSchemaBaseIcon'
+                            })}
+                            <span className="jp-PluginPlayground-argumentSchemaCount">
                               {argumentCountBadge}
                             </span>
-                            <span>)</span>
                           </span>
                         </button>
                         <button

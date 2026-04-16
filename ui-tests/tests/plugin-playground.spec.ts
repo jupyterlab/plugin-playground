@@ -227,14 +227,14 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-async function findLoadOnSaveCheckbox(
+async function findLoadOnSaveToggle(
   page: IJupyterLabPageFixture
 ): Promise<Locator> {
-  const checkbox = page.getByRole('checkbox', {
+  const toggle = page.getByRole('button', {
     name: LOAD_ON_SAVE_CHECKBOX_LABEL
   });
-  await expect(checkbox).toBeVisible();
-  return checkbox;
+  await expect(toggle).toBeVisible();
+  return toggle;
 }
 
 async function focusActiveEditor(page: IJupyterLabPageFixture): Promise<void> {
@@ -667,8 +667,13 @@ test('open packages reference command switches to packages view', async ({
   const packagesTab = section.getByRole('tab', { name: 'Packages' });
   await expect(packagesTab).toHaveAttribute('aria-selected', 'true');
 
-  const count = section.locator('.jp-PluginPlayground-count').first();
-  await expect(count).toContainText('packages');
+  const filterCount = section
+    .locator('.jp-PluginPlayground-filterCount')
+    .first();
+  await expect(filterCount).toBeVisible();
+  await expect(
+    section.locator('.jp-PluginPlayground-viewDescription').first()
+  ).toContainText('External code libraries');
 
   const packageItems = section.locator('.jp-PluginPlayground-listItem');
   await expect(packageItems.first()).toBeVisible();
@@ -1995,11 +2000,6 @@ test('commands tab lists and filters available commands', async ({ page }) => {
   const loadCommandArgumentsButton = panel.locator(
     '.jp-PluginPlayground-argumentBadgeButton'
   );
-  await expect(
-    loadCommandArgumentsButton.locator(
-      '.jp-PluginPlayground-argumentCountBadge'
-    )
-  ).toHaveText('?');
   await expect(loadCommandArgumentsButton).toBeDisabled();
   await expect(loadCommandArgumentsButton).toHaveAttribute(
     'title',
@@ -2642,7 +2642,7 @@ const run = (application: JupyterFrontEnd) => {
   }, LOAD_COMMAND);
 });
 
-test('per-file load-on-save checkbox is unchecked by default and enables auto-load', async ({
+test('per-file load-on-save toggle is off by default and enables auto-load', async ({
   page,
   tmpPath
 }) => {
@@ -2659,10 +2659,10 @@ test('per-file load-on-save checkbox is unchecked by default and enables auto-lo
   await page.filebrowser.open(pluginPath);
   expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
 
-  const loadOnSaveCheckbox = await findLoadOnSaveCheckbox(page);
-  await expect(loadOnSaveCheckbox).not.toBeChecked();
-  await loadOnSaveCheckbox.check();
-  await expect(loadOnSaveCheckbox).toBeChecked();
+  const loadOnSaveToggle = await findLoadOnSaveToggle(page);
+  await expect(loadOnSaveToggle).toHaveAttribute('aria-pressed', 'false');
+  await loadOnSaveToggle.click();
+  await expect(loadOnSaveToggle).toHaveAttribute('aria-pressed', 'true');
 
   await focusActiveEditor(page);
   await page.keyboard.press('Space');
@@ -2710,12 +2710,12 @@ test.describe('load-on-save setting', () => {
 
     await page.filebrowser.open(pluginPath);
     expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
-    const loadOnSaveCheckbox = page.getByRole('checkbox', {
+    const loadOnSaveToggle = page.getByRole('button', {
       name: LOAD_ON_SAVE_CHECKBOX_LABEL,
       includeHidden: true
     });
-    await expect(loadOnSaveCheckbox).toBeAttached();
-    await expect(loadOnSaveCheckbox).toBeHidden();
+    await expect(loadOnSaveToggle).toBeAttached();
+    await expect(loadOnSaveToggle).toBeHidden();
 
     // Make the editor dirty so save reliably emits a completed saveState.
     await focusActiveEditor(page);
@@ -2744,7 +2744,7 @@ test.describe('load-on-save setting', () => {
     expect(initiallyToggled).toBe(false);
   });
 
-  test('hides file-level load-on-save checkbox when setting is enabled', async ({
+  test('hides file-level load-on-save toggle when setting is enabled', async ({
     page,
     tmpPath
   }) => {
@@ -2761,11 +2761,11 @@ test.describe('load-on-save setting', () => {
     await page.filebrowser.open(pluginPath);
     expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
 
-    const loadOnSaveCheckbox = page.getByRole('checkbox', {
+    const loadOnSaveToggle = page.getByRole('button', {
       name: LOAD_ON_SAVE_CHECKBOX_LABEL,
       includeHidden: true
     });
-    await expect(loadOnSaveCheckbox).toBeAttached();
-    await expect(loadOnSaveCheckbox).toBeHidden();
+    await expect(loadOnSaveToggle).toBeAttached();
+    await expect(loadOnSaveToggle).toBeHidden();
   });
 });

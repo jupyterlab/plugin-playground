@@ -65,14 +65,35 @@
   margin: 5px 0px;
 }
 
+.jp-PluginPlayground-filterRow {
+  position: relative;
+}
+
 .jp-PluginPlayground-filter {
   background: var(--jp-layout-color1);
   border: var(--jp-border-width) solid var(--jp-border-color1);
   border-radius: var(--jp-border-radius);
   color: var(--jp-ui-font-color1);
   font-size: var(--jp-ui-font-size1);
-  padding: 4px 8px;
+  padding: 4px 52px 4px 8px;
   width: 100%;
+}
+
+.jp-PluginPlayground-filterCount {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1;
+  pointer-events: none;
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.jp-PluginPlayground-viewDescription {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  margin: 4px;
 }
 
 .jp-PluginPlayground-list {
@@ -179,43 +200,45 @@
   position: relative;
 }
 
-.jp-PluginPlayground-argumentFunctionLabel {
+.jp-PluginPlayground-argumentSchemaIcon {
   align-items: center;
   display: inline-flex;
-  font-family: var(--jp-code-font-family);
-  font-size: var(--jp-ui-font-size0);
+  height: 20px;
+  justify-content: center;
   line-height: 1;
+  position: relative;
+  width: 20px;
 }
 
 .jp-PluginPlayground-actionButton:hover {
   background: var(--jp-layout-color3);
 }
 
-.jp-PluginPlayground-argumentCountBadge {
-  background: var(--jp-brand-color1);
-  border-radius: 999px;
-  color: var(--jp-ui-inverse-font-color1);
-  display: inline-flex;
+.jp-PluginPlayground-argumentSchemaBaseIcon {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.jp-PluginPlayground-argumentSchemaBaseIcon svg {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.jp-PluginPlayground-argumentSchemaCount {
+  color: var(--jp-inverse-layout-color3);
   font-family: var(--jp-code-font-family);
   font-size: 8px;
   font-weight: 700;
-  justify-content: center;
+  left: 50%;
   line-height: 1;
-  min-width: 10px;
-  padding: 2px;
   pointer-events: none;
-  text-align: center;
+  position: absolute;
+  top: 50%;
+  transform: translate(-45%, -45%);
 }
 
 .jp-PluginPlayground-argumentBadgeButton:disabled {
   opacity: 1;
-}
-
-.jp-PluginPlayground-argumentBadgeButton:disabled
-  .jp-PluginPlayground-argumentCountBadge {
-  background: var(--jp-layout-color3);
-  border: var(--jp-border-width) solid var(--jp-border-color2);
-  color: var(--jp-ui-font-color1);
 }
 
 .jp-PluginPlayground-viewButton:focus-visible,
@@ -357,31 +380,85 @@
 .jp-PluginPlayground-loadOnSaveWidget {
   align-items: center;
   display: inline-flex;
+  height: 24px;
 }
 
 .jp-PluginPlayground-loadOnSaveToggle {
   align-items: center;
-  cursor: pointer;
   display: inline-flex;
-  gap: 6px;
-  margin: 0;
-  user-select: none;
+  gap: 2px;
 }
 
-.jp-PluginPlayground-loadOnSaveCheckbox {
+.jp-PluginPlayground-loadOnSaveToggle.jp-mod-disabled
+  .jp-PluginPlayground-loadOnSaveText {
+  color: var(--jp-ui-font-color2);
+}
+
+.jp-PluginPlayground-loadOnSaveToggleIconButton {
+  align-items: center;
+  color: var(--jp-ui-font-color1);
+  cursor: pointer;
+  display: inline-flex;
+  height: 24px !important;
+  justify-content: center;
   margin: 0;
+  min-height: unset;
+  min-width: unset;
+  padding: 0 5px !important;
+  text-align: center;
+  user-select: none;
+  width: auto;
+}
+
+.jp-PluginPlayground-loadOnSaveToggleIconButton:hover {
+  background: var(--jp-layout-color2);
+}
+
+.jp-PluginPlayground-loadOnSaveToggleIconButton[aria-pressed='true'] {
+  background: var(--jp-layout-color2);
+  box-shadow: inset 0 var(--jp-border-width) 4px
+    rgba(
+      var(--jp-shadow-base-lightness),
+      var(--jp-shadow-base-lightness),
+      var(--jp-shadow-base-lightness),
+      0.6
+    );
+}
+
+.jp-PluginPlayground-loadOnSaveToggleIconButton[aria-pressed='true']:hover {
+  background: var(--jp-layout-color3);
+}
+
+.jp-PluginPlayground-loadOnSaveToggleIconButton:disabled {
+  box-shadow: none;
+  color: var(--jp-ui-font-color2);
+  cursor: default;
+}
+
+.jp-PluginPlayground-loadOnSaveToggleIconButton:focus-visible {
+  outline: var(--jp-border-width) solid var(--jp-brand-color1);
+  outline-offset: 2px;
+}
+
+.jp-PluginPlayground-loadOnSaveIcon {
+  align-items: center;
+  display: inline-flex;
+  height: 16px;
+  justify-content: center;
+  width: 16px;
+}
+.jp-PluginPlayground-loadOnSaveIcon svg {
+  display: block;
+  height: 16px;
+  width: 16px;
 }
 
 .jp-PluginPlayground-loadOnSaveText {
-  color: var(--jp-ui-font-color1);
-  font-size: var(--jp-ui-font-size0);
-  line-height: 1;
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+  line-height: 100%;
+  padding-left: 2px;
   white-space: nowrap;
-}
-
-.jp-PluginPlayground-loadOnSaveCheckbox:disabled
-  + .jp-PluginPlayground-loadOnSaveText {
-  color: var(--jp-ui-font-color2);
 }
 
 .jp-PluginPlayground-urlLoadedEditorHint
