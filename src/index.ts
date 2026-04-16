@@ -288,6 +288,7 @@ const LOAD_ON_SAVE_ENABLED_DESCRIPTION =
 const LOAD_ON_SAVE_DISABLED_DESCRIPTION =
   'Auto load on save is available for JavaScript and TypeScript files';
 const JUPYTERLITE_AI_OPEN_CHAT_COMMAND = '@jupyterlite/ai:open-chat';
+const JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND = '@jupyterlite/ai:open-settings';
 const JUPYTERLITE_AI_CHAT_PANEL_ID = '@jupyterlite/ai:chat-panel';
 const JUPYTERLITE_AI_INSTALL_HINT =
   'JupyterLite AI is unavailable. Install the "jupyterlite-ai" extension and reload.';
@@ -2699,7 +2700,7 @@ class PluginPlayground {
       Notification.warning(
         `${message}${
           didOpenSettings
-            ? ' Opened Settings editor so you can configure AI provider settings.'
+            ? ' Opened AI settings so you can configure provider settings.'
             : ''
         }`,
         {
@@ -2710,26 +2711,15 @@ class PluginPlayground {
   }
 
   private async _openAISettingsInMainArea(): Promise<boolean> {
-    const settingsCommand = 'settingeditor:open';
-    if (!this.app.commands.hasCommand(settingsCommand)) {
+    if (!this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND)) {
       return false;
     }
-
-    const candidates: Array<Record<string, string>> = [
-      { query: 'jupyterlite-ai' },
-      { query: 'AI' },
-      {}
-    ];
-    for (const args of candidates) {
-      try {
-        await this.app.commands.execute(settingsCommand, args);
-        return true;
-      } catch {
-        continue;
-      }
+    try {
+      await this.app.commands.execute(JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND);
+      return true;
+    } catch {
+      return false;
     }
-
-    return false;
   }
 
   private async _requireJupyterLiteAIChatInputModel(): Promise<{
