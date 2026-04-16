@@ -76,6 +76,20 @@ const EXTENSION_POINT_PANEL_ID = 'jp-PluginPlayground-extensionPointPanel';
 const COMMAND_INSERT_MENU_INSERT_ID =
   'plugin-playground:command-insert-selection';
 const COMMAND_INSERT_MENU_AI_ID = 'plugin-playground:command-insert-ai';
+const TOUR_FIRST_TOKEN_ACTIONS_ID = 'jp-PluginPlayground-tour-token-actions';
+const TOUR_FIRST_TOKEN_INSERT_BUTTON_ID =
+  'jp-PluginPlayground-tour-token-insert';
+const TOUR_FIRST_TOKEN_COPY_BUTTON_ID = 'jp-PluginPlayground-tour-token-copy';
+const TOUR_FIRST_COMMAND_INSERT_GROUP_ID =
+  'jp-PluginPlayground-tour-command-insert-group';
+const TOUR_FIRST_COMMAND_SCHEMA_COPY_ACTIONS_ID =
+  'jp-PluginPlayground-tour-command-schema-copy-actions';
+const TOUR_FIRST_COMMAND_SCHEMA_BUTTON_ID =
+  'jp-PluginPlayground-tour-command-schema';
+const TOUR_FIRST_COMMAND_COPY_BUTTON_ID =
+  'jp-PluginPlayground-tour-command-copy';
+const TOUR_FIRST_PACKAGE_ACTIONS_ID =
+  'jp-PluginPlayground-tour-package-actions';
 
 export function filterTokenRecords(
   tokens: ReadonlyArray<TokenSidebar.ITokenRecord>,
@@ -190,6 +204,14 @@ export class TokenSidebar extends ReactWidget {
 
   public showPackagesView(): void {
     this._setActiveView('packages');
+  }
+
+  public showTokensView(): void {
+    this._setActiveView('tokens');
+  }
+
+  public showCommandsView(): void {
+    this._setActiveView('commands');
   }
 
   dispose(): void {
@@ -326,16 +348,24 @@ export class TokenSidebar extends ReactWidget {
             </p>
           ) : isTokenView ? (
             <ul className="jp-PluginPlayground-list">
-              {filteredTokens.map(token => (
+              {filteredTokens.map((token, index) => (
                 <li key={token.name} className="jp-PluginPlayground-listItem">
                   <div className="jp-PluginPlayground-row">
                     <code className="jp-PluginPlayground-entryLabel jp-PluginPlayground-tokenString">
                       {token.name}
                     </code>
-                    <div className="jp-PluginPlayground-tokenActions">
+                    <div
+                      className="jp-PluginPlayground-tokenActions"
+                      id={index === 0 ? TOUR_FIRST_TOKEN_ACTIONS_ID : undefined}
+                    >
                       <button
                         className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-importButton"
                         type="button"
+                        id={
+                          index === 0
+                            ? TOUR_FIRST_TOKEN_INSERT_BUTTON_ID
+                            : undefined
+                        }
                         onClick={() => {
                           void this._insertImport(token.name);
                         }}
@@ -352,6 +382,11 @@ export class TokenSidebar extends ReactWidget {
                       <button
                         className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-copyButton"
                         type="button"
+                        id={
+                          index === 0
+                            ? TOUR_FIRST_TOKEN_COPY_BUTTON_ID
+                            : undefined
+                        }
                         onClick={() => {
                           void this._copyValue(token.name, 'token string');
                         }}
@@ -389,7 +424,7 @@ export class TokenSidebar extends ReactWidget {
             </ul>
           ) : isCommandView ? (
             <ul className="jp-PluginPlayground-list">
-              {filteredCommands.map(command => {
+              {filteredCommands.map((command, index) => {
                 this._ensureCommandArgumentCount(command.id);
                 const description = formatCommandDescription(command);
                 const isExpanded = this._expandedCommandIds.has(command.id);
@@ -418,7 +453,14 @@ export class TokenSidebar extends ReactWidget {
                         {command.id}
                       </code>
                       <div className="jp-PluginPlayground-tokenActions">
-                        <div className="jp-PluginPlayground-commandInsertSplit">
+                        <div
+                          className="jp-PluginPlayground-commandInsertSplit"
+                          id={
+                            index === 0
+                              ? TOUR_FIRST_COMMAND_INSERT_GROUP_ID
+                              : undefined
+                          }
+                        >
                           <button
                             className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-commandInsertButton"
                             type="button"
@@ -478,73 +520,92 @@ export class TokenSidebar extends ReactWidget {
                             })}
                           </button>
                         </div>
-                        <button
-                          className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-argumentBadgeButton"
-                          type="button"
-                          onClick={() => {
-                            void this._toggleCommandArguments(command.id);
-                          }}
-                          disabled={isArgumentsButtonDisabled}
-                          aria-expanded={isExpanded}
-                          aria-controls={commandArgumentsPanelId}
-                          aria-label={
-                            isArgumentsButtonDisabled
-                              ? `Argument documentation unavailable for ${command.id}`
-                              : isExpanded
-                              ? `Hide argument documentation for ${command.id}`
-                              : `Show argument documentation for ${command.id}`
-                          }
-                          title={
-                            isArgumentsButtonDisabled
-                              ? 'Argument documentation unavailable'
-                              : isExpanded
-                              ? 'Hide argument documentation'
-                              : 'Show argument documentation'
+                        <div
+                          className="jp-PluginPlayground-commandSchemaCopyActions"
+                          id={
+                            index === 0
+                              ? TOUR_FIRST_COMMAND_SCHEMA_COPY_ACTIONS_ID
+                              : undefined
                           }
                         >
-                          <span
-                            className="jp-PluginPlayground-argumentSchemaIcon"
-                            aria-hidden="true"
-                          >
-                            {React.createElement(schemaNumberIcon.react, {
-                              tag: 'span',
-                              elementSize: 'normal',
-                              className:
-                                'jp-PluginPlayground-actionIcon jp-PluginPlayground-argumentSchemaBaseIcon'
-                            })}
-                            <span className="jp-PluginPlayground-argumentSchemaCount">
-                              {argumentCountBadge}
-                            </span>
-                          </span>
-                        </button>
-                        <button
-                          className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-copyButton"
-                          type="button"
-                          onClick={() => {
-                            void this._copyValue(command.id, 'command id');
-                          }}
-                          aria-label={
-                            this._copiedValue === command.id
-                              ? `Copied command id ${command.id}`
-                              : `Copy command id ${command.id}`
-                          }
-                          title={
-                            this._copiedValue === command.id
-                              ? 'Copied'
-                              : 'Copy command id'
-                          }
-                        >
-                          {React.createElement(
-                            this._copiedValue === command.id
-                              ? checkIcon.react
-                              : copyIcon.react,
-                            {
-                              tag: 'span',
-                              elementSize: 'normal',
-                              className: 'jp-PluginPlayground-actionIcon'
+                          <button
+                            className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-argumentBadgeButton"
+                            type="button"
+                            id={
+                              index === 0
+                                ? TOUR_FIRST_COMMAND_SCHEMA_BUTTON_ID
+                                : undefined
                             }
-                          )}
-                        </button>
+                            onClick={() => {
+                              void this._toggleCommandArguments(command.id);
+                            }}
+                            disabled={isArgumentsButtonDisabled}
+                            aria-expanded={isExpanded}
+                            aria-controls={commandArgumentsPanelId}
+                            aria-label={
+                              isArgumentsButtonDisabled
+                                ? `Argument documentation unavailable for ${command.id}`
+                                : isExpanded
+                                ? `Hide argument documentation for ${command.id}`
+                                : `Show argument documentation for ${command.id}`
+                            }
+                            title={
+                              isArgumentsButtonDisabled
+                                ? 'Argument documentation unavailable'
+                                : isExpanded
+                                ? 'Hide argument documentation'
+                                : 'Show argument documentation'
+                            }
+                          >
+                            <span
+                              className="jp-PluginPlayground-argumentSchemaIcon"
+                              aria-hidden="true"
+                            >
+                              {React.createElement(schemaNumberIcon.react, {
+                                tag: 'span',
+                                elementSize: 'normal',
+                                className:
+                                  'jp-PluginPlayground-actionIcon jp-PluginPlayground-argumentSchemaBaseIcon'
+                              })}
+                              <span className="jp-PluginPlayground-argumentSchemaCount">
+                                {argumentCountBadge}
+                              </span>
+                            </span>
+                          </button>
+                          <button
+                            className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-copyButton"
+                            type="button"
+                            id={
+                              index === 0
+                                ? TOUR_FIRST_COMMAND_COPY_BUTTON_ID
+                                : undefined
+                            }
+                            onClick={() => {
+                              void this._copyValue(command.id, 'command id');
+                            }}
+                            aria-label={
+                              this._copiedValue === command.id
+                                ? `Copied command id ${command.id}`
+                                : `Copy command id ${command.id}`
+                            }
+                            title={
+                              this._copiedValue === command.id
+                                ? 'Copied'
+                                : 'Copy command id'
+                            }
+                          >
+                            {React.createElement(
+                              this._copiedValue === command.id
+                                ? checkIcon.react
+                                : copyIcon.react,
+                              {
+                                tag: 'span',
+                                elementSize: 'normal',
+                                className: 'jp-PluginPlayground-actionIcon'
+                              }
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </div>
                     {description ? (
@@ -576,7 +637,7 @@ export class TokenSidebar extends ReactWidget {
             </ul>
           ) : (
             <ul className="jp-PluginPlayground-list">
-              {filteredKnownModules.map(known => {
+              {filteredKnownModules.map((known, index) => {
                 const links = this._knownModuleLinks(known);
                 const description = this._knownModuleDescription(known);
                 return (
@@ -594,7 +655,14 @@ export class TokenSidebar extends ReactWidget {
                           </React.Fragment>
                         ))}
                       </code>
-                      <div className="jp-PluginPlayground-tokenActions jp-PluginPlayground-packageActions">
+                      <div
+                        className="jp-PluginPlayground-tokenActions jp-PluginPlayground-packageActions"
+                        id={
+                          index === 0
+                            ? TOUR_FIRST_PACKAGE_ACTIONS_ID
+                            : undefined
+                        }
+                      >
                         {links.map(link => (
                           <button
                             key={`${known.name}:${link.label}`}

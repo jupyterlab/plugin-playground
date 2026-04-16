@@ -34,6 +34,7 @@ import {
   extensionIcon,
   fileUploadIcon,
   IFrame,
+  infoIcon,
   offlineBoltIcon,
   shareIcon,
   SidePanel
@@ -97,8 +98,13 @@ import {
 import { downloadArchive, IArchiveEntry } from './archive';
 import { createTemplateArchive } from './export-template';
 import { ShareLink } from './share-link';
+import {
+  hasPluginPlaygroundTourSupport,
+  launchPluginPlaygroundTour,
+  PLUGIN_PLAYGROUND_TOUR_MISSING_HINT
+} from './tour';
 
-import { Token } from '@lumino/coreutils';
+import { ReadonlyPartialJSONObject, Token } from '@lumino/coreutils';
 
 import { AccordionPanel, MenuBar, Widget } from '@lumino/widgets';
 
@@ -108,10 +114,13 @@ namespace CommandIDs {
   export const createNewFile = 'plugin-playground:create-new-plugin';
   export const createNewFileWithAI =
     'plugin-playground:create-new-plugin-with-ai';
+  export const takeTour = 'plugin-playground:take-tour';
   export const createNewFileFromNotebookTree =
     'plugin-playground:create-new-plugin-from-notebook-tree';
   export const createNewFileWithAIFromNotebookTree =
     'plugin-playground:create-new-plugin-with-ai-from-notebook-tree';
+  export const takeTourFromNotebookTree =
+    'plugin-playground:take-tour-from-notebook-tree';
   export const loadCurrentAsExtension = 'plugin-playground:load-as-extension';
   export const exportAsExtension = 'plugin-playground:export-as-extension';
   export const shareViaLink = 'plugin-playground:share-via-link';
@@ -591,6 +600,50 @@ class PluginPlayground {
       args: {}
     });
 
+    app.commands.addCommand(CommandIDs.takeTour, {
+      label: 'Take the Tour',
+      caption:
+        'Open a guided walkthrough of Plugin Playground, extension examples, and AI setup',
+      describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
+      icon: infoIcon,
+      execute: async args => {
+        if (!hasPluginPlaygroundTourSupport(app)) {
+          Notification.warning(
+            `${PLUGIN_PLAYGROUND_TOUR_MISSING_HINT} Install "jupyterlab-tour" and reload JupyterLab.`,
+            {
+              autoClose: 7000
+            }
+          );
+          return {
+            ok: false,
+            message: PLUGIN_PLAYGROUND_TOUR_MISSING_HINT
+          };
+        }
+
+        try {
+          await this._preparePluginPlaygroundTourContext(args);
+          await launchPluginPlaygroundTour(app);
+          return { ok: true };
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          Notification.warning(`Could not start the tour: ${message}`, {
+            autoClose: 7000
+          });
+          return {
+            ok: false,
+            message
+          };
+        }
+      }
+    });
+
+    commandPalette.addItem({
+      command: CommandIDs.takeTour,
+      category: 'Plugin Playground',
+      args: {}
+    });
+
     app.commands.addCommand(CommandIDs.listTokens, {
       label: 'List Extension Tokens (Playground)',
       caption: 'List available token strings',
@@ -685,10 +738,9 @@ class PluginPlayground {
       playgroundSidebar.title.icon = tokenSidebarIcon;
       playgroundSidebar.addWidget(tokenSidebar);
       playgroundSidebar.addWidget(exampleSidebar);
-      (playgroundSidebar.content as AccordionPanel).expand(0);
-      (playgroundSidebar.content as AccordionPanel).expand(1);
       this.app.shell.add(playgroundSidebar, 'right', { rank: 650 });
       this._playgroundSidebar = playgroundSidebar;
+      this._expandPlaygroundSidebarSections();
       if (typeof window !== 'undefined') {
         const shouldOpenFromTree = window.sessionStorage.getItem(
           NOTEBOOK_TREE_OPEN_SIDEBAR_KEY
@@ -728,6 +780,11 @@ class PluginPlayground {
           command: CommandIDs.createNewFileWithAI,
           category: 'Plugin Playground',
           rank: 2
+        });
+        launcher.add({
+          command: CommandIDs.takeTour,
+          category: 'Plugin Playground',
+          rank: 3
         });
       }
 
@@ -2020,6 +2077,32 @@ class PluginPlayground {
     (this._playgroundSidebar.content as AccordionPanel).expand(0);
   }
 
+  private _expandPlaygroundSidebarSections(): void {
+    if (!this._playgroundSidebar) {
+      return;
+    }
+    const content = this._playgroundSidebar.content;
+    if (content instanceof AccordionPanel) {
+      content.expand(0);
+      content.expand(1);
+    }
+  }
+
+  private async _preparePluginPlaygroundTourContext(
+    args: ReadonlyPartialJSONObject
+  ): Promise<void> {
+    const hasActiveEditor =
+      this.editorTracker.currentWidget !== null &&
+      this.editorTracker.currentWidget === this.app.shell.currentWidget;
+
+    if (!hasActiveEditor) {
+      await this.app.commands.execute(CommandIDs.createNewFile, args);
+    }
+
+    this._openPlaygroundSidebar();
+    this._expandPlaygroundSidebarSections();
+  }
+
   private _openPackagesReference(): void {
     if (!this._tokenSidebar) {
       return;
@@ -2520,7 +2603,7 @@ class PluginPlayground {
       );
       const warningMessage =
         message === JUPYTERLITE_AI_PROVIDER_SETUP_HINT ||
-        message.startsWith(JUPYTERLITE_AI_INSTALL_HINT)
+        message === JUPYTERLITE_AI_INSTALL_HINT
           ? message
           : `Could not prefill AI insertion prompt for "${commandId}": ${message}`;
       Notification.warning(warningMessage, {
@@ -2665,10 +2748,7 @@ class PluginPlayground {
   }
 
   private async _openJupyterLiteAIChatPanel(): Promise<void> {
-    const hasOpenChatCommand = await this._waitForCommand(
-      JUPYTERLITE_AI_OPEN_CHAT_COMMAND
-    );
-    if (!hasOpenChatCommand) {
+    if (!this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_CHAT_COMMAND)) {
       throw new Error(JUPYTERLITE_AI_INSTALL_HINT);
     }
 
@@ -2715,19 +2795,14 @@ class PluginPlayground {
         return;
       }
 
-      if (!isProviderSetupIssue && !isInstallIssue) {
-        Notification.warning(`Could not open AI chat: ${message}`, {
-          autoClose: 5000
-        });
-      }
+      Notification.warning(`Could not open AI chat: ${message}`, {
+        autoClose: 5000
+      });
     }
   }
 
   private async _openAISettingsInMainArea(): Promise<boolean> {
-    const hasOpenSettingsCommand = await this._waitForCommand(
-      JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND
-    );
-    if (!hasOpenSettingsCommand) {
+    if (!this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND)) {
       return false;
     }
     try {
@@ -2748,54 +2823,35 @@ class PluginPlayground {
       throw new Error(JUPYTERLITE_AI_INSTALL_HINT);
     }
 
-    let chatWidget = chatTracker.currentWidget ?? chatTracker.find(() => true);
-    if (!chatWidget) {
-      for (let attempt = 0; attempt < 15; attempt++) {
-        await new Promise<void>(resolve => {
-          window.setTimeout(resolve, 50);
-        });
-        chatWidget = chatTracker.currentWidget ?? chatTracker.find(() => true);
-        if (chatWidget) {
-          break;
-        }
+    const maxAnimationFrameRetries = 3;
+    for (let attempt = 0; attempt <= maxAnimationFrameRetries; attempt++) {
+      const chatWidget =
+        chatTracker.currentWidget ?? chatTracker.find(() => true);
+      const inputModel = (
+        chatWidget as {
+          model?: {
+            input?: unknown;
+          };
+        } | null
+      )?.model?.input;
+      if (this._isJupyterLiteAIChatInputModel(inputModel)) {
+        return inputModel;
       }
-    }
-    if (!chatWidget) {
-      throw new Error(JUPYTERLITE_AI_PROVIDER_SETUP_HINT);
-    }
 
-    const inputModel = (
-      chatWidget as {
-        model?: {
-          input?: unknown;
-        };
+      if (
+        typeof window === 'undefined' ||
+        attempt === maxAnimationFrameRetries
+      ) {
+        break;
       }
-    ).model?.input;
-    if (this._isJupyterLiteAIChatInputModel(inputModel)) {
-      return inputModel;
-    }
-    throw new Error(JUPYTERLITE_AI_PROVIDER_SETUP_HINT);
-  }
-
-  private async _waitForCommand(
-    commandId: string,
-    timeoutMs = 1500
-  ): Promise<boolean> {
-    if (this.app.commands.hasCommand(commandId)) {
-      return true;
-    }
-
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < timeoutMs) {
       await new Promise<void>(resolve => {
-        window.setTimeout(resolve, 50);
+        window.requestAnimationFrame(() => {
+          resolve();
+        });
       });
-      if (this.app.commands.hasCommand(commandId)) {
-        return true;
-      }
     }
 
-    return false;
+    throw new Error(JUPYTERLITE_AI_PROVIDER_SETUP_HINT);
   }
 
   private _isJupyterLiteAIChatInputModel(candidate: unknown): candidate is {
@@ -3352,6 +3408,25 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
       });
     }
 
+    if (!app.commands.hasCommand(CommandIDs.takeTourFromNotebookTree)) {
+      app.commands.addCommand(CommandIDs.takeTourFromNotebookTree, {
+        label: 'Take the Tour',
+        caption:
+          'Open a first-time-friendly tour of Plugin Playground and AI setup',
+        describedBy: { args: CREATE_PLUGIN_FROM_NOTEBOOK_TREE_ARGS_SCHEMA },
+        icon: infoIcon,
+        execute: async args => {
+          const rawCwdArg = typeof args.cwd === 'string' ? args.cwd.trim() : '';
+          const normalizedCwdArg =
+            ContentUtils.normalizeContentsPath(rawCwdArg);
+          return app.commands.execute(
+            CommandIDs.takeTour,
+            normalizedCwdArg ? { cwd: normalizedCwdArg } : {}
+          );
+        }
+      });
+    }
+
     if (mainMenu) {
       const hasStartFromFileEntry = mainMenu.fileMenu.newMenu.items.some(
         item =>
@@ -3371,6 +3446,16 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
       if (!hasBuiltWithAIEntry) {
         mainMenu.fileMenu.newMenu.addItem({
           command: CommandIDs.createNewFileWithAIFromNotebookTree
+        });
+      }
+      const hasTakeTourEntry = mainMenu.fileMenu.newMenu.items.some(
+        item =>
+          item.type === 'command' &&
+          item.command === CommandIDs.takeTourFromNotebookTree
+      );
+      if (!hasTakeTourEntry) {
+        mainMenu.fileMenu.newMenu.addItem({
+          command: CommandIDs.takeTourFromNotebookTree
         });
       }
     }
@@ -3408,6 +3493,16 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
       if (!hasBuiltWithAIEntry) {
         newMenu.addItem({
           command: CommandIDs.createNewFileWithAIFromNotebookTree
+        });
+      }
+      const hasTakeTourEntry = newMenu.items.some(
+        item =>
+          item.type === 'command' &&
+          item.command === CommandIDs.takeTourFromNotebookTree
+      );
+      if (!hasTakeTourEntry) {
+        newMenu.addItem({
+          command: CommandIDs.takeTourFromNotebookTree
         });
       }
       return widget;
