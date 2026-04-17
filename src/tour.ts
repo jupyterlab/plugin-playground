@@ -1,6 +1,5 @@
 import { JupyterFrontEnd } from '@jupyterlab/application';
 import { ReadonlyPartialJSONObject } from '@lumino/coreutils';
-import type { ConfigSection } from '@jupyterlab/services';
 
 /**
  * Serializable shape for a single Plugin Playground guided tour step.
@@ -76,9 +75,6 @@ interface ITourHandlerLike {
 const TOUR_ADD_COMMAND = 'jupyterlab-tour:add';
 const TOUR_LAUNCH_COMMAND = 'jupyterlab-tour:launch';
 const TOUR_ID = '@jupyterlab/plugin-playground:tour';
-const JUPYTERLAB_TOUR_CONFIG_SECTION = 'jupyterlabtourplugin';
-const WELCOME_TOUR_STATE_ID = 'jupyterlab-tour:welcome';
-const WELCOME_TOUR_STATE_VERSION = 20231107;
 
 const PLAYGROUND_SIDEBAR_SELECTOR = '#jp-plugin-playground-sidebar';
 const EXAMPLES_SIDEBAR_SELECTOR = '#jp-plugin-example-sidebar';
@@ -265,49 +261,6 @@ const CONNECTED_TOUR_IDS = new Set<string>();
 export const PLUGIN_PLAYGROUND_TOUR_MISSING_HINT =
   'Guided tours are unavailable because "jupyterlab-tour" is not installed in this environment.';
 
-export async function suppressWelcomeTourAtSource(
-  configSectionManager: ConfigSection.IManager | null
-): Promise<void> {
-  if (!configSectionManager) {
-    return;
-  }
-
-  try {
-    const config = await configSectionManager.create({
-      name: JUPYTERLAB_TOUR_CONFIG_SECTION
-    });
-    const rawState = (config.data as { state?: unknown } | undefined)?.state;
-    const state = Array.isArray(rawState)
-      ? rawState.filter(
-          (entry): entry is { id: string; version: number } =>
-            !!entry &&
-            typeof entry === 'object' &&
-            typeof (entry as { id?: unknown }).id === 'string' &&
-            typeof (entry as { version?: unknown }).version === 'number'
-        )
-      : [];
-    const hasWelcome = state.some(
-      entry =>
-        entry.id === WELCOME_TOUR_STATE_ID &&
-        entry.version === WELCOME_TOUR_STATE_VERSION
-    );
-    if (hasWelcome) {
-      return;
-    }
-    await config.update({
-      state: [
-        ...state,
-        {
-          id: WELCOME_TOUR_STATE_ID,
-          version: WELCOME_TOUR_STATE_VERSION
-        }
-      ]
-    });
-  } catch {
-    // ignore environments where this cannot save.
-  }
-}
-
 export function hasPluginPlaygroundTourSupport(app: JupyterFrontEnd): boolean {
   return (
     app.commands.hasCommand(TOUR_ADD_COMMAND) &&
@@ -398,15 +351,12 @@ function attachTourUiHooks(handler: ITourHandlerLike): void {
 }
 
 export async function launchPluginPlaygroundTour(
-  app: JupyterFrontEnd,
-  configSectionManager: ConfigSection.IManager | null = null
+  app: JupyterFrontEnd
 ): Promise<void> {
   if (!hasPluginPlaygroundTourSupport(app)) {
     throw new Error(PLUGIN_PLAYGROUND_TOUR_MISSING_HINT);
   }
 
-  // suppression the default welcome tour.
-  await suppressWelcomeTourAtSource(configSectionManager);
   let addedTour: unknown = null;
   try {
     addedTour = await app.commands.execute(TOUR_ADD_COMMAND, {
