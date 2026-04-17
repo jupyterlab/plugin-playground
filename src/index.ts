@@ -42,7 +42,11 @@ import {
 import { IDocumentManager } from '@jupyterlab/docmanager';
 import { PathExt } from '@jupyterlab/coreutils';
 
-import { Contents } from '@jupyterlab/services';
+import {
+  Contents,
+  IConfigSectionManager,
+  type ConfigSection
+} from '@jupyterlab/services';
 import { ICompletionProviderManager } from '@jupyterlab/completer';
 
 import { PluginLoader, PluginLoadingError } from './loader';
@@ -98,10 +102,10 @@ import { downloadArchive, IArchiveEntry } from './archive';
 import { createTemplateArchive } from './export-template';
 import { ShareLink } from './share-link';
 import {
-  dismissDefaultWelcomeTour,
   hasPluginPlaygroundTourSupport,
   launchPluginPlaygroundTour,
-  PLUGIN_PLAYGROUND_TOUR_MISSING_HINT
+  PLUGIN_PLAYGROUND_TOUR_MISSING_HINT,
+  suppressWelcomeTourAtSource
 } from './tour';
 
 import { ReadonlyPartialJSONObject, Token } from '@lumino/coreutils';
@@ -367,7 +371,8 @@ class PluginPlayground {
     protected settings: ISettingRegistry.ISettings,
     protected requirejs: IRequireJS,
     toolbarWidgetRegistry: IToolbarWidgetRegistry,
-    protected logConsoleTracker: ILogConsoleTracker | null
+    protected logConsoleTracker: ILogConsoleTracker | null,
+    protected configSectionManager: ConfigSection.IManager | null
   ) {
     registerCoreKnownModules();
 
@@ -648,7 +653,7 @@ class PluginPlayground {
 
         try {
           await this._preparePluginPlaygroundTourContext(args);
-          await launchPluginPlaygroundTour(app);
+          await launchPluginPlaygroundTour(app, this.configSectionManager);
           return { ok: true };
         } catch (error) {
           const message =
@@ -722,7 +727,7 @@ class PluginPlayground {
     });
 
     app.restored.then(async () => {
-      dismissDefaultWelcomeTour();
+      await suppressWelcomeTourAtSource(this.configSectionManager);
       const settings = this.settings;
       this._updateSettings(requirejs, settings);
       this._refreshExtensionPoints();
@@ -3313,7 +3318,8 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
     ILauncher,
     IDocumentManager,
     ILogConsoleTracker,
-    IChatTracker
+    IChatTracker,
+    IConfigSectionManager
   ],
   activate: (
     app: JupyterFrontEnd,
@@ -3325,7 +3331,8 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
     launcher: ILauncher | null,
     documentManager: IDocumentManager | null,
     logConsoleTracker: ILogConsoleTracker | null,
-    chatTracker: IChatTracker | null
+    chatTracker: IChatTracker | null,
+    configSectionManager: ConfigSection.IManager | null
   ): IPluginPlayground => {
     if (completionManager) {
       completionManager.registerProvider(new CommandCompletionProvider(app));
@@ -3352,7 +3359,8 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
         settings,
         requirejs,
         toolbarWidgetRegistry,
-        logConsoleTracker
+        logConsoleTracker,
+        configSectionManager
       );
       return playground;
     });
