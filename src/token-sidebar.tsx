@@ -20,6 +20,7 @@ import {
   type ICommandRecord
 } from './command-completion';
 import { ContentUtils } from './contents';
+import { openMenuAtAnchor, SplitActionButton } from './split-action';
 import {
   docsLinkIcon,
   gitRepositoryIcon,
@@ -404,66 +405,64 @@ export class TokenSidebar extends ReactWidget {
                         {command.id}
                       </code>
                       <div className="jp-PluginPlayground-tokenActions">
-                        <div className="jp-PluginPlayground-commandInsertSplit">
-                          <button
-                            className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-commandInsertButton"
-                            type="button"
-                            onMouseDown={event => {
-                              event.preventDefault();
-                            }}
-                            onClick={() => {
-                              void this._insertCommand(
-                                command.id,
-                                commandInsertMode
-                              );
-                            }}
-                            disabled={!canInsertCommand}
-                            aria-label={
-                              isAICommandInsertMode
-                                ? `Prompt AI to insert command execution for ${command.id} (default)`
-                                : `Insert command execution for ${command.id} (default)`
-                            }
-                            title={
-                              isAICommandInsertMode
-                                ? 'Prompt AI to insert command execution (default)'
-                                : 'Insert command execution (default)'
-                            }
-                          >
-                            {React.createElement(addIcon.react, {
+                        <SplitActionButton
+                          containerClassName="jp-PluginPlayground-commandInsertSplit"
+                          primaryClassName="jp-PluginPlayground-commandInsertButton"
+                          menuClassName="jp-PluginPlayground-commandInsertMenuButton jp-PluginPlayground-commandInsertDropdownButton"
+                          disabled={!canInsertCommand}
+                          onPrimaryMouseDown={event => {
+                            event.preventDefault();
+                          }}
+                          onPrimaryClick={() => {
+                            void this._insertCommand(
+                              command.id,
+                              commandInsertMode
+                            );
+                          }}
+                          primaryAriaLabel={
+                            isAICommandInsertMode
+                              ? `Prompt AI to insert command execution for ${command.id} (default)`
+                              : `Insert command execution for ${command.id} (default)`
+                          }
+                          primaryTitle={
+                            isAICommandInsertMode
+                              ? 'Prompt AI to insert command execution (default)'
+                              : 'Insert command execution (default)'
+                          }
+                          primaryContent={
+                            <>
+                              {React.createElement(addIcon.react, {
+                                tag: 'span',
+                                elementSize: 'normal',
+                                className: 'jp-PluginPlayground-actionIcon'
+                              })}
+                              {isAICommandInsertMode
+                                ? React.createElement(offlineBoltIcon.react, {
+                                    tag: 'span',
+                                    elementSize: 'small',
+                                    className:
+                                      'jp-PluginPlayground-commandInsertAIMarkerIcon'
+                                  })
+                                : null}
+                            </>
+                          }
+                          onMenuMouseDown={event => {
+                            event.preventDefault();
+                          }}
+                          onMenuClick={anchorButton => {
+                            this._openCommandInsertMenu(anchorButton);
+                          }}
+                          menuAriaLabel={`Choose command insertion mode for ${command.id}`}
+                          menuTitle="Choose command insertion mode"
+                          menuContent={React.createElement(
+                            caretDownEmptyIcon.react,
+                            {
                               tag: 'span',
                               elementSize: 'normal',
                               className: 'jp-PluginPlayground-actionIcon'
-                            })}
-                            {isAICommandInsertMode
-                              ? React.createElement(offlineBoltIcon.react, {
-                                  tag: 'span',
-                                  elementSize: 'small',
-                                  className:
-                                    'jp-PluginPlayground-commandInsertAIMarkerIcon'
-                                })
-                              : null}
-                          </button>
-                          <button
-                            className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-commandInsertMenuButton jp-PluginPlayground-commandInsertDropdownButton"
-                            type="button"
-                            onMouseDown={event => {
-                              event.preventDefault();
-                            }}
-                            onClick={event => {
-                              this._openCommandInsertMenu(event.currentTarget);
-                            }}
-                            disabled={!canInsertCommand}
-                            aria-haspopup="menu"
-                            aria-label={`Choose command insertion mode for ${command.id}`}
-                            title="Choose command insertion mode"
-                          >
-                            {React.createElement(caretDownEmptyIcon.react, {
-                              tag: 'span',
-                              elementSize: 'normal',
-                              className: 'jp-PluginPlayground-actionIcon'
-                            })}
-                          </button>
-                        </div>
+                            }
+                          )}
+                        />
                         <button
                           className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-argumentBadgeButton"
                           type="button"
@@ -883,19 +882,10 @@ export class TokenSidebar extends ReactWidget {
   }
 
   private _openCommandInsertMenu(anchorButton: HTMLButtonElement): void {
-    this._commandInsertMenu.clearItems();
-    this._commandInsertMenu.addItem({
-      command: COMMAND_INSERT_MENU_INSERT_ID
-    });
-    this._commandInsertMenu.addItem({
-      command: COMMAND_INSERT_MENU_AI_ID
-    });
-    const anchorRect = anchorButton.getBoundingClientRect();
-    const splitRect = anchorButton.parentElement?.getBoundingClientRect();
-    this._commandInsertMenu.open(
-      splitRect?.left ?? anchorRect.left,
-      anchorRect.bottom
-    );
+    openMenuAtAnchor(this._commandInsertMenu, anchorButton, [
+      { command: COMMAND_INSERT_MENU_INSERT_ID },
+      { command: COMMAND_INSERT_MENU_AI_ID }
+    ]);
   }
 
   private async _setCommandInsertMode(mode: CommandInsertMode): Promise<void> {

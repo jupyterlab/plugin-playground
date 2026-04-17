@@ -73,6 +73,21 @@ export namespace ContentUtils {
     return (path ?? '').replace(/^\/+/g, '');
   }
 
+  export function isSafeRelativePath(path: string): boolean {
+    const normalized = normalizeContentsPath(path).replace(/\\/g, '/');
+    if (!normalized) {
+      return false;
+    }
+    const segments = normalized.split('/');
+    return segments.every(
+      segment =>
+        segment.length > 0 &&
+        segment !== '.' &&
+        segment !== '..' &&
+        !segment.includes('\0')
+    );
+  }
+
   export function normalizeQuery(query: string): string {
     return query.trim().toLowerCase();
   }
@@ -252,6 +267,33 @@ export namespace ContentUtils {
 
     const text = fileModelToText(fileModel);
     return text === null ? null : new TextEncoder().encode(text);
+  }
+
+  export function parseJsonObject(
+    raw: string | null | undefined
+  ): Record<string, unknown> | null {
+    if (typeof raw !== 'string') {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (
+        parsed !== null &&
+        typeof parsed === 'object' &&
+        !Array.isArray(parsed)
+      ) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  export function fileModelToJsonObject(
+    fileModel: IFileModel | null
+  ): Record<string, unknown> | null {
+    return parseJsonObject(fileModelToText(fileModel));
   }
 
   export async function readContentsFileAsText(

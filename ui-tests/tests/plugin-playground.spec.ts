@@ -40,6 +40,9 @@ const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
 interface IWindowWithExportCounter extends Window {
   __exportDownloadCount?: number;
   __originalCreateObjectURL?: typeof URL.createObjectURL;
+  __exportDownloadFilenames?: string[];
+  __exportDownloadBlobs?: Blob[];
+  __originalAnchorClick?: (this: HTMLAnchorElement) => void;
 }
 
 test.use({ autoGoto: false });
@@ -57,6 +60,32 @@ const plugin = {
         toggled = !toggled;
       }
     });
+  }
+};
+
+export default plugin;
+`;
+
+const INSTALLED_WHEEL_PROJECT_NAME = 'playground-wheel-installed-smoke';
+const INSTALLED_WHEEL_ARTIFACT_PATH =
+  '/tmp/playground_wheel_installed_smoke-0.1.0-py3-none-any.whl';
+const INSTALLED_WHEEL_MARKER_ID = 'jp-plugin-playground-wheel-installed-marker';
+const INSTALLED_WHEEL_MARKER_TEXT = 'wheel-installed-marker-ready';
+const INSTALLED_WHEEL_PLUGIN_SOURCE = `
+const MARKER_ID = '${INSTALLED_WHEEL_MARKER_ID}';
+const MARKER_TEXT = '${INSTALLED_WHEEL_MARKER_TEXT}';
+
+const plugin = {
+  id: 'playground-wheel-installed-smoke:plugin',
+  autoStart: true,
+  activate: () => {
+    let marker = document.getElementById(MARKER_ID);
+    if (!marker) {
+      marker = document.createElement('div');
+      marker.id = MARKER_ID;
+      marker.textContent = MARKER_TEXT;
+      document.body.appendChild(marker);
+    }
   }
 };
 
@@ -1232,6 +1261,411 @@ test('exports active extension folder as a zip archive', async ({
     return (window as IWindowWithExportCounter).__exportDownloadCount ?? 0;
   });
   expect(downloadCount).toBeGreaterThan(0);
+});
+
+test('exports active extension folder as a Python package from toolbar dropdown', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/export-toolbar-wheel-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: 'export-toolbar-wheel-test',
+        version: '0.1.0',
+        main: 'src/index.ts',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, EXPORT_COMMAND)
+  );
+
+  await page.evaluate(() => {
+    const win = window as IWindowWithExportCounter;
+    win.__exportDownloadCount = 0;
+    win.__exportDownloadFilenames = [];
+
+    if (!win.__originalCreateObjectURL) {
+      win.__originalCreateObjectURL = URL.createObjectURL.bind(URL);
+      const originalCreateObjectURL = win.__originalCreateObjectURL;
+      URL.createObjectURL = ((blob: Blob) => {
+        win.__exportDownloadCount = (win.__exportDownloadCount ?? 0) + 1;
+        return originalCreateObjectURL(blob);
+      }) as typeof URL.createObjectURL;
+    }
+
+    if (!win.__originalAnchorClick) {
+      win.__originalAnchorClick = HTMLAnchorElement.prototype.click;
+      const originalAnchorClick = win.__originalAnchorClick;
+      HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+        const targetWindow = window as IWindowWithExportCounter;
+        targetWindow.__exportDownloadFilenames = [
+          ...(targetWindow.__exportDownloadFilenames ?? []),
+          this.download
+        ];
+        return originalAnchorClick.call(this);
+      };
+    }
+  });
+
+  const exportFormatButton = page.getByRole('button', {
+    name: 'Choose export format'
+  });
+  await expect(exportFormatButton).toBeVisible();
+  await exportFormatButton.click();
+
+  const wheelMenuItem = page
+    .locator('.lm-Menu-item', {
+      has: page.locator('.lm-Menu-itemLabel', {
+        hasText: 'Export as Python package (.whl)'
+      })
+    })
+    .first();
+  await expect(wheelMenuItem).toBeVisible();
+  await wheelMenuItem.click();
+
+  const downloadCountBeforeExport = await page.evaluate(() => {
+    return (window as IWindowWithExportCounter).__exportDownloadCount ?? 0;
+  });
+  expect(downloadCountBeforeExport).toBe(0);
+
+  const exportButton = page.getByRole('button', {
+    name: /Export plugin folder as/
+  });
+  await expect(exportButton).toBeVisible();
+  await exportButton.click();
+
+  await page.waitForCondition(() =>
+    page.evaluate(() => {
+      const filenames =
+        (window as IWindowWithExportCounter).__exportDownloadFilenames ?? [];
+      return filenames.some(name => name.endsWith('.whl'));
+    })
+  );
+});
+
+test('exports active extension folder as a Python package', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/export-command-wheel-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: 'export-command-wheel-test',
+        version: '0.1.0',
+        main: 'src/index.ts',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, EXPORT_COMMAND)
+  );
+
+  await page.evaluate(() => {
+    const win = window as IWindowWithExportCounter;
+    win.__exportDownloadCount = 0;
+    if (!win.__originalCreateObjectURL) {
+      win.__originalCreateObjectURL = URL.createObjectURL.bind(URL);
+      const originalCreateObjectURL = win.__originalCreateObjectURL;
+      URL.createObjectURL = ((blob: Blob) => {
+        win.__exportDownloadCount = (win.__exportDownloadCount ?? 0) + 1;
+        return originalCreateObjectURL(blob);
+      }) as typeof URL.createObjectURL;
+    }
+  });
+
+  const exportResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id, {
+      format: 'wheel'
+    });
+  }, EXPORT_COMMAND);
+
+  expect(exportResult.ok).toBe(true);
+  expect(exportResult.archiveName).toMatch(/-py3-none-any\.whl$/);
+  expect(exportResult.fileCount).toBeGreaterThanOrEqual(2);
+
+  const downloadCount = await page.evaluate(() => {
+    return (window as IWindowWithExportCounter).__exportDownloadCount ?? 0;
+  });
+  expect(downloadCount).toBeGreaterThan(0);
+});
+
+test('exports deterministic wheel artifact for installed-wheel smoke test', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/${INSTALLED_WHEEL_PROJECT_NAME}`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: INSTALLED_WHEEL_PROJECT_NAME,
+        version: '0.1.0',
+        main: 'src/index.ts',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(
+    INSTALLED_WHEEL_PLUGIN_SOURCE,
+    'text',
+    sourcePath
+  );
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, EXPORT_COMMAND)
+  );
+
+  const exportedWheelDownload = page.waitForEvent('download');
+  const exportResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id, {
+      format: 'wheel'
+    });
+  }, EXPORT_COMMAND);
+
+  expect(exportResult.ok).toBe(true);
+  expect(exportResult.archiveName).toMatch(
+    /^playground[_-]wheel[_-]installed[_-]smoke-0\.1\.0-py3-none-any\.whl$/
+  );
+
+  const downloadedWheel = await exportedWheelDownload;
+  await downloadedWheel.saveAs(INSTALLED_WHEEL_ARTIFACT_PATH);
+});
+
+test('wheel export includes license files and sanitized METADATA fields', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/export-command-wheel-metadata-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const nestedLicensePath = `${projectRoot}/src/license.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+  const licensePath = `${projectRoot}/LICENSE`;
+  const noticePath = `${projectRoot}/NOTICE`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: '../export-command-wheel-metadata-test',
+        version: '0.1.0',
+        main: 'src/index.ts',
+        description: 'Wheel summary line\nwith newline',
+        homepage: 'https://example.test/docs\nINJECTED-HOMEPAGE-LINE',
+        author: {
+          email: 'owner@example.test\nINJECTED-AUTHOR-EMAIL-LINE'
+        },
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.contents.uploadContent(
+    'export const shouldNotBePackagedAsLicense = true;\n',
+    'text',
+    nestedLicensePath
+  );
+  await page.contents.uploadContent('License text\n', 'text', licensePath);
+  await page.contents.uploadContent('Notice text\n', 'text', noticePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, EXPORT_COMMAND)
+  );
+
+  const exportedWheelDownload = page.waitForEvent('download');
+
+  const inspection = await page.evaluate(async (id: string) => {
+    const win = window as IWindowWithExportCounter;
+    win.__exportDownloadBlobs = [];
+    const originalCreateObjectURL =
+      win.__originalCreateObjectURL ?? URL.createObjectURL.bind(URL);
+    win.__originalCreateObjectURL = originalCreateObjectURL;
+    URL.createObjectURL = ((blob: Blob) => {
+      if (blob.type === 'application/zip') {
+        win.__exportDownloadBlobs = [
+          ...(win.__exportDownloadBlobs ?? []),
+          blob
+        ];
+      }
+      return originalCreateObjectURL(blob);
+    }) as typeof URL.createObjectURL;
+
+    try {
+      await window.jupyterapp.commands.execute(id, { format: 'wheel' });
+    } finally {
+      URL.createObjectURL = originalCreateObjectURL;
+    }
+
+    const blobs = win.__exportDownloadBlobs ?? [];
+    const latestBlob = blobs[blobs.length - 1];
+    if (!latestBlob) {
+      return {
+        entryPaths: [] as string[],
+        metadataLines: [] as string[]
+      };
+    }
+
+    const bytes = new Uint8Array(await latestBlob.arrayBuffer());
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const decoder = new TextDecoder();
+    const entryPaths: string[] = [];
+    let metadataText = '';
+    let eocdOffset = -1;
+    const minEocdOffset = Math.max(0, bytes.length - 65557);
+    for (let cursor = bytes.length - 22; cursor >= minEocdOffset; cursor--) {
+      if (view.getUint32(cursor, true) === 0x06054b50) {
+        eocdOffset = cursor;
+        break;
+      }
+    }
+    if (eocdOffset < 0) {
+      return {
+        entryPaths,
+        metadataLines: [] as string[]
+      };
+    }
+
+    const centralDirectorySize = view.getUint32(eocdOffset + 12, true);
+    const centralDirectoryOffset = view.getUint32(eocdOffset + 16, true);
+    const centralDirectoryEnd = centralDirectoryOffset + centralDirectorySize;
+    let offset = centralDirectoryOffset;
+
+    while (
+      offset + 46 <= centralDirectoryEnd &&
+      offset + 46 <= bytes.length &&
+      view.getUint32(offset, true) === 0x02014b50
+    ) {
+      const compressionMethod = view.getUint16(offset + 10, true);
+      const compressedSize = view.getUint32(offset + 20, true);
+      const pathLength = view.getUint16(offset + 28, true);
+      const extraLength = view.getUint16(offset + 30, true);
+      const commentLength = view.getUint16(offset + 32, true);
+      const localHeaderOffset = view.getUint32(offset + 42, true);
+      const pathStart = offset + 46;
+      const pathEnd = pathStart + pathLength;
+      if (pathEnd > bytes.length) {
+        break;
+      }
+
+      const path = decoder.decode(bytes.subarray(pathStart, pathEnd));
+      entryPaths.push(path);
+      if (
+        path.endsWith('/METADATA') &&
+        compressionMethod === 0 &&
+        localHeaderOffset + 30 <= bytes.length &&
+        view.getUint32(localHeaderOffset, true) === 0x04034b50
+      ) {
+        const localPathLength = view.getUint16(localHeaderOffset + 26, true);
+        const localExtraLength = view.getUint16(localHeaderOffset + 28, true);
+        const dataStart =
+          localHeaderOffset + 30 + localPathLength + localExtraLength;
+        const dataEnd = dataStart + compressedSize;
+        if (dataEnd <= bytes.length) {
+          metadataText = decoder.decode(bytes.subarray(dataStart, dataEnd));
+        }
+      }
+
+      offset = pathEnd + extraLength + commentLength;
+    }
+
+    return {
+      entryPaths,
+      metadataLines: metadataText
+        .split('\n')
+        .map(line => line.trimEnd())
+        .filter(line => line.length > 0)
+    };
+  }, EXPORT_COMMAND);
+
+  const downloadedWheel = await exportedWheelDownload;
+  await downloadedWheel.saveAs(`/tmp/${downloadedWheel.suggestedFilename()}`);
+
+  expect(
+    inspection.entryPaths.some(
+      path => path.includes('/licenses/') && path.endsWith('/LICENSE')
+    )
+  ).toBe(true);
+  expect(
+    inspection.entryPaths.some(
+      path => path.includes('/licenses/') && path.endsWith('/NOTICE')
+    )
+  ).toBe(true);
+  expect(
+    inspection.entryPaths.some(path =>
+      path.endsWith('/licenses/src/license.ts')
+    )
+  ).toBe(false);
+  expect(
+    inspection.entryPaths.some(path => /(^|\/)\.\.(\/|$)/.test(path))
+  ).toBe(false);
+  expect(inspection.entryPaths.some(path => /(^|\/)\.(\/|$)/.test(path))).toBe(
+    false
+  );
+
+  expect(inspection.metadataLines).toContain(
+    'Summary: Wheel summary line with newline'
+  );
+  expect(inspection.metadataLines).toContain(
+    'Home-page: https://example.test/docs INJECTED-HOMEPAGE-LINE'
+  );
+  expect(inspection.metadataLines).toContain(
+    'Author-email: owner@example.test INJECTED-AUTHOR-EMAIL-LINE'
+  );
 });
 
 test('shares active file via URL by default', async ({ page, tmpPath }) => {
