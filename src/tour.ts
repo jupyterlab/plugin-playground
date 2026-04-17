@@ -244,7 +244,7 @@ const PLUGIN_PLAYGROUND_TOUR: IPluginPlaygroundTour = {
       title: 'AI Path (Optional)',
       placement: 'center',
       content:
-        'If you want assistant help later, use the "Built with AI" tile. It opens the AI flow when you choose it.'
+        'If you want assistant help later, use the "Build with AI" tile. It opens the AI flow when you choose it.'
     },
     {
       target: '#jp-main-dock-panel',

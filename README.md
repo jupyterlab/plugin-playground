@@ -35,9 +35,9 @@ The **Extension Examples** section lists discovered examples from `extension-exa
 
 ![Extension Examples section with code and README actions](docs/images/readme/extension-examples.png)
 
-Command completion is also included for `app.commands.execute(...)` / `commands.execute(...)` in JavaScript and TypeScript editors, and Notebook v7 integrates `Start from File`, `Built with AI`, and `Take the Tour` into New-file flows so you can create starter plugin files from the tree interface.
+Command completion is also included for `app.commands.execute(...)` / `commands.execute(...)` in JavaScript and TypeScript editors, and Notebook v7 integrates `Start from File`, `Build with AI`, and `Take the Tour` into New-file flows so you can create starter plugin files from the tree interface.
 
-The Launcher `Plugin Playground` section includes `Start from File`, `Built with AI`, and `Take the Tour` so first-time users can pick a guided flow quickly.
+The Launcher `Plugin Playground` section includes `Start from File`, `Build with AI`, and `Take the Tour` so first-time users can pick a guided flow quickly.
 
 To regenerate the screenshots used in this README:
 
@@ -51,7 +51,7 @@ jlpm docs:screenshots
 2. Create a file with `Start from File` (Command Palette or Notebook v7 New menu).
 3. Paste plugin code into the active editor.
 4. Run `Load Current File As Extension` from the editor toolbar or Command Palette.
-5. Use `Auto Load on Save` for fast iteration on one file.
+5. Use the `Auto Load on Save` icon button for fast iteration on one file.
 6. Use the sidebar to discover tokens, commands, packages, and extension examples.
 
 For extension examples availability:

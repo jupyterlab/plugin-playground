@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 const BASE_URL = 'http://localhost:8888';
 const TREE_CREATE_COMMAND_LABEL = 'Start from File';
-const TREE_CREATE_WITH_AI_COMMAND_LABEL = 'Built with AI';
+const TREE_CREATE_WITH_AI_COMMAND_LABEL = 'Build with AI';
 const TREE_TAKE_TOUR_COMMAND_LABEL = 'Take the Tour';
 const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
 const TOKEN_SECTION_ID = 'jp-plugin-token-sidebar';

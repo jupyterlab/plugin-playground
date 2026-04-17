@@ -231,6 +231,7 @@ export class TokenSidebar extends ReactWidget {
     const isAICommandInsertMode = commandInsertMode === 'ai';
     const canInsertCommand = this._isCommandInsertEnabled();
     const activeTabId = `jp-PluginPlayground-extensionPointTab-${this._activeView}`;
+    const filterCountSummaryId = `${activeTabId}-filter-count-summary`;
     let tokens: ReadonlyArray<TokenSidebar.ITokenRecord> = [];
     let commands: ReadonlyArray<ICommandRecord> = [];
     let knownModules: ReadonlyArray<IKnownModule> = [];
@@ -314,10 +315,17 @@ export class TokenSidebar extends ReactWidget {
               type="search"
               placeholder={filterPlaceholder}
               aria-label={filterAriaLabel}
+              aria-describedby={filterCountSummaryId}
               title={countSummary}
               value={this._query}
               onChange={this._onQueryChange}
             />
+            <span
+              id={filterCountSummaryId}
+              className="jp-PluginPlayground-visuallyHidden"
+            >
+              {countSummary}
+            </span>
             <span
               className="jp-PluginPlayground-filterCount"
               aria-hidden="true"

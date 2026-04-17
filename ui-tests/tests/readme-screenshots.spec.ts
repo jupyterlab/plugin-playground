@@ -242,7 +242,7 @@ test('generate README screenshots', async ({ page }) => {
 
   const extensionPointsSection = await openSidebarPanel(page, TOKEN_SECTION_ID);
   const sidebarSide =
-    (await page.sidebar.getTabPosition(PLAYGROUND_SIDEBAR_ID)) ?? 'left';
+    (await page.sidebar.getTabPosition(PLAYGROUND_SIDEBAR_ID)) ?? 'right';
   await page.sidebar.setWidth(EXTENSION_POINTS_GALLERY_WIDTH, sidebarSide);
 
   await saveTopCroppedScreenshot(
