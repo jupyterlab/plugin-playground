@@ -102,20 +102,18 @@ import { downloadArchive, IArchiveEntry } from './archive';
 import { createTemplateArchive } from './export-template';
 import { ShareLink } from './share-link';
 import {
-<<<<<<< improveUX
   hasPluginPlaygroundTourSupport,
   launchPluginPlaygroundTour,
   PLUGIN_PLAYGROUND_TOUR_MISSING_HINT,
   suppressWelcomeTourAtSource
 } from './tour';
-=======
+import {
   DEFAULT_EXPORT_ARCHIVE_FORMAT,
   EXPORT_EXTENSION_TOOLBAR_ITEM,
   ExportToolbarController,
   type ExportArchiveFormat
 } from './export-toolbar';
 import { createPythonWheelArchive } from './wheel';
->>>>>>> main
 
 import { ReadonlyPartialJSONObject, Token } from '@lumino/coreutils';
 
