@@ -335,7 +335,7 @@ function syncTourUiForStep(index: number): void {
   }
 }
 
-function dismissDefaultWelcomeTour(): void {
+export function dismissDefaultWelcomeTour(): void {
   if (typeof document === 'undefined') {
     return;
   }

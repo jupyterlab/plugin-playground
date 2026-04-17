@@ -98,6 +98,7 @@ import { downloadArchive, IArchiveEntry } from './archive';
 import { createTemplateArchive } from './export-template';
 import { ShareLink } from './share-link';
 import {
+  dismissDefaultWelcomeTour,
   hasPluginPlaygroundTourSupport,
   launchPluginPlaygroundTour,
   PLUGIN_PLAYGROUND_TOUR_MISSING_HINT
@@ -721,6 +722,7 @@ class PluginPlayground {
     });
 
     app.restored.then(async () => {
+      dismissDefaultWelcomeTour();
       const settings = this.settings;
       this._updateSettings(requirejs, settings);
       this._refreshExtensionPoints();
