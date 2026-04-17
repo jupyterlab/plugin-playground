@@ -102,11 +102,20 @@ import { downloadArchive, IArchiveEntry } from './archive';
 import { createTemplateArchive } from './export-template';
 import { ShareLink } from './share-link';
 import {
+<<<<<<< improveUX
   hasPluginPlaygroundTourSupport,
   launchPluginPlaygroundTour,
   PLUGIN_PLAYGROUND_TOUR_MISSING_HINT,
   suppressWelcomeTourAtSource
 } from './tour';
+=======
+  DEFAULT_EXPORT_ARCHIVE_FORMAT,
+  EXPORT_EXTENSION_TOOLBAR_ITEM,
+  ExportToolbarController,
+  type ExportArchiveFormat
+} from './export-toolbar';
+import { createPythonWheelArchive } from './wheel';
+>>>>>>> main
 
 import { ReadonlyPartialJSONObject, Token } from '@lumino/coreutils';
 
@@ -252,6 +261,12 @@ const EXPORT_AS_EXTENSION_ARGS_SCHEMA = {
       type: 'string',
       description:
         'Optional contents path of the file to export. When omitted, the active editor file is used.'
+    },
+    format: {
+      type: 'string',
+      enum: ['zip', 'wheel'],
+      description:
+        'Optional archive format (default: "zip"). Use "zip" for folder export or "wheel" for a Python package (.whl).'
     }
   }
 };
@@ -412,17 +427,24 @@ class PluginPlayground {
 
     app.commands.addCommand(CommandIDs.exportAsExtension, {
       label: 'Export Plugin Folder As Extension',
-      caption: 'Download the active plugin folder as an extension zip archive',
+      caption:
+        'Download the active plugin folder as an extension archive (.zip or .whl)',
       describedBy: { args: EXPORT_AS_EXTENSION_ARGS_SCHEMA },
       icon: fileUploadIcon,
       isEnabled: () => this.documentManager !== null,
       execute: async args => {
+        const exportFormat: ExportArchiveFormat =
+          args.format === 'wheel' ? 'wheel' : DEFAULT_EXPORT_ARCHIVE_FORMAT;
         const requestedPath =
           typeof args.path === 'string'
             ? ContentUtils.normalizeContentsPath(args.path)
             : '';
         if (requestedPath) {
-          return this._exportAsExtension(requestedPath);
+          return this._exportAsExtension(
+            requestedPath,
+            undefined,
+            exportFormat
+          );
         }
 
         const currentWidget = editorTracker.currentWidget;
@@ -439,7 +461,8 @@ class PluginPlayground {
 
         return this._exportAsExtension(
           ContentUtils.normalizeContentsPath(currentWidget.context.path),
-          currentWidget.context.model.toString()
+          currentWidget.context.model.toString(),
+          exportFormat
         );
       }
     });
@@ -463,6 +486,20 @@ class PluginPlayground {
       'Editor',
       LOAD_ON_SAVE_TOGGLE_TOOLBAR_ITEM,
       widget => this._createLoadOnSaveToggleWidget(widget)
+    );
+    toolbarWidgetRegistry.addFactory<IDocumentWidget<FileEditor>>(
+      'Editor',
+      EXPORT_EXTENSION_TOOLBAR_ITEM,
+      widget =>
+        this._exportToolbar.createWidget({
+          editorWidget: widget,
+          hasDocumentManager: () => this.documentManager !== null,
+          onExport: format => {
+            void this.app.commands.execute(CommandIDs.exportAsExtension, {
+              format
+            });
+          }
+        })
     );
 
     editorTracker.widgetAdded.connect(
@@ -1121,7 +1158,8 @@ class PluginPlayground {
 
   private async _exportAsExtension(
     activePath: string,
-    activeSource?: string
+    activeSource?: string,
+    format: ExportArchiveFormat = DEFAULT_EXPORT_ARCHIVE_FORMAT
   ): Promise<IPluginExportResult> {
     const normalizedActivePath = ContentUtils.normalizeContentsPath(activePath);
     if (!normalizedActivePath) {
@@ -1155,16 +1193,26 @@ class PluginPlayground {
           message
         };
       }
-
-      downloadArchive(exportContext.archiveEntries, exportContext.archiveName);
+      let archiveName = exportContext.archiveName;
+      let archiveEntries = exportContext.archiveEntries;
+      if (format === 'wheel') {
+        const wheelArchive = await createPythonWheelArchive(
+          exportContext.archiveEntries,
+          exportContext.rootPath
+        );
+        archiveName = wheelArchive.filename;
+        archiveEntries = wheelArchive.entries;
+      }
+      downloadArchive(archiveEntries, archiveName);
+      const exportedFileCount = archiveEntries.length;
       const templateMessage = exportContext.usedTemplate
         ? ' A minimal extension-template scaffold was generated from the active file.'
         : '';
 
       Notification.success(
-        `Downloaded "${exportContext.archiveName}" with ` +
-          `${exportContext.archiveEntries.length} file` +
-          `${exportContext.archiveEntries.length === 1 ? '' : 's'} from ` +
+        `Downloaded "${archiveName}" with ` +
+          `${exportedFileCount} file` +
+          `${exportedFileCount === 1 ? '' : 's'} from ` +
           `"${exportContext.rootPath}".${templateMessage}`,
         {
           autoClose: 5000
@@ -1173,9 +1221,9 @@ class PluginPlayground {
 
       return {
         ok: true,
-        archiveName: exportContext.archiveName,
+        archiveName,
         rootPath: exportContext.rootPath,
-        fileCount: exportContext.archiveEntries.length
+        fileCount: exportedFileCount
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1259,7 +1307,7 @@ class PluginPlayground {
       const source =
         activeSource ??
         (await this._readSourceFileForExport(normalizedSourcePath));
-      const fileName = this._basename(normalizedSourcePath) || 'plugin.ts';
+      const fileName = PathExt.basename(normalizedSourcePath) || 'plugin.ts';
 
       const payload: ShareLink.ISharedPluginPayload = {
         version: 1,
@@ -1354,7 +1402,7 @@ class PluginPlayground {
 
     try {
       const payload = await ShareLink.decodeSharedPluginPayload(sharedToken);
-      const fileName = this._basename(payload.fileName) || 'plugin.ts';
+      const fileName = PathExt.basename(payload.fileName) || 'plugin.ts';
       const extension = PathExt.extname(fileName);
       const rootName = extension
         ? fileName.slice(0, -extension.length)
@@ -1481,17 +1529,13 @@ class PluginPlayground {
   }
 
   private async _readSourceFileForExport(path: string): Promise<string> {
-    const fileModel = await ContentUtils.getFileModel(
+    const source = await ContentUtils.readContentsFileAsText(
       this.app.serviceManager,
       path
     );
-    if (!fileModel) {
-      throw new Error(`Could not read file "${path}".`);
-    }
-    const source = ContentUtils.fileModelToText(fileModel);
     if (source === null) {
       throw new Error(
-        `Could not export file "${path}" because it is not readable as text.`
+        `Could not read file "${path}" as text. The file may not exist or may not be readable as text.`
       );
     }
     return source;
@@ -1514,7 +1558,7 @@ class PluginPlayground {
         overrides
       );
       return {
-        archiveName: `${this._basename(rootPath) || 'plugin-extension'}.zip`,
+        archiveName: `${PathExt.basename(rootPath) || 'plugin-extension'}.zip`,
         rootPath,
         archiveEntries,
         usedTemplate: false
@@ -1543,7 +1587,9 @@ class PluginPlayground {
       }
     }
 
-    const sourceDirectory = this._dirname(normalizedPath);
+    const sourceDirectory = ContentUtils.normalizeContentsPath(
+      PathExt.dirname(normalizedPath)
+    ).replace(/^\.$/, '');
     if (!sourceDirectory) {
       return null;
     }
@@ -1707,33 +1753,6 @@ class PluginPlayground {
     return normalizedPath;
   }
 
-  private _dirname(path: string): string {
-    const normalizedPath = ContentUtils.normalizeContentsPath(path).replace(
-      /\/+$/g,
-      ''
-    );
-    const index = normalizedPath.lastIndexOf('/');
-    if (index <= 0) {
-      return '';
-    }
-    return normalizedPath.slice(0, index);
-  }
-
-  private _basename(path: string): string {
-    const normalizedPath = ContentUtils.normalizeContentsPath(path).replace(
-      /\/+$/g,
-      ''
-    );
-    if (!normalizedPath) {
-      return '';
-    }
-    const index = normalizedPath.lastIndexOf('/');
-    if (index === -1) {
-      return normalizedPath;
-    }
-    return normalizedPath.slice(index + 1);
-  }
-
   private async _findExtensionRoot(
     startDirectory: string
   ): Promise<string | null> {
@@ -1755,7 +1774,9 @@ class PluginPlayground {
       if (!current) {
         return null;
       }
-      const parent = this._dirname(current);
+      const parent = ContentUtils.normalizeContentsPath(
+        PathExt.dirname(current)
+      ).replace(/^\.$/, '');
       if (parent === current) {
         return null;
       }
@@ -1855,7 +1876,8 @@ class PluginPlayground {
       transpiler: new PluginTranspiler({
         compilerOptions: {
           target: ts.ScriptTarget.ES2017,
-          jsx: ts.JsxEmit.React
+          jsx: ts.JsxEmit.React,
+          esModuleInterop: true
         }
       }),
       importFunction: importResolver.resolve.bind(importResolver),
@@ -2396,7 +2418,7 @@ class PluginPlayground {
     if (!packageJson) {
       return this._fallbackExampleDescription;
     }
-    const packageData = this._parseJsonObject(packageJson);
+    const packageData = ContentUtils.fileModelToJsonObject(packageJson);
 
     if (packageData) {
       const description = this._stringValue(packageData.description);
@@ -2415,29 +2437,6 @@ class PluginPlayground {
       return normalizedChild;
     }
     return `${normalizedBase}/${normalizedChild}`;
-  }
-
-  private _parseJsonObject(
-    fileModel: ContentUtils.IFileModel
-  ): { description?: unknown } | null {
-    const raw = ContentUtils.fileModelToText(fileModel);
-    if (raw === null) {
-      return null;
-    }
-
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (
-        parsed !== null &&
-        typeof parsed === 'object' &&
-        !Array.isArray(parsed)
-      ) {
-        return parsed as { description?: unknown };
-      }
-    } catch {
-      return null;
-    }
-    return null;
   }
 
   private _populateTokenMap(): void {
@@ -3279,6 +3278,7 @@ class PluginPlayground {
     string,
     Promise<IPluginLoadResult>
   >();
+  private readonly _exportToolbar = new ExportToolbarController();
   private readonly _loadOnSaveByFile = new Set<string>();
   private readonly _loadOnSaveToggleRefreshers = new Set<() => void>();
   private _sharedFileCueWidgetId: string | null = null;

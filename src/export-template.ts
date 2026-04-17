@@ -1,42 +1,19 @@
 import type { IArchiveEntry } from './archive';
-import { ContentUtils } from './contents';
+import { PathExt } from '@jupyterlab/coreutils';
 
 export interface ITemplateArchive {
   projectRoot: string;
   entries: IArchiveEntry[];
 }
 
-function encodeText(value: string): Uint8Array {
-  return new TextEncoder().encode(value);
-}
-
-function textArchiveEntry(path: string, text: string): IArchiveEntry {
+export function textArchiveEntry(path: string, text: string): IArchiveEntry {
   return {
     path,
-    data: encodeText(text)
+    data: new TextEncoder().encode(text)
   };
 }
 
-function removeFileExtension(path: string): string {
-  return path.replace(/\.[^/.]+$/g, '');
-}
-
-function basename(path: string): string {
-  const normalizedPath = ContentUtils.normalizeContentsPath(path).replace(
-    /\/+$/g,
-    ''
-  );
-  if (!normalizedPath) {
-    return '';
-  }
-  const index = normalizedPath.lastIndexOf('/');
-  if (index === -1) {
-    return normalizedPath;
-  }
-  return normalizedPath.slice(index + 1);
-}
-
-function normalizeProjectName(value: string): string {
+export function normalizeProjectName(value: string): string {
   return value
     .toLowerCase()
     .replace(/[^a-z0-9-_]+/g, '-')
@@ -135,7 +112,9 @@ export function createTemplateArchive(
   activePath: string,
   activeSource: string
 ): ITemplateArchive {
-  const fileStem = removeFileExtension(basename(activePath));
+  const fileName = PathExt.basename(activePath);
+  const extension = PathExt.extname(fileName);
+  const fileStem = extension ? fileName.slice(0, -extension.length) : fileName;
   const normalizedStem = normalizeProjectName(fileStem);
   const projectRoot = normalizedStem || 'plugin-extension';
   const packageName = `jupyterlab-${projectRoot}`;
