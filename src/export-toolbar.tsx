@@ -28,7 +28,7 @@ const EXPORT_ARCHIVE_MENU_ITEMS = [
 ];
 
 function exportArchiveFormatLabel(format: ExportArchiveFormat): string {
-  return format === 'wheel' ? 'Python package (.whl)' : 'ZIP (.zip)';
+  return format === 'wheel' ? 'Python package (.whl)' : 'archive (.zip)';
 }
 
 function registerExportArchiveMenuCommands(
@@ -37,7 +37,7 @@ function registerExportArchiveMenuCommands(
   setSelectedFormat: (format: ExportArchiveFormat) => void
 ): void {
   commands.addCommand(EXPORT_ARCHIVE_MENU_SELECT_ZIP, {
-    label: 'Export as ZIP (.zip)',
+    label: 'Export as archive (.zip)',
     describedBy: { args: null },
     isToggled: () => getSelectedFormat() === 'zip',
     execute: () => {

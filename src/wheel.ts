@@ -902,7 +902,9 @@ return exports;
   };
 
   const passthroughEntries = projectEntries.filter(
-    entry => entry.path !== 'package.json'
+    entry =>
+      entry.path !== 'package.json' &&
+      entry.path !== GENERATED_REMOTE_ENTRY_PATH
   );
   const remoteEntry = createGeneratedRemoteEntrySource({
     moduleBodies,
@@ -1074,7 +1076,12 @@ export async function createPythonWheelArchive(
   const recordRows = await Promise.all(
     wheelEntries.map(async entry => {
       const digest = await sha256Base64Url(entry.data);
-      const hashColumn = digest ? `sha256=${digest}` : '';
+      if (!digest) {
+        throw new Error(
+          `Unable to generate a compliant wheel RECORD entry for "${entry.path}": SHA-256 hashing is unavailable in this environment.`
+        );
+      }
+      const hashColumn = `sha256=${digest}`;
       return `${escapeCsv(entry.path)},${escapeCsv(hashColumn)},${
         entry.data.length
       }`;
