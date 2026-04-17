@@ -73,8 +73,6 @@
       { "name": "plugin-playground-load-on-save", "rank": 21 },
       {
         "name": "export-extension",
-        "command": "plugin-playground:export-as-extension",
-        "label": "Export",
         "rank": 22
       },
       {
