@@ -49,8 +49,10 @@ follow the instructions of the Jupyter Releaser [checklist](https://jupyter-rele
 For the release workflows in this repository, make sure GitHub is configured with:
 
 - a `release` environment
-- `NPM_TOKEN` and `APP_PRIVATE_KEY` secrets
+- `APP_PRIVATE_KEY` secrets
 - an `APP_ID` repository variable
+
+When using [npm trusted publishing](https://docs.npmjs.com/trusted-publishers), `NPM_TOKEN` is not required (and trusted publishing is recommended). Configure `NPM_TOKEN` only if you are publishing without trusted publishers.
 
 Here is a summary of the steps to cut a new release:
 
