@@ -335,6 +335,26 @@ function syncTourUiForStep(index: number): void {
   }
 }
 
+function dismissDefaultWelcomeTour(): void {
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  const welcomeToast = Array.from(
+    document.querySelectorAll('.Toastify__toast-body')
+  ).find(body =>
+    body
+      .querySelector('.jp-toast-message')
+      ?.textContent?.includes('Try the Welcome Tour.')
+  ) as HTMLElement | undefined;
+  const dontShowButton = welcomeToast?.querySelector(
+    'button[title="Don\'t show me again"]'
+  ) as HTMLButtonElement | null;
+  if (dontShowButton) {
+    dontShowButton.click();
+  }
+}
+
 function attachTourUiHooks(handler: ITourHandlerLike): void {
   if (CONNECTED_TOUR_IDS.has(handler.id)) {
     return;
@@ -372,6 +392,8 @@ export async function launchPluginPlaygroundTour(
     syncTourUiForStep(TOUR_STEP_INDEX.welcome);
   }
 
+  // Dismiss the default Welcome Tour prompt/tour if present.
+  dismissDefaultWelcomeTour();
   await app.commands.execute(TOUR_LAUNCH_COMMAND, {
     id: PLUGIN_PLAYGROUND_TOUR.id,
     force: true

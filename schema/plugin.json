@@ -68,6 +68,7 @@
       {
         "name": "load-as-extension",
         "command": "plugin-playground:load-as-extension",
+        "label": "Run",
         "rank": 20
       },
       { "name": "plugin-playground-load-on-save", "rank": 21 },

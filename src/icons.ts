@@ -7,6 +7,7 @@ import githubRepositoryIconSvgstr from '!!raw-loader!../style/icons/github-repos
 import gitRepositoryIconSvgstr from '!!raw-loader!../style/icons/git-repository.svg';
 import schemaNumberIconSvgstr from '!!raw-loader!../style/icons/schema-number.svg';
 import loadOnSaveToggleIconSvgstr from '!!raw-loader!../style/icons/load-on-save.svg';
+import runTileIconSvgstr from '!!raw-loader!../style/icons/run-tile.svg';
 
 export const tokenSidebarIcon = new LabIcon({
   name: 'plugin-playground:token-sidebar',
@@ -41,4 +42,9 @@ export const schemaNumberIcon = new LabIcon({
 export const loadOnSaveToggleIcon = new LabIcon({
   name: 'plugin-playground:load-on-save-toggle',
   svgstr: loadOnSaveToggleIconSvgstr
+});
+
+export const runTileIcon = new LabIcon({
+  name: 'plugin-playground:run-tile',
+  svgstr: runTileIconSvgstr
 });

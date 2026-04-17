@@ -31,7 +31,6 @@ import { IChatTracker } from '@jupyter/chat';
 
 import {
   checkIcon,
-  extensionIcon,
   fileUploadIcon,
   IFrame,
   infoIcon,
@@ -76,7 +75,7 @@ import {
 import { ExampleSidebar, filterExampleRecords } from './example-sidebar';
 import { createFloatingUrlLoadHint } from './components/url-load-hint';
 
-import { loadOnSaveToggleIcon, tokenSidebarIcon } from './icons';
+import { loadOnSaveToggleIcon, runTileIcon, tokenSidebarIcon } from './icons';
 
 import {
   CommandCompletionProvider,
@@ -381,7 +380,7 @@ class PluginPlayground {
       caption:
         'Load the active editor file as an extension for plugin development',
       describedBy: { args: null },
-      icon: extensionIcon,
+      icon: runTileIcon,
       isEnabled: () =>
         editorTracker.currentWidget !== null &&
         editorTracker.currentWidget === app.shell.currentWidget,
