@@ -67,6 +67,10 @@ jobs:
   test_isolated:
     needs: build
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.14']
 
     steps:
     - name: Checkout
@@ -74,7 +78,7 @@ jobs:
     - name: Install Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: ${{ matrix.python-version }}
         architecture: 'x64'
     - uses: actions/download-artifact@v4
       with:
