@@ -196,7 +196,7 @@ Plugin Playground exposes command APIs for scripting, agents, and automation:
 - `plugin-playground:list-tokens` (supports optional `{ query?: string }`)
 - `plugin-playground:list-commands` (supports optional `{ query?: string }`)
 - `plugin-playground:list-extension-examples` (supports optional `{ query?: string }`)
-- `plugin-playground:export-as-extension` (supports optional `{ path?: string }`)
+- `plugin-playground:export-as-extension` (supports optional `{ path?: string, format?: 'zip' | 'wheel' }`)
 - `plugin-playground:share-via-link` (supports optional `{ path?: string, useBrowserSelection?: boolean, useContextTarget?: boolean }`)
 
 Example:
@@ -213,6 +213,11 @@ await app.commands.execute('plugin-playground:list-tokens', {
 
 await app.commands.execute('plugin-playground:export-as-extension', {
   path: 'my-extension/src/index.ts'
+});
+
+await app.commands.execute('plugin-playground:export-as-extension', {
+  path: 'my-extension/src/index.ts',
+  format: 'wheel'
 });
 
 await app.commands.execute('plugin-playground:share-via-link', {
@@ -247,6 +252,7 @@ return a JSON object with:
 - `count`: number of records returned after filtering
 - `items`: matching records
 
+`export-as-extension` defaults to ZIP and also supports Python wheel (`format: 'wheel'`).
 `export-as-extension` and `share-via-link` return operation-specific metadata
 (for example, success status, paths, counts, URL length, and optional message).
 

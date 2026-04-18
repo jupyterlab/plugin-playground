@@ -30,7 +30,7 @@ function sanitizeFileName(fileName: string): string {
     /\\/g,
     '/'
   );
-  if (!normalized) {
+  if (!ContentUtils.isSafeRelativePath(normalized)) {
     return '';
   }
   const segments = normalized.split('/');

@@ -18,6 +18,11 @@ const TEST_PLUGIN_ID = 'playground-integration-test:plugin';
 const TEST_TOGGLE_COMMAND = 'playground-integration-test:toggle';
 const TEST_ARGS_COMMAND = 'playground-integration-test:with-args';
 const TEST_FILE = 'playground-integration-test.ts';
+const CSS_IMPORT_TEST_PLUGIN_ID = 'playground-css-import-test:plugin';
+const CSS_IMPORT_TEST_MARKER_ID = 'playground-css-import-test-marker';
+const CSS_IMPORT_TEST_COLOR = 'rgb(17, 34, 51)';
+const CSS_IMPORT_TEST_UPDATED_COLOR = 'rgb(34, 68, 102)';
+const CSS_IMPORT_TEST_BROKEN_MODULE_ERROR = 'css import rollback test failure';
 const COMMAND_COMPLETION_FILE = 'command-completion.ts';
 const INVOKE_FILE_COMPLETER_COMMAND = 'completer:invoke-file';
 const JUPYTERLITE_AI_OPEN_CHAT_COMMAND = '@jupyterlite/ai:open-chat';
@@ -32,6 +37,9 @@ const FOLDER_SHARE_DISABLE_DIALOG_CHECKBOX_LABEL =
 interface IWindowWithExportCounter extends Window {
   __exportDownloadCount?: number;
   __originalCreateObjectURL?: typeof URL.createObjectURL;
+  __exportDownloadFilenames?: string[];
+  __exportDownloadBlobs?: Blob[];
+  __originalAnchorClick?: (this: HTMLAnchorElement) => void;
 }
 
 test.use({ autoGoto: false });
@@ -54,6 +62,150 @@ const plugin = {
 
 export default plugin;
 `;
+
+const INSTALLED_WHEEL_PROJECT_NAME = 'playground-wheel-installed-smoke';
+const INSTALLED_WHEEL_ARTIFACT_PATH =
+  '/tmp/playground_wheel_installed_smoke-0.1.0-py3-none-any.whl';
+const INSTALLED_WHEEL_MARKER_ID = 'jp-plugin-playground-wheel-installed-marker';
+const INSTALLED_WHEEL_MARKER_TEXT = 'wheel-installed-marker-ready';
+const INSTALLED_WHEEL_PLUGIN_SOURCE = `
+const MARKER_ID = '${INSTALLED_WHEEL_MARKER_ID}';
+const MARKER_TEXT = '${INSTALLED_WHEEL_MARKER_TEXT}';
+
+const plugin = {
+  id: 'playground-wheel-installed-smoke:plugin',
+  autoStart: true,
+  activate: () => {
+    let marker = document.getElementById(MARKER_ID);
+    if (!marker) {
+      marker = document.createElement('div');
+      marker.id = MARKER_ID;
+      marker.textContent = MARKER_TEXT;
+      document.body.appendChild(marker);
+    }
+  }
+};
+
+export default plugin;
+`;
+
+const CSS_IMPORT_TEST_SOURCE = `
+import './style.css';
+
+const plugin = {
+  id: '${CSS_IMPORT_TEST_PLUGIN_ID}',
+  autoStart: true,
+  activate: () => {
+    const existing = document.getElementById('${CSS_IMPORT_TEST_MARKER_ID}');
+    if (existing) {
+      existing.remove();
+    }
+    const marker = document.createElement('div');
+    marker.id = '${CSS_IMPORT_TEST_MARKER_ID}';
+    marker.textContent = 'css import marker';
+    document.body.appendChild(marker);
+  },
+  deactivate: () => {
+    document.getElementById('${CSS_IMPORT_TEST_MARKER_ID}')?.remove();
+  }
+};
+
+export default plugin;
+`;
+
+const CSS_IMPORT_TEST_SOURCE_WITHOUT_STYLE = `
+const plugin = {
+  id: '${CSS_IMPORT_TEST_PLUGIN_ID}',
+  autoStart: true,
+  activate: () => {
+    const existing = document.getElementById('${CSS_IMPORT_TEST_MARKER_ID}');
+    if (existing) {
+      existing.remove();
+    }
+    const marker = document.createElement('div');
+    marker.id = '${CSS_IMPORT_TEST_MARKER_ID}';
+    marker.textContent = 'css import marker';
+    document.body.appendChild(marker);
+  },
+  deactivate: () => {
+    document.getElementById('${CSS_IMPORT_TEST_MARKER_ID}')?.remove();
+  }
+};
+
+export default plugin;
+`;
+
+const CSS_IMPORT_TEST_SOURCE_WITH_FAILING_IMPORT = `
+import './style.css';
+import './broken';
+
+const plugin = {
+  id: '${CSS_IMPORT_TEST_PLUGIN_ID}',
+  autoStart: true,
+  activate: () => {
+    const existing = document.getElementById('${CSS_IMPORT_TEST_MARKER_ID}');
+    if (existing) {
+      existing.remove();
+    }
+    const marker = document.createElement('div');
+    marker.id = '${CSS_IMPORT_TEST_MARKER_ID}';
+    marker.textContent = 'css import marker';
+    document.body.appendChild(marker);
+  },
+  deactivate: () => {
+    document.getElementById('${CSS_IMPORT_TEST_MARKER_ID}')?.remove();
+  }
+};
+
+export default plugin;
+`;
+
+const CSS_IMPORT_TEST_STYLE = `
+#${CSS_IMPORT_TEST_MARKER_ID} {
+  background-color: ${CSS_IMPORT_TEST_COLOR};
+}
+`;
+
+const CSS_IMPORT_TEST_STYLE_UPDATED = `
+#${CSS_IMPORT_TEST_MARKER_ID} {
+  background-color: ${CSS_IMPORT_TEST_UPDATED_COLOR};
+}
+`;
+
+const CSS_IMPORT_TEST_STYLE_WITH_RELATIVE_IMPORT = `
+@import url('base.css');
+`;
+
+const CSS_IMPORT_TEST_BROKEN_MODULE = `
+throw new Error('${CSS_IMPORT_TEST_BROKEN_MODULE_ERROR}');
+`;
+
+const CSS_IMPORT_TEST_VALID_SCHEMA = JSON.stringify(
+  {
+    title: 'CSS Import Test Settings',
+    type: 'object',
+    properties: {}
+  },
+  null,
+  2
+);
+
+const CSS_IMPORT_TEST_INVALID_SCHEMA = `{
+  "title": "CSS Import Test Settings",
+`;
+
+const CSS_IMPORT_TEST_PACKAGE_JSON_WITH_STYLE = JSON.stringify(
+  {
+    name: 'css-import-package-style-test',
+    version: '0.1.0',
+    style: 'style/index.css',
+    jupyterlab: {
+      extension: true
+    }
+  },
+  null,
+  2
+);
 
 async function openSidebarPanel(
   page: IJupyterLabPageFixture,
@@ -121,6 +273,16 @@ async function focusActiveEditor(page: IJupyterLabPageFixture): Promise<void> {
     const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
     current.content.editor.focus();
   });
+}
+
+async function setActiveEditorSource(
+  page: IJupyterLabPageFixture,
+  source: string
+): Promise<void> {
+  await page.evaluate((nextSource: string) => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    current.content.model.sharedModel.setSource(nextSource);
+  }, source);
 }
 
 async function ensureMockJupyterLiteAIChat(
@@ -603,6 +765,380 @@ test('loads current editor file as a plugin extension', async ({
   ).resolves.toBe(true);
 });
 
+test('loads local CSS imports and cleans stale styles on reload', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/css-import-test`;
+  const sourcePath = `${projectRoot}/index.ts`;
+  const stylePath = `${projectRoot}/style.css`;
+
+  await page.contents.uploadContent(CSS_IMPORT_TEST_STYLE, 'text', stylePath);
+  await page.contents.uploadContent(CSS_IMPORT_TEST_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+  const loadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(loadResult.ok).toBe(true);
+  expect(loadResult.status).toBe('loaded');
+  expect(loadResult.pluginIds).toContain(CSS_IMPORT_TEST_PLUGIN_ID);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, color }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return window.getComputedStyle(marker).backgroundColor === color;
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        color: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await expect(
+    page.evaluate((markerId: string) => {
+      const marker = document.getElementById(markerId);
+      if (!marker) {
+        return null;
+      }
+      return window.getComputedStyle(marker).backgroundColor;
+    }, CSS_IMPORT_TEST_MARKER_ID)
+  ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
+
+  await setActiveEditorSource(page, CSS_IMPORT_TEST_SOURCE_WITHOUT_STYLE);
+  const reloadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(reloadResult.ok).toBe(true);
+  expect(reloadResult.status).toBe('loaded');
+  expect(reloadResult.pluginIds).toContain(CSS_IMPORT_TEST_PLUGIN_ID);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, originalColor }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return (
+          window.getComputedStyle(marker).backgroundColor !== originalColor
+        );
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        originalColor: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await expect(
+    page.evaluate((path: string) => {
+      return Array.from(
+        document.querySelectorAll('style[data-plugin-playground-style-path]')
+      ).some(
+        node => node.getAttribute('data-plugin-playground-style-path') === path
+      );
+    }, stylePath)
+  ).resolves.toBe(false);
+});
+
+test('loads package.json style entry without explicit source CSS import', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/css-package-style-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const stylePath = `${projectRoot}/style/index.css`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_PACKAGE_JSON_WITH_STYLE,
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(CSS_IMPORT_TEST_STYLE, 'text', stylePath);
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_SOURCE_WITHOUT_STYLE,
+    'text',
+    sourcePath
+  );
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+  const loadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(loadResult.ok).toBe(true);
+  expect(loadResult.status).toBe('loaded');
+  expect(loadResult.pluginIds).toContain(CSS_IMPORT_TEST_PLUGIN_ID);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, color }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return window.getComputedStyle(marker).backgroundColor === color;
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        color: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await expect(
+    page.evaluate((markerId: string) => {
+      const marker = document.getElementById(markerId);
+      if (!marker) {
+        return null;
+      }
+      return window.getComputedStyle(marker).backgroundColor;
+    }, CSS_IMPORT_TEST_MARKER_ID)
+  ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
+});
+
+test('loads package.json style entry with relative CSS @import', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/css-package-style-import-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+  const indexStylePath = `${projectRoot}/style/index.css`;
+  const baseStylePath = `${projectRoot}/style/base.css`;
+
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_PACKAGE_JSON_WITH_STYLE,
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_STYLE_WITH_RELATIVE_IMPORT,
+    'text',
+    indexStylePath
+  );
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_STYLE,
+    'text',
+    baseStylePath
+  );
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_SOURCE_WITHOUT_STYLE,
+    'text',
+    sourcePath
+  );
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+  const loadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(loadResult.ok).toBe(true);
+  expect(loadResult.status).toBe('loaded');
+  expect(loadResult.pluginIds).toContain(CSS_IMPORT_TEST_PLUGIN_ID);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, color }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return window.getComputedStyle(marker).backgroundColor === color;
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        color: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await expect(
+    page.evaluate((markerId: string) => {
+      const marker = document.getElementById(markerId);
+      if (!marker) {
+        return null;
+      }
+      return window.getComputedStyle(marker).backgroundColor;
+    }, CSS_IMPORT_TEST_MARKER_ID)
+  ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
+});
+
+test('rolls back CSS changes when plugin load fails', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/css-import-rollback-test`;
+  const sourcePath = `${projectRoot}/index.ts`;
+  const stylePath = `${projectRoot}/style.css`;
+  const brokenModulePath = `${projectRoot}/broken.ts`;
+
+  await page.contents.uploadContent(CSS_IMPORT_TEST_STYLE, 'text', stylePath);
+  await page.contents.uploadContent(CSS_IMPORT_TEST_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+  const initialLoadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(initialLoadResult.ok).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, color }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return window.getComputedStyle(marker).backgroundColor === color;
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        color: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_STYLE_UPDATED,
+    'text',
+    stylePath
+  );
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_BROKEN_MODULE,
+    'text',
+    brokenModulePath
+  );
+  await setActiveEditorSource(page, CSS_IMPORT_TEST_SOURCE_WITH_FAILING_IMPORT);
+
+  const failingLoadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(failingLoadResult.ok).toBe(false);
+  expect(failingLoadResult.status).toBe('loading-failed');
+
+  await expect(
+    page.evaluate((markerId: string) => {
+      const marker = document.getElementById(markerId);
+      if (!marker) {
+        return null;
+      }
+      return window.getComputedStyle(marker).backgroundColor;
+    }, CSS_IMPORT_TEST_MARKER_ID)
+  ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
+});
+
+test('rolls back CSS changes when plugin schema parsing fails', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/css-import-schema-rollback-test`;
+  const sourcePath = `${projectRoot}/index.ts`;
+  const stylePath = `${projectRoot}/style.css`;
+  const schemaPath = `${projectRoot}/plugin.json`;
+
+  await page.contents.uploadContent(CSS_IMPORT_TEST_STYLE, 'text', stylePath);
+  await page.contents.uploadContent(CSS_IMPORT_TEST_SOURCE, 'text', sourcePath);
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_VALID_SCHEMA,
+    'text',
+    schemaPath
+  );
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+  const initialLoadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(initialLoadResult.ok).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, color }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return window.getComputedStyle(marker).backgroundColor === color;
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        color: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_STYLE_UPDATED,
+    'text',
+    stylePath
+  );
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_INVALID_SCHEMA,
+    'text',
+    schemaPath
+  );
+
+  const failingLoadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(failingLoadResult.ok).toBe(false);
+  expect(failingLoadResult.status).toBe('loading-failed');
+
+  await expect(
+    page.evaluate((markerId: string) => {
+      const marker = document.getElementById(markerId);
+      if (!marker) {
+        return null;
+      }
+      return window.getComputedStyle(marker).backgroundColor;
+    }, CSS_IMPORT_TEST_MARKER_ID)
+  ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
+});
+
 test('exports active extension folder as a zip archive', async ({
   page,
   tmpPath
@@ -661,6 +1197,411 @@ test('exports active extension folder as a zip archive', async ({
     return (window as IWindowWithExportCounter).__exportDownloadCount ?? 0;
   });
   expect(downloadCount).toBeGreaterThan(0);
+});
+
+test('exports active extension folder as a Python package from toolbar dropdown', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/export-toolbar-wheel-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: 'export-toolbar-wheel-test',
+        version: '0.1.0',
+        main: 'src/index.ts',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, EXPORT_COMMAND)
+  );
+
+  await page.evaluate(() => {
+    const win = window as IWindowWithExportCounter;
+    win.__exportDownloadCount = 0;
+    win.__exportDownloadFilenames = [];
+
+    if (!win.__originalCreateObjectURL) {
+      win.__originalCreateObjectURL = URL.createObjectURL.bind(URL);
+      const originalCreateObjectURL = win.__originalCreateObjectURL;
+      URL.createObjectURL = ((blob: Blob) => {
+        win.__exportDownloadCount = (win.__exportDownloadCount ?? 0) + 1;
+        return originalCreateObjectURL(blob);
+      }) as typeof URL.createObjectURL;
+    }
+
+    if (!win.__originalAnchorClick) {
+      win.__originalAnchorClick = HTMLAnchorElement.prototype.click;
+      const originalAnchorClick = win.__originalAnchorClick;
+      HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+        const targetWindow = window as IWindowWithExportCounter;
+        targetWindow.__exportDownloadFilenames = [
+          ...(targetWindow.__exportDownloadFilenames ?? []),
+          this.download
+        ];
+        return originalAnchorClick.call(this);
+      };
+    }
+  });
+
+  const exportFormatButton = page.getByRole('button', {
+    name: 'Choose export format'
+  });
+  await expect(exportFormatButton).toBeVisible();
+  await exportFormatButton.click();
+
+  const wheelMenuItem = page
+    .locator('.lm-Menu-item', {
+      has: page.locator('.lm-Menu-itemLabel', {
+        hasText: 'Export as Python package (.whl)'
+      })
+    })
+    .first();
+  await expect(wheelMenuItem).toBeVisible();
+  await wheelMenuItem.click();
+
+  const downloadCountBeforeExport = await page.evaluate(() => {
+    return (window as IWindowWithExportCounter).__exportDownloadCount ?? 0;
+  });
+  expect(downloadCountBeforeExport).toBe(0);
+
+  const exportButton = page.getByRole('button', {
+    name: /Export plugin folder as/
+  });
+  await expect(exportButton).toBeVisible();
+  await exportButton.click();
+
+  await page.waitForCondition(() =>
+    page.evaluate(() => {
+      const filenames =
+        (window as IWindowWithExportCounter).__exportDownloadFilenames ?? [];
+      return filenames.some(name => name.endsWith('.whl'));
+    })
+  );
+});
+
+test('exports active extension folder as a Python package', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/export-command-wheel-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: 'export-command-wheel-test',
+        version: '0.1.0',
+        main: 'src/index.ts',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, EXPORT_COMMAND)
+  );
+
+  await page.evaluate(() => {
+    const win = window as IWindowWithExportCounter;
+    win.__exportDownloadCount = 0;
+    if (!win.__originalCreateObjectURL) {
+      win.__originalCreateObjectURL = URL.createObjectURL.bind(URL);
+      const originalCreateObjectURL = win.__originalCreateObjectURL;
+      URL.createObjectURL = ((blob: Blob) => {
+        win.__exportDownloadCount = (win.__exportDownloadCount ?? 0) + 1;
+        return originalCreateObjectURL(blob);
+      }) as typeof URL.createObjectURL;
+    }
+  });
+
+  const exportResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id, {
+      format: 'wheel'
+    });
+  }, EXPORT_COMMAND);
+
+  expect(exportResult.ok).toBe(true);
+  expect(exportResult.archiveName).toMatch(/-py3-none-any\.whl$/);
+  expect(exportResult.fileCount).toBeGreaterThanOrEqual(2);
+
+  const downloadCount = await page.evaluate(() => {
+    return (window as IWindowWithExportCounter).__exportDownloadCount ?? 0;
+  });
+  expect(downloadCount).toBeGreaterThan(0);
+});
+
+test('exports deterministic wheel artifact for installed-wheel smoke test', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/${INSTALLED_WHEEL_PROJECT_NAME}`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: INSTALLED_WHEEL_PROJECT_NAME,
+        version: '0.1.0',
+        main: 'src/index.ts',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(
+    INSTALLED_WHEEL_PLUGIN_SOURCE,
+    'text',
+    sourcePath
+  );
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, EXPORT_COMMAND)
+  );
+
+  const exportedWheelDownload = page.waitForEvent('download');
+  const exportResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id, {
+      format: 'wheel'
+    });
+  }, EXPORT_COMMAND);
+
+  expect(exportResult.ok).toBe(true);
+  expect(exportResult.archiveName).toMatch(
+    /^playground[_-]wheel[_-]installed[_-]smoke-0\.1\.0-py3-none-any\.whl$/
+  );
+
+  const downloadedWheel = await exportedWheelDownload;
+  await downloadedWheel.saveAs(INSTALLED_WHEEL_ARTIFACT_PATH);
+});
+
+test('wheel export includes license files and sanitized METADATA fields', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/export-command-wheel-metadata-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const nestedLicensePath = `${projectRoot}/src/license.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+  const licensePath = `${projectRoot}/LICENSE`;
+  const noticePath = `${projectRoot}/NOTICE`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: '../export-command-wheel-metadata-test',
+        version: '0.1.0',
+        main: 'src/index.ts',
+        description: 'Wheel summary line\nwith newline',
+        homepage: 'https://example.test/docs\nINJECTED-HOMEPAGE-LINE',
+        author: {
+          email: 'owner@example.test\nINJECTED-AUTHOR-EMAIL-LINE'
+        },
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.contents.uploadContent(
+    'export const shouldNotBePackagedAsLicense = true;\n',
+    'text',
+    nestedLicensePath
+  );
+  await page.contents.uploadContent('License text\n', 'text', licensePath);
+  await page.contents.uploadContent('Notice text\n', 'text', noticePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, EXPORT_COMMAND)
+  );
+
+  const exportedWheelDownload = page.waitForEvent('download');
+
+  const inspection = await page.evaluate(async (id: string) => {
+    const win = window as IWindowWithExportCounter;
+    win.__exportDownloadBlobs = [];
+    const originalCreateObjectURL =
+      win.__originalCreateObjectURL ?? URL.createObjectURL.bind(URL);
+    win.__originalCreateObjectURL = originalCreateObjectURL;
+    URL.createObjectURL = ((blob: Blob) => {
+      if (blob.type === 'application/zip') {
+        win.__exportDownloadBlobs = [
+          ...(win.__exportDownloadBlobs ?? []),
+          blob
+        ];
+      }
+      return originalCreateObjectURL(blob);
+    }) as typeof URL.createObjectURL;
+
+    try {
+      await window.jupyterapp.commands.execute(id, { format: 'wheel' });
+    } finally {
+      URL.createObjectURL = originalCreateObjectURL;
+    }
+
+    const blobs = win.__exportDownloadBlobs ?? [];
+    const latestBlob = blobs[blobs.length - 1];
+    if (!latestBlob) {
+      return {
+        entryPaths: [] as string[],
+        metadataLines: [] as string[]
+      };
+    }
+
+    const bytes = new Uint8Array(await latestBlob.arrayBuffer());
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const decoder = new TextDecoder();
+    const entryPaths: string[] = [];
+    let metadataText = '';
+    let eocdOffset = -1;
+    const minEocdOffset = Math.max(0, bytes.length - 65557);
+    for (let cursor = bytes.length - 22; cursor >= minEocdOffset; cursor--) {
+      if (view.getUint32(cursor, true) === 0x06054b50) {
+        eocdOffset = cursor;
+        break;
+      }
+    }
+    if (eocdOffset < 0) {
+      return {
+        entryPaths,
+        metadataLines: [] as string[]
+      };
+    }
+
+    const centralDirectorySize = view.getUint32(eocdOffset + 12, true);
+    const centralDirectoryOffset = view.getUint32(eocdOffset + 16, true);
+    const centralDirectoryEnd = centralDirectoryOffset + centralDirectorySize;
+    let offset = centralDirectoryOffset;
+
+    while (
+      offset + 46 <= centralDirectoryEnd &&
+      offset + 46 <= bytes.length &&
+      view.getUint32(offset, true) === 0x02014b50
+    ) {
+      const compressionMethod = view.getUint16(offset + 10, true);
+      const compressedSize = view.getUint32(offset + 20, true);
+      const pathLength = view.getUint16(offset + 28, true);
+      const extraLength = view.getUint16(offset + 30, true);
+      const commentLength = view.getUint16(offset + 32, true);
+      const localHeaderOffset = view.getUint32(offset + 42, true);
+      const pathStart = offset + 46;
+      const pathEnd = pathStart + pathLength;
+      if (pathEnd > bytes.length) {
+        break;
+      }
+
+      const path = decoder.decode(bytes.subarray(pathStart, pathEnd));
+      entryPaths.push(path);
+      if (
+        path.endsWith('/METADATA') &&
+        compressionMethod === 0 &&
+        localHeaderOffset + 30 <= bytes.length &&
+        view.getUint32(localHeaderOffset, true) === 0x04034b50
+      ) {
+        const localPathLength = view.getUint16(localHeaderOffset + 26, true);
+        const localExtraLength = view.getUint16(localHeaderOffset + 28, true);
+        const dataStart =
+          localHeaderOffset + 30 + localPathLength + localExtraLength;
+        const dataEnd = dataStart + compressedSize;
+        if (dataEnd <= bytes.length) {
+          metadataText = decoder.decode(bytes.subarray(dataStart, dataEnd));
+        }
+      }
+
+      offset = pathEnd + extraLength + commentLength;
+    }
+
+    return {
+      entryPaths,
+      metadataLines: metadataText
+        .split('\n')
+        .map(line => line.trimEnd())
+        .filter(line => line.length > 0)
+    };
+  }, EXPORT_COMMAND);
+
+  const downloadedWheel = await exportedWheelDownload;
+  await downloadedWheel.saveAs(`/tmp/${downloadedWheel.suggestedFilename()}`);
+
+  expect(
+    inspection.entryPaths.some(
+      path => path.includes('/licenses/') && path.endsWith('/LICENSE')
+    )
+  ).toBe(true);
+  expect(
+    inspection.entryPaths.some(
+      path => path.includes('/licenses/') && path.endsWith('/NOTICE')
+    )
+  ).toBe(true);
+  expect(
+    inspection.entryPaths.some(path =>
+      path.endsWith('/licenses/src/license.ts')
+    )
+  ).toBe(false);
+  expect(
+    inspection.entryPaths.some(path => /(^|\/)\.\.(\/|$)/.test(path))
+  ).toBe(false);
+  expect(inspection.entryPaths.some(path => /(^|\/)\.(\/|$)/.test(path))).toBe(
+    false
+  );
+
+  expect(inspection.metadataLines).toContain(
+    'Summary: Wheel summary line with newline'
+  );
+  expect(inspection.metadataLines).toContain(
+    'Home-page: https://example.test/docs INJECTED-HOMEPAGE-LINE'
+  );
+  expect(inspection.metadataLines).toContain(
+    'Author-email: owner@example.test INJECTED-AUTHOR-EMAIL-LINE'
+  );
 });
 
 test('shares active file via URL by default', async ({ page, tmpPath }) => {
@@ -733,15 +1674,17 @@ test('loads a shared plugin from URL and clears query param', async ({
   tmpPath
 }) => {
   const projectRoot = `${tmpPath}/share-load-command-test`;
+  const sharedPluginId = 'share-load-command-test:plugin';
+  const sharedToggleCommand = 'share-load-command-test:toggle';
   const sourceFilename = 'share-load-entry.ts';
   const sourcePath = `${projectRoot}/src/${sourceFilename}`;
   const packageJsonPath = `${projectRoot}/package.json`;
   const sharedPluginSource = `
 const plugin = {
-  id: 'share-load-command-test:plugin',
+  id: '${sharedPluginId}',
   autoStart: true,
   activate: app => {
-    app.commands.addCommand('share-load-command-test:toggle', {
+    app.commands.addCommand('${sharedToggleCommand}', {
       label: 'Share Load Toggle',
       execute: () => {
         return undefined;
@@ -836,6 +1779,89 @@ export default plugin;
         'Shared file was not restored under plugin-playground-shared.'
       );
     }
+    await page.filebrowser.open(restoredPath);
+    expect(await page.activity.activateTab(sourceFilename)).toBe(true);
+
+    const toolbarState = await page.evaluate(() => {
+      const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+      const root = current?.node as HTMLElement | undefined;
+      if (!root) {
+        return null;
+      }
+      const loadItem = root.querySelector(
+        '.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name="load-as-extension"]'
+      ) as HTMLElement | null;
+      const loadButton = loadItem?.querySelector(
+        '.jp-ToolbarButtonComponent'
+      ) as HTMLElement | null;
+      const floatingHint = root.querySelector(
+        '.jp-PluginPlayground-urlLoadedFloatingHint'
+      ) as HTMLElement | null;
+      const exportButton = root.querySelector(
+        '.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name="export-extension"] .jp-ToolbarButtonComponent'
+      ) as HTMLElement | null;
+      const loadIcon = loadButton?.querySelector('svg') as SVGElement | null;
+      const exportIcon = exportButton?.querySelector(
+        'svg'
+      ) as SVGElement | null;
+      return {
+        hasHintClass: root.classList.contains(
+          'jp-PluginPlayground-urlLoadedEditorHint'
+        ),
+        hintLabel:
+          floatingHint
+            ?.querySelector('.jp-PluginPlayground-urlLoadedHintText')
+            ?.textContent?.trim() ?? '',
+        hasHintCloseButton: !!floatingHint?.querySelector(
+          '.jp-PluginPlayground-urlLoadedHintClose'
+        ),
+        hasVisibleFloatingHint:
+          !!floatingHint &&
+          window.getComputedStyle(floatingHint).display !== 'none',
+        loadButtonIconColor: loadIcon
+          ? window.getComputedStyle(loadIcon).color
+          : '',
+        exportButtonIconColor: exportIcon
+          ? window.getComputedStyle(exportIcon).color
+          : ''
+      };
+    });
+    expect(toolbarState).not.toBeNull();
+    expect(toolbarState?.hasHintClass).toBe(true);
+    expect(toolbarState?.hintLabel).toBe('Load as Extension');
+    expect(toolbarState?.hasHintCloseButton).toBe(true);
+    expect(toolbarState?.hasVisibleFloatingHint).toBe(true);
+    expect(toolbarState?.loadButtonIconColor).not.toBe(
+      toolbarState?.exportButtonIconColor
+    );
+
+    const loadResult = await page.evaluate((id: string) => {
+      return window.jupyterapp.commands.execute(id);
+    }, LOAD_COMMAND);
+    expect(loadResult.ok).toBe(true);
+    expect(loadResult.status).toBe('loaded');
+    expect(loadResult.pluginIds).toContain(sharedPluginId);
+
+    await page.waitForCondition(() =>
+      page.evaluate(() => {
+        const current = window.jupyterapp.shell
+          .currentWidget as FileEditorWidget;
+        const root = current?.node as HTMLElement | undefined;
+        const floatingHint = root?.querySelector(
+          '.jp-PluginPlayground-urlLoadedFloatingHint'
+        ) as HTMLElement | null;
+        const hintDisplay = floatingHint
+          ? window.getComputedStyle(floatingHint).display
+          : 'none';
+        return (
+          !!current &&
+          !!root &&
+          !root.classList.contains('jp-PluginPlayground-urlLoadedEditorHint') &&
+          hintDisplay === 'none'
+        );
+      })
+    );
+
     const restoredSource = await page.evaluate(async (path: string) => {
       const fileModel = await window.jupyterapp.serviceManager.contents.get(
         path,
@@ -846,15 +1872,14 @@ export default plugin;
       );
       return typeof fileModel.content === 'string' ? fileModel.content : null;
     }, restoredPath);
-    const browserState = await page.evaluate(() => {
+    const browserState = await page.evaluate((toggleCommand: string) => {
       const currentUrl = new URL(window.location.href);
       return {
         pluginQueryParam: currentUrl.searchParams.get('plugin'),
-        hasLoadedToggleCommand: window.jupyterapp.commands.hasCommand(
-          'share-load-command-test:toggle'
-        )
+        hasLoadedToggleCommand:
+          window.jupyterapp.commands.hasCommand(toggleCommand)
       };
-    });
+    }, sharedToggleCommand);
     const hasUntitledFolderWithSameNamedFile = await page.evaluate(async () => {
       const root = await window.jupyterapp.serviceManager.contents.get('', {
         content: true
@@ -901,7 +1926,7 @@ export default plugin;
     expect(restoredPath.includes(`/${sourceFilename}`)).toBe(true);
     expect(restoredSource?.trim()).toBe(sharedPluginSource.trim());
     expect(browserState.pluginQueryParam).toBeNull();
-    expect(browserState.hasLoadedToggleCommand).toBe(false);
+    expect(browserState.hasLoadedToggleCommand).toBe(true);
     expect(hasUntitledFolderWithSameNamedFile).toBe(false);
   } finally {
     await page.unrouteAll({ behavior: 'ignoreErrors' });

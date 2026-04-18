@@ -127,7 +127,7 @@
   justify-content: center;
 }
 
-.jp-PluginPlayground-commandInsertSplit {
+.jp-PluginPlayground-splitAction {
   align-items: center;
   border-radius: var(--jp-border-radius);
   display: inline-flex;
@@ -135,7 +135,7 @@
   position: relative;
 }
 
-.jp-PluginPlayground-commandInsertSplit::after {
+.jp-PluginPlayground-splitAction::after {
   border: var(--jp-border-width) solid transparent;
   border-radius: inherit;
   content: '';
@@ -144,22 +144,22 @@
   position: absolute;
 }
 
-.jp-PluginPlayground-commandInsertSplit:hover::after,
-.jp-PluginPlayground-commandInsertSplit:focus-within::after {
+.jp-PluginPlayground-splitAction:hover::after,
+.jp-PluginPlayground-splitAction:focus-within::after {
   border-color: var(--jp-brand-color1);
 }
 
-.jp-PluginPlayground-commandInsertButton {
+.jp-PluginPlayground-splitActionPrimaryButton {
   min-width: 26px;
   position: relative;
   z-index: 1;
 }
 
-.jp-PluginPlayground-commandInsertMenuButton {
+.jp-PluginPlayground-splitActionMenuButton {
   z-index: 1;
 }
 
-.jp-PluginPlayground-commandInsertDropdownButton {
+.jp-PluginPlayground-splitActionDropdownButton {
   border-left: var(--jp-border-width) solid var(--jp-border-color1);
   margin-left: calc(-1 * var(--jp-border-width));
   min-width: 7px;
@@ -428,8 +428,138 @@
   color: var(--jp-ui-font-color2);
 }
 
+.jp-PluginPlayground-urlLoadedEditorHint
+  .jp-Toolbar
+  > .jp-Toolbar-item[data-jp-item-name='load-as-extension']
+  .jp-ToolbarButtonComponent {
+  color: var(--jp-success-color1, #2e7d32);
+}
+
+.jp-PluginPlayground-urlLoadedEditorHint
+  .jp-Toolbar
+  > .jp-Toolbar-item[data-jp-item-name='load-as-extension']
+  .jp-ToolbarButtonComponent:hover,
+.jp-PluginPlayground-urlLoadedEditorHint
+  .jp-Toolbar
+  > .jp-Toolbar-item[data-jp-item-name='load-as-extension']
+  .jp-ToolbarButtonComponent:focus-visible {
+  color: var(--jp-success-color0, #1f7a1f);
+}
+
+.jp-PluginPlayground-urlLoadedEditorHint
+  .jp-Toolbar
+  > .jp-Toolbar-item[data-jp-item-name='load-as-extension']
+  .jp-ToolbarButtonComponent
+  svg {
+  color: currentColor;
+}
+
+.jp-PluginPlayground-urlLoadedEditorHint
+  .jp-Toolbar
+  > .jp-Toolbar-item[data-jp-item-name='load-as-extension']
+  .jp-ToolbarButtonComponent
+  svg
+  * {
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+.jp-PluginPlayground-urlLoadedHintCard {
+  background: var(--jp-layout-color1);
+  border: 1px solid var(--jp-border-color1);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  color: var(--jp-ui-font-color1);
+  display: flex;
+  flex-direction: column;
+  font-size: var(--jp-ui-font-size0);
+  gap: 4px;
+  line-height: 1.3;
+  max-width: 240px;
+  min-width: 200px;
+  padding: 10px 12px;
+  position: relative;
+}
+
+.jp-PluginPlayground-urlLoadedFloatingHint {
+  left: 0;
+  position: absolute;
+  top: 0;
+  z-index: 20;
+}
+
+.jp-PluginPlayground-urlLoadedHintCard::before {
+  background: var(--jp-layout-color1);
+  border-left: 1px solid var(--jp-border-color1);
+  border-top: 1px solid var(--jp-border-color1);
+  content: '';
+  height: 12px;
+  left: 6px;
+  position: absolute;
+  top: -7px;
+  transform: rotate(45deg);
+  width: 12px;
+}
+
+.jp-PluginPlayground-urlLoadedHintText {
+  font-size: var(--jp-ui-font-size1);
+  font-weight: 600;
+  line-height: 1.2;
+  padding-right: 18px;
+}
+
+.jp-PluginPlayground-urlLoadedHintDescription {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1.35;
+}
+
+.jp-PluginPlayground-urlLoadedHintClose {
+  align-items: center;
+  background: transparent;
+  border: none;
+  color: var(--jp-ui-font-color2);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 15px;
+  height: 20px;
+  justify-content: center;
+  line-height: 1;
+  margin: 0;
+  padding: 0;
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  width: 20px;
+}
+
+.jp-PluginPlayground-urlLoadedHintClose:hover {
+  background: var(--jp-layout-color2);
+  color: var(--jp-ui-font-color0);
+}
+
+.jp-PluginPlayground-urlLoadedHintClose:focus-visible {
+  background: var(--jp-layout-color2);
+  color: var(--jp-ui-font-color0);
+  outline: var(--jp-border-width) solid var(--jp-brand-color1);
+  outline-offset: 2px;
+}
+
 .jp-Toolbar > .jp-Toolbar-item[data-jp-item-name='export-extension'] {
   margin-left: auto;
+  order: 1001;
+}
+
+.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name='share-extension-link'] {
+  order: 1002;
+}
+
+.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name='reject-all-diff'] {
+  order: 1003;
+}
+
+.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name='accept-all-diff'] {
+  order: 1004;
 }
 
 @keyframes jp-PluginPlayground-lineChangePulse {

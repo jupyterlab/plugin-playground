@@ -73,15 +73,13 @@
   "jupyter.lab.toolbars": {
     "Editor": [
       {
-        "name": "insert",
+        "name": "load-as-extension",
         "command": "plugin-playground:load-as-extension",
         "rank": 20
       },
       { "name": "plugin-playground-load-on-save", "rank": 21 },
       {
         "name": "export-extension",
-        "command": "plugin-playground:export-as-extension",
-        "label": "Export",
         "rank": 22
       },
       {
