@@ -24,5 +24,4 @@ dependencies:
   - jupyterlab-js-logs>=1.1,<2
   - jupyterlab-tour>=4,<5
   # use the same AI package in Binder and JupyterLite deployments
-  - pip:
-      - jupyterlite-ai>=0.15,<1
+  - jupyterlite-ai>=0.15,<1
