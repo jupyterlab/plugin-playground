@@ -128,7 +128,7 @@ There are a few differences in how to write plugins in Plugin Playground compare
 - You can load a plugin with a given `id` more than once during iteration. Plugin Playground attempts to deactivate and deregister the previous version before registering the new one. Defining `deactivate()` in your plugin is still recommended for predictable cleanup between reloads.
 - To load code from an external package, RequireJS is used (hidden behind ES module-compatible import syntax), so import statements may need explicit version or file paths.
   - In addition to JupyterLab and Lumino packages, only AMD modules can be imported; ES modules and modules compiled for Webpack/Node are not supported directly and can fail with `Uncaught SyntaxError: Unexpected token 'export'`.
-- While the playground can import relative files (`.ts`), load SVG as strings, and load `plugin.json` schema for rapid prototyping, these capabilities are still evolving; other resources such as CSS files are not currently supported.
+- While the playground can import relative files (`.ts`), load SVG as strings, and load `plugin.json` schema for rapid prototyping, these capabilities are still evolving.
 
 ### Migrating from version 0.3.0
 
