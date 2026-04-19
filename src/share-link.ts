@@ -93,7 +93,7 @@ function normalizeSharedFolderFiles(files: unknown): Record<string, string> {
 export namespace ShareLink {
   export const SHARE_URL_PARAM = 'plugin';
   export const SHARE_URL_WARN_LENGTH = 1800;
-  export const SHARE_URL_MAX_LENGTH = 8000;
+  export const SHARE_URL_MAX_LENGTH = 4096;
 
   /**
    * Shared payload for a single plugin file.

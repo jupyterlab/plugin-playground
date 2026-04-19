@@ -279,6 +279,7 @@ const SHARE_FOLDER_EXCLUDED_EXTENSIONS = new Set([
   '.webp',
   '.md',
   '.markdown',
+  '.py',
   '.rst',
   '.woff',
   '.woff2',

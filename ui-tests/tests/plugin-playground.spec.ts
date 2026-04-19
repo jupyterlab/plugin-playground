@@ -2342,7 +2342,7 @@ test.describe('share capacity meter', () => {
     }
   });
 
-  test('shows share capacity meter and excludes docs/test files by default', async ({
+  test('shows share capacity meter and excludes docs/test/python files by default', async ({
     page,
     tmpPath
   }) => {
@@ -2351,6 +2351,7 @@ test.describe('share capacity meter', () => {
     const sourcePath = `${folderPath}/index.ts`;
     const readmePath = `${folderPath}/README.md`;
     const specPath = `${folderPath}/index.spec.ts`;
+    const pythonPath = `${folderPath}/main.py`;
 
     await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
     await page.contents.uploadContent('# test readme\n', 'text', readmePath);
@@ -2359,6 +2360,7 @@ test.describe('share capacity meter', () => {
       'text',
       specPath
     );
+    await page.contents.uploadContent('print("hello")\n', 'text', pythonPath);
     await page.goto();
 
     await page.waitForCondition(() =>
@@ -2405,6 +2407,11 @@ test.describe('share capacity meter', () => {
       .locator('label', { hasText: /^index\.spec\.ts \(/ })
       .locator('input[type="checkbox"]');
     await expect(specCheckbox).not.toBeChecked();
+
+    const pythonCheckbox = page
+      .locator('label', { hasText: /^main\.py \(/ })
+      .locator('input[type="checkbox"]');
+    await expect(pythonCheckbox).not.toBeChecked();
 
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     const result = await sharePromise;
