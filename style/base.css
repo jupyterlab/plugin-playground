@@ -165,35 +165,23 @@
   border-radius: var(--jp-border-radius);
   display: inline-flex;
   gap: 0;
-  position: relative;
-}
-
-.jp-PluginPlayground-splitAction::after {
-  border: var(--jp-border-width) solid transparent;
-  border-radius: inherit;
-  content: '';
-  inset: calc(-1 * var(--jp-border-width));
-  pointer-events: none;
-  position: absolute;
-}
-
-.jp-PluginPlayground-splitAction:hover::after,
-.jp-PluginPlayground-splitAction:focus-within::after {
-  border-color: var(--jp-brand-color1);
 }
 
 .jp-PluginPlayground-splitActionPrimaryButton {
   min-width: 26px;
   position: relative;
   z-index: 1;
+  border: solid var(--jp-border-color2) !important;
+  border-width: 1px 1px 1px 1px;
 }
 
 .jp-PluginPlayground-splitActionMenuButton {
   z-index: 1;
+  border: solid var(--jp-border-color2) !important;
+  border-width: 1px 1px 1px 1px;
 }
 
 .jp-PluginPlayground-splitActionDropdownButton {
-  border-left: var(--jp-border-width) solid var(--jp-border-color1);
   margin-left: calc(-1 * var(--jp-border-width));
   min-width: 7px;
   padding: 0 5px !important;
@@ -224,6 +212,11 @@
 
 .jp-PluginPlayground-actionButton:not(:disabled):hover {
   background: var(--jp-layout-color3);
+}
+
+.jp-PluginPlayground-splitAction
+  .jp-PluginPlayground-actionButton:not(:disabled):hover {
+  background: var(--jp-layout-color2);
 }
 
 .jp-PluginPlayground-argumentSchemaBaseIcon {

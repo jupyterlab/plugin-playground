@@ -70,53 +70,62 @@ interface ICreateExportArchiveSplitWidgetResult {
 function createExportArchiveSplitWidget(
   options: ICreateExportArchiveSplitWidgetOptions
 ): ICreateExportArchiveSplitWidgetResult {
-  const SplitView = (): React.ReactElement => {
-    const normalizedPath = ContentUtils.normalizeContentsPath(
-      options.editorWidget.context.path
-    );
-    const enabled = options.hasDocumentManager() && normalizedPath.length > 0;
-    const selectedFormat = options.getSelectedFormat();
-    const formatLabel = exportArchiveFormatLabel(selectedFormat);
+  class ExportArchiveSplitWidget extends ReactWidget {
+    render(): React.ReactElement {
+      const normalizedPath = ContentUtils.normalizeContentsPath(
+        options.editorWidget.context.path
+      );
+      const enabled = options.hasDocumentManager() && normalizedPath.length > 0;
+      const selectedFormat = options.getSelectedFormat();
+      const formatLabel = exportArchiveFormatLabel(selectedFormat);
+      const primaryLabel =
+        selectedFormat === 'wheel' ? 'Export .whl' : 'Export .zip';
 
-    return React.createElement(SplitActionButton, {
-      disabled: !enabled,
-      onPrimaryClick: () => {
-        options.onExport(options.getSelectedFormat());
-      },
-      primaryAriaLabel: `Export plugin folder as ${formatLabel}`,
-      primaryTitle: `Export plugin folder as ${formatLabel}`,
-      primaryContent: React.createElement(
-        React.Fragment,
-        null,
-        React.createElement(downloadIcon.react, {
+      return React.createElement(SplitActionButton, {
+        disabled: !enabled,
+        onPrimaryClick: () => {
+          options.onExport(options.getSelectedFormat());
+        },
+        primaryAriaLabel: `Export plugin folder as ${formatLabel}`,
+        primaryTitle: `Export plugin folder as ${formatLabel}`,
+        primaryContent: React.createElement(
+          React.Fragment,
+          null,
+          React.createElement(downloadIcon.react, {
+            tag: 'span',
+            elementSize: 'normal',
+            className: 'jp-PluginPlayground-actionIcon'
+          }),
+          React.createElement(
+            'span',
+            {
+              className: 'jp-PluginPlayground-actionLabel'
+            },
+            primaryLabel
+          )
+        ),
+        onMenuMouseDown: event => {
+          event.preventDefault();
+        },
+        onMenuClick: anchorButton => {
+          openMenuAtAnchor(
+            options.menu,
+            anchorButton,
+            EXPORT_ARCHIVE_MENU_ITEMS
+          );
+        },
+        menuAriaLabel: 'Choose export format',
+        menuTitle: 'Choose export format',
+        menuContent: React.createElement(caretDownEmptyIcon.react, {
           tag: 'span',
           elementSize: 'normal',
           className: 'jp-PluginPlayground-actionIcon'
-        }),
-        React.createElement(
-          'span',
-          {
-            className: 'jp-PluginPlayground-actionLabel'
-          },
-          'Export'
-        )
-      ),
-      onMenuMouseDown: event => {
-        event.preventDefault();
-      },
-      onMenuClick: anchorButton => {
-        openMenuAtAnchor(options.menu, anchorButton, EXPORT_ARCHIVE_MENU_ITEMS);
-      },
-      menuAriaLabel: 'Choose export format',
-      menuTitle: 'Choose export format',
-      menuContent: React.createElement(caretDownEmptyIcon.react, {
-        tag: 'span',
-        elementSize: 'normal',
-        className: 'jp-PluginPlayground-actionIcon'
-      })
-    });
-  };
-  const splitWidget = ReactWidget.create(React.createElement(SplitView));
+        })
+      });
+    }
+  }
+
+  const splitWidget = new ExportArchiveSplitWidget();
 
   const refresh = () => {
     splitWidget.update();

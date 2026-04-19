@@ -1421,6 +1421,9 @@ test('exports active extension folder as a Python package from toolbar dropdown'
     name: /Export plugin folder as/
   });
   await expect(exportButton).toBeVisible();
+  await expect(
+    exportButton.locator('.jp-PluginPlayground-actionLabel')
+  ).toHaveText('Export .whl');
   await exportButton.click();
 
   await page.waitForCondition(() =>
