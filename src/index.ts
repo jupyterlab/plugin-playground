@@ -31,15 +31,10 @@ import { IMainMenu } from '@jupyterlab/mainmenu';
 import { IChatTracker } from '@jupyter/chat';
 
 import {
-  downloadIcon,
-  extensionIcon,
   IFrame,
-  checkIcon,
   fileUploadIcon,
-  IFrame,
   infoIcon,
   offlineBoltIcon,
-  shareIcon,
   SidePanel
 } from '@jupyterlab/ui-components';
 
