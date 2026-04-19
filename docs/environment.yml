@@ -11,6 +11,7 @@ dependencies:
   - ipywidgets>=8.0,<9
   - jupyterlab>=4.0.0,<5
   - jupyterlab-js-logs>=1.1,<2
+  - jupyterlab-tour>=4,<5
   - jupyterlab-language-pack-fr-FR
   - jupyterlab-language-pack-zh-CN
   - jupyterlite-ai>=0.15,<1

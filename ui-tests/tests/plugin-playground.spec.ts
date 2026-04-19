@@ -11,10 +11,16 @@ const SHARE_COMMAND = 'plugin-playground:share-via-link';
 const OPEN_PACKAGES_REFERENCE_COMMAND = 'plugin-playground:open-js-explorer';
 const INTERNAL_CONTEXT_INFO_COMMAND = '__internal:context-menu-info';
 const CREATE_FILE_COMMAND = 'plugin-playground:create-new-plugin';
+const CREATE_FILE_WITH_AI_COMMAND =
+  'plugin-playground:create-new-plugin-with-ai';
+const TAKE_TOUR_COMMAND = 'plugin-playground:take-tour';
+const TOUR_ID = '@jupyterlab/plugin-playground:tour';
 const PLAYGROUND_PLUGIN_ID = '@jupyterlab/plugin-playground:plugin';
 const LIST_TOKENS_COMMAND = 'plugin-playground:list-tokens';
 const LIST_COMMANDS_COMMAND = 'plugin-playground:list-commands';
 const LIST_EXAMPLES_COMMAND = 'plugin-playground:list-extension-examples';
+const TOUR_MISSING_HINT =
+  'Guided tours are unavailable because "jupyterlab-tour" is not installed in this environment.';
 const TEST_PLUGIN_ID = 'playground-integration-test:plugin';
 const TEST_TOGGLE_COMMAND = 'playground-integration-test:toggle';
 const TEST_ARGS_COMMAND = 'playground-integration-test:with-args';
@@ -261,14 +267,14 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-async function findLoadOnSaveCheckbox(
+async function findLoadOnSaveToggle(
   page: IJupyterLabPageFixture
 ): Promise<Locator> {
-  const checkbox = page.getByRole('checkbox', {
+  const toggle = page.getByRole('button', {
     name: LOAD_ON_SAVE_CHECKBOX_LABEL
   });
-  await expect(checkbox).toBeVisible();
-  return checkbox;
+  await expect(toggle).toBeVisible();
+  return toggle;
 }
 
 async function focusActiveEditor(page: IJupyterLabPageFixture): Promise<void> {
@@ -434,6 +440,16 @@ test('registers plugin playground commands', async ({ page }) => {
   await page.waitForCondition(() =>
     page.evaluate((id: string) => {
       return window.jupyterapp.commands.hasCommand(id);
+    }, CREATE_FILE_WITH_AI_COMMAND)
+  );
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, TAKE_TOUR_COMMAND)
+  );
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
     }, EXPORT_COMMAND)
   );
   await page.waitForCondition(() =>
@@ -471,6 +487,16 @@ test('registers plugin playground commands', async ({ page }) => {
   await expect(
     page.evaluate((id: string) => {
       return window.jupyterapp.commands.hasCommand(id);
+    }, CREATE_FILE_WITH_AI_COMMAND)
+  ).resolves.toBe(true);
+  await expect(
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, TAKE_TOUR_COMMAND)
+  ).resolves.toBe(true);
+  await expect(
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
     }, EXPORT_COMMAND)
   ).resolves.toBe(true);
   await expect(
@@ -493,6 +519,112 @@ test('registers plugin playground commands', async ({ page }) => {
       return window.jupyterapp.commands.hasCommand(id);
     }, LIST_EXAMPLES_COMMAND)
   ).resolves.toBe(true);
+});
+
+test('take tour command launches tour when tour commands are available', async ({
+  page
+}) => {
+  await page.goto();
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, TAKE_TOUR_COMMAND)
+  );
+
+  const result = await page.evaluate(
+    async ({ takeTourCommand, addCommand, launchCommand }) => {
+      const commands = window.jupyterapp.commands as any;
+      const originalHasCommand = commands.hasCommand.bind(commands);
+      const originalExecute = commands.execute.bind(commands);
+      let addedTourId = '';
+      let launchedTourId = '';
+
+      commands.hasCommand = (id: string) => {
+        if (id === addCommand || id === launchCommand) {
+          return true;
+        }
+        return originalHasCommand(id);
+      };
+      commands.execute = async (id: string, args?: any) => {
+        if (id === addCommand) {
+          addedTourId = args?.tour?.id ?? '';
+          return { id: addedTourId };
+        }
+        if (id === launchCommand) {
+          launchedTourId = args?.id ?? '';
+          return undefined;
+        }
+        return originalExecute(id, args);
+      };
+
+      try {
+        const commandResult = (await originalExecute(takeTourCommand, {})) as {
+          ok?: boolean;
+          message?: string;
+        };
+        return {
+          commandResult,
+          addedTourId,
+          launchedTourId
+        };
+      } finally {
+        commands.hasCommand = originalHasCommand;
+        commands.execute = originalExecute;
+      }
+    },
+    {
+      takeTourCommand: TAKE_TOUR_COMMAND,
+      addCommand: 'jupyterlab-tour:add',
+      launchCommand: 'jupyterlab-tour:launch'
+    }
+  );
+
+  expect(result.commandResult.ok).toBe(true);
+  expect(result.addedTourId).toBe(TOUR_ID);
+  expect(result.launchedTourId).toBe(TOUR_ID);
+});
+
+test('take tour command returns a deterministic missing-tour message when tour commands are unavailable', async ({
+  page
+}) => {
+  await page.goto();
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, TAKE_TOUR_COMMAND)
+  );
+
+  const result = await page.evaluate(
+    async ({ takeTourCommand, addCommand, launchCommand }) => {
+      const commands = window.jupyterapp.commands as any;
+      const originalHasCommand = commands.hasCommand.bind(commands);
+      commands.hasCommand = (id: string) => {
+        if (id === addCommand || id === launchCommand) {
+          return false;
+        }
+        return originalHasCommand(id);
+      };
+
+      try {
+        return (await commands.execute(takeTourCommand, {})) as {
+          ok?: boolean;
+          message?: string;
+        };
+      } finally {
+        commands.hasCommand = originalHasCommand;
+      }
+    },
+    {
+      takeTourCommand: TAKE_TOUR_COMMAND,
+      addCommand: 'jupyterlab-tour:add',
+      launchCommand: 'jupyterlab-tour:launch'
+    }
+  );
+
+  expect(result.ok).toBe(false);
+  expect(result.message).toBe(TOUR_MISSING_HINT);
 });
 
 test('opens a dummy extension example from the sidebar', async ({ page }) => {
@@ -701,8 +833,13 @@ test('open packages reference command switches to packages view', async ({
   const packagesTab = section.getByRole('tab', { name: 'Packages' });
   await expect(packagesTab).toHaveAttribute('aria-selected', 'true');
 
-  const count = section.locator('.jp-PluginPlayground-count').first();
-  await expect(count).toContainText('packages');
+  const filterCount = section
+    .locator('.jp-PluginPlayground-filterCount')
+    .first();
+  await expect(filterCount).toBeVisible();
+  await expect(
+    section.locator('.jp-PluginPlayground-viewDescription').first()
+  ).toContainText('External code libraries');
 
   const packageItems = section.locator('.jp-PluginPlayground-listItem');
   await expect(packageItems.first()).toBeVisible();
@@ -2495,11 +2632,6 @@ test('commands tab lists and filters available commands', async ({ page }) => {
   const loadCommandArgumentsButton = panel.locator(
     '.jp-PluginPlayground-argumentBadgeButton'
   );
-  await expect(
-    loadCommandArgumentsButton.locator(
-      '.jp-PluginPlayground-argumentCountBadge'
-    )
-  ).toHaveText('?');
   await expect(loadCommandArgumentsButton).toBeDisabled();
   await expect(loadCommandArgumentsButton).toHaveAttribute(
     'title',
@@ -3142,7 +3274,7 @@ const run = (application: JupyterFrontEnd) => {
   }, LOAD_COMMAND);
 });
 
-test('per-file load-on-save checkbox is unchecked by default and enables auto-load', async ({
+test('per-file load-on-save toggle is off by default and enables auto-load', async ({
   page,
   tmpPath
 }) => {
@@ -3159,10 +3291,10 @@ test('per-file load-on-save checkbox is unchecked by default and enables auto-lo
   await page.filebrowser.open(pluginPath);
   expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
 
-  const loadOnSaveCheckbox = await findLoadOnSaveCheckbox(page);
-  await expect(loadOnSaveCheckbox).not.toBeChecked();
-  await loadOnSaveCheckbox.check();
-  await expect(loadOnSaveCheckbox).toBeChecked();
+  const loadOnSaveToggle = await findLoadOnSaveToggle(page);
+  await expect(loadOnSaveToggle).toHaveAttribute('aria-pressed', 'false');
+  await loadOnSaveToggle.click();
+  await expect(loadOnSaveToggle).toHaveAttribute('aria-pressed', 'true');
 
   await focusActiveEditor(page);
   await page.keyboard.press('Space');
@@ -3210,12 +3342,12 @@ test.describe('load-on-save setting', () => {
 
     await page.filebrowser.open(pluginPath);
     expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
-    const loadOnSaveCheckbox = page.getByRole('checkbox', {
+    const loadOnSaveToggle = page.getByRole('button', {
       name: LOAD_ON_SAVE_CHECKBOX_LABEL,
       includeHidden: true
     });
-    await expect(loadOnSaveCheckbox).toBeAttached();
-    await expect(loadOnSaveCheckbox).toBeHidden();
+    await expect(loadOnSaveToggle).toBeAttached();
+    await expect(loadOnSaveToggle).toBeHidden();
 
     // Make the editor dirty so save reliably emits a completed saveState.
     await focusActiveEditor(page);
@@ -3244,7 +3376,7 @@ test.describe('load-on-save setting', () => {
     expect(initiallyToggled).toBe(false);
   });
 
-  test('hides file-level load-on-save checkbox when setting is enabled', async ({
+  test('hides file-level load-on-save toggle when setting is enabled', async ({
     page,
     tmpPath
   }) => {
@@ -3261,11 +3393,11 @@ test.describe('load-on-save setting', () => {
     await page.filebrowser.open(pluginPath);
     expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
 
-    const loadOnSaveCheckbox = page.getByRole('checkbox', {
+    const loadOnSaveToggle = page.getByRole('button', {
       name: LOAD_ON_SAVE_CHECKBOX_LABEL,
       includeHidden: true
     });
-    await expect(loadOnSaveCheckbox).toBeAttached();
-    await expect(loadOnSaveCheckbox).toBeHidden();
+    await expect(loadOnSaveToggle).toBeAttached();
+    await expect(loadOnSaveToggle).toBeHidden();
   });
 });

@@ -2,6 +2,9 @@
   "jupyter-lite-schema-version": 0,
   "jupyter-config-data": {
     "appName": "JupyterLab Plugin Playground",
-    "disabledExtensions": ["jupyterlab-jupytext:plugin"]
+    "disabledExtensions": [
+      "jupyterlab-jupytext:plugin",
+      "jupyterlab-tour:default-tours"
+    ]
   }
 }

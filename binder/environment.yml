@@ -22,5 +22,6 @@ dependencies:
   # - ipywidgets
   - jupyterlab-lsp
   - jupyterlab-js-logs>=1.1,<2
+  - jupyterlab-tour>=4,<5
   # use the same AI package in Binder and JupyterLite deployments
   - jupyterlite-ai>=0.15,<1
