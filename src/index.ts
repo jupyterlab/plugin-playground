@@ -315,7 +315,8 @@ const LOAD_ON_SAVE_DISABLED_DESCRIPTION =
 const JUPYTERLITE_AI_OPEN_CHAT_COMMAND = '@jupyterlite/ai:open-chat';
 const JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND = '@jupyterlite/ai:open-settings';
 const JUPYTERLITE_AI_CHAT_PANEL_ID = '@jupyterlite/ai:chat-panel';
-const JUPYTERLITE_AI_INSTALL_HINT = 'JupyterLite AI is unavailable.';
+const JUPYTERLITE_AI_INSTALL_HINT =
+  'JupyterLite AI is unavailable. Install the jupyterlite-ai extension and reload the application.';
 const JUPYTERLITE_AI_PROVIDER_SETUP_HINT = 'No AI provider configured.';
 type JupyterLiteAIErrorCode = 'install-unavailable' | 'provider-setup-required';
 type JupyterLiteAIChatOpenStatus =

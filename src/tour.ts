@@ -164,7 +164,7 @@ const PLUGIN_PLAYGROUND_TOUR: IPluginPlaygroundTour = {
     },
     {
       target: TOKENS_TAB_SELECTOR,
-      title: 'Tokens: What This Section Is',
+      title: 'Tokens: About This Section',
       placement: 'left-start',
       content:
         'Tokens are capabilities provided by JupyterLab and other extensions. You use them to connect your plugin to existing Jupyter features.'
@@ -178,7 +178,7 @@ const PLUGIN_PLAYGROUND_TOUR: IPluginPlaygroundTour = {
     },
     {
       target: COMMANDS_TAB_SELECTOR,
-      title: 'Commands: What This Section Is',
+      title: 'Commands: About This Section',
       placement: 'left-start',
       content:
         'Commands are actions your plugin can trigger in JupyterLab, like opening views or running workflows.'
@@ -188,56 +188,56 @@ const PLUGIN_PLAYGROUND_TOUR: IPluginPlaygroundTour = {
       title: 'Commands: Insert (Normal or AI)',
       placement: 'left-start',
       content:
-        'Commands are actions your plugin can trigger. Use the insert action in normal mode for direct code insertion, or switch to AI mode to draft insertion with assistant help.'
+        'Commands are actions your plugin can trigger. Use the insert action in normal mode for direct code insertion, or switch to AI mode to instruct the AI assistant to perform context-aware insertion.'
     },
     {
       target: COMMANDS_FIRST_SCHEMA_SELECTOR,
       title: 'Commands: Schema and Copy',
       placement: 'left-start',
       content:
-        'Use the schema badge to inspect command arguments. You can also copy command IDs from the same row to paste directly into your plugin.'
+        'Use the schema badge to inspect command arguments. You can also copy command IDs from the same row.'
     },
     {
       target: PACKAGES_TAB_SELECTOR,
-      title: 'Packages: What This Section Is',
+      title: 'Packages: About This Section',
       placement: 'left-start',
       content:
-        'Packages gives a practical view of libraries your plugin can use. It helps you understand what is available before importing anything.'
+        'Packages gives a practical view of libraries your plugin can use to import functions, classes, and other resources. Additional packages will show up in environments with more extensions.'
     },
     {
       target: PACKAGES_FIRST_ACTIONS_SELECTOR,
       title: 'Packages: Open Linked Resources',
       placement: 'left-start',
       content:
-        'From the first package row, these buttons open linked docs, npm entries, or repository pages so you can learn usage quickly.'
+        'The buttons to the right open documentation, npm entry, and source code repository.'
     },
     {
       target: EXAMPLES_SIDEBAR_SELECTOR,
-      title: 'Extension Examples: What This Section Is',
+      title: 'Extension Examples: About This Section',
       placement: 'left-start',
       content:
-        'Extension Examples gives you ready references so you can learn patterns quickly from real working plugins.'
+        'Extension Examples give you ready references so you can learn patterns quickly from plugins demonstrating common extension use cases.'
     },
     {
       target: EXAMPLES_FIRST_ACTIONS_SELECTOR,
       title: 'Extension Examples: Code and README Buttons',
       placement: 'left-start',
       content:
-        'In each row, Code opens the source entrypoint, and README opens the explanation. Together they help you learn and copy patterns faster.'
+        'In each row, Code opens the source entrypoint, and README opens the explanation. Together they help you learn and adopt patterns faster.'
     },
     {
       target: '[data-command="plugin-playground:export-as-extension"]',
       title: 'Export Near the Finish',
       placement: 'bottom',
       content:
-        'When your prototype is ready, Export packages your plugin folder as a starter extension archive.'
+        'When your prototype is ready, export your plugin as an archive to continue development in your preferred IDE, or as a Python package to install it in a test environment.'
     },
     {
       target: '[data-command="plugin-playground:share-via-link"]',
       title: 'Share Near the Finish',
       placement: 'bottom',
       content:
-        'Use Share to copy a link for the current plugin file so others can review or continue from your exact starting point.'
+        'Use the Share button to copy a link for the current plugin file so others can review or continue from your exact starting point.'
     },
     {
       target: '#jp-main-dock-panel',
@@ -251,7 +251,7 @@ const PLUGIN_PLAYGROUND_TOUR: IPluginPlaygroundTour = {
       title: 'You Are Ready',
       placement: 'center',
       content:
-        'That is the full flow. You can rerun this tour anytime from "Take the Tour".'
+        'That is the full flow. You can rerun this tour anytime from "Take the Tour" tile.'
     }
   ]
 };
@@ -268,12 +268,26 @@ export function hasPluginPlaygroundTourSupport(app: JupyterFrontEnd): boolean {
   );
 }
 
+function isSignalLike(candidate: unknown): boolean {
+  return (
+    !!candidate &&
+    typeof candidate === 'object' &&
+    'connect' in candidate &&
+    typeof (candidate as { connect: unknown }).connect === 'function'
+  );
+}
+
 function isTourHandlerLike(candidate: unknown): candidate is ITourHandlerLike {
   if (!candidate || typeof candidate !== 'object') {
     return false;
   }
   return (
-    'id' in candidate && typeof (candidate as { id: unknown }).id === 'string'
+    'id' in candidate &&
+    typeof (candidate as { id: unknown }).id === 'string' &&
+    'started' in candidate &&
+    isSignalLike((candidate as { started: unknown }).started) &&
+    'stepChanged' in candidate &&
+    isSignalLike((candidate as { stepChanged: unknown }).stepChanged)
   );
 }
 
@@ -368,9 +382,8 @@ export async function launchPluginPlaygroundTour(
 
   if (isTourHandlerLike(addedTour)) {
     attachTourUiHooks(addedTour);
-  } else {
-    syncTourUiForStep(TOUR_STEP_INDEX.welcome);
   }
+  syncTourUiForStep(TOUR_STEP_INDEX.welcome);
 
   await app.commands.execute(TOUR_LAUNCH_COMMAND, {
     id: PLUGIN_PLAYGROUND_TOUR.id,
