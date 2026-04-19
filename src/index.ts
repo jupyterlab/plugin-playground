@@ -14,16 +14,12 @@ import {
   showDialog,
   showErrorMessage,
   ICommandPalette,
-  IToolbarWidgetRegistry,
-  ReactWidget,
-  UseSignal,
-  addToolbarButtonClass
+  IToolbarWidgetRegistry
 } from '@jupyterlab/apputils';
-import { Button } from '@jupyter/react-components';
 
 import { ILogConsoleTracker } from 'jupyterlab-js-logs';
 
-import { Signal, type ISignal } from '@lumino/signaling';
+import { Signal } from '@lumino/signaling';
 
 import { DocumentRegistry, IDocumentWidget } from '@jupyterlab/docregistry';
 
@@ -35,14 +31,9 @@ import { IMainMenu } from '@jupyterlab/mainmenu';
 import { IChatTracker } from '@jupyter/chat';
 
 import {
-  caretDownEmptyIcon,
-  fileIcon,
-  folderIcon,
-  checkIcon,
   downloadIcon,
   extensionIcon,
   IFrame,
-  shareIcon,
   SidePanel
 } from '@jupyterlab/ui-components';
 
@@ -103,28 +94,27 @@ import {
 
 import { downloadArchive, IArchiveEntry } from './archive';
 import { createTemplateArchive } from './export-template';
-import { ShareLink } from './share-link';
 import {
   DEFAULT_EXPORT_ARCHIVE_FORMAT,
   EXPORT_EXTENSION_TOOLBAR_ITEM,
   ExportToolbarController,
   type ExportArchiveFormat
 } from './export-toolbar';
-import { createPythonWheelArchive } from './wheel';
 import {
-  buildFolderSharePayload,
-  IFolderShareCandidateFile,
-  selectFolderSharePaths,
-  shouldSkipFolderShareEntry
-} from './share-via-link-utils';
+  SHARE_LINK_TOOLBAR_ITEM,
+  SHARE_VIA_LINK_ARGS_SCHEMA,
+  ShareViaLinkController,
+  type IPluginShareResult
+} from './share-via-link-controller';
+import { createPythonWheelArchive } from './wheel';
 
 import { Token } from '@lumino/coreutils';
-import type { CommandRegistry } from '@lumino/commands';
 
-import { AccordionPanel, Menu, MenuBar, Widget } from '@lumino/widgets';
+import { AccordionPanel, MenuBar, Widget } from '@lumino/widgets';
 
 import { IPlugin } from '@lumino/application';
-import * as React from 'react';
+
+export type { IPluginShareResult } from './share-via-link-controller';
 
 namespace CommandIDs {
   export const createNewFile = 'plugin-playground:create-new-plugin';
@@ -145,11 +135,6 @@ type PluginLoadStatus =
   | 'editor-not-active'
   | 'loading-failed'
   | 'autostart-failed';
-
-type ShareFolderSelectionDialogMode =
-  | 'always'
-  | 'auto-excluded-or-limit'
-  | 'limit-only';
 
 interface IPluginLoadResult {
   status: PluginLoadStatus;
@@ -180,96 +165,6 @@ interface IResolvedExportContext {
   rootPath: string;
   archiveEntries: IArchiveEntry[];
   usedTemplate: boolean;
-}
-
-/**
- * Result metadata returned by share-link command executions.
- */
-export interface IPluginShareResult {
-  ok: boolean;
-  link: string | null;
-  sourcePath: string | null;
-  urlLength: number;
-  message?: string;
-}
-
-type IShareLinkCreationResult =
-  | {
-      ok: true;
-      link: string;
-      urlLength: number;
-    }
-  | {
-      ok: false;
-      reason: 'length' | 'payload';
-      urlLength: number;
-      message: string;
-    };
-
-class ShareDropdownToolbarButton extends ReactWidget {
-  constructor(
-    private readonly _commandChanged: ISignal<
-      CommandRegistry,
-      CommandRegistry.ICommandChangedArgs
-    >,
-    private readonly _isCopied: () => boolean,
-    private readonly _onOpenMenu: (anchor: HTMLElement) => void
-  ) {
-    super();
-    addToolbarButtonClass(this);
-  }
-
-  private _renderButton(): React.ReactNode {
-    const isCopied = this._isCopied();
-    const tooltip = isCopied
-      ? 'Copied'
-      : 'Share the current file or package by creating a copyable URL link';
-    const leadingIcon = isCopied ? checkIcon : shareIcon;
-    return React.createElement(
-      Button,
-      {
-        appearance: 'stealth',
-        className:
-          'jp-ToolbarButtonComponent jp-PluginPlayground-shareDropdownButton',
-        title: tooltip,
-        'aria-label': 'Share',
-        'aria-haspopup': 'menu',
-        'aria-pressed': isCopied,
-        onClick: (event: React.MouseEvent<HTMLElement>) => {
-          this._onOpenMenu(event.currentTarget);
-        }
-      },
-      React.createElement(leadingIcon.react, {
-        tag: 'span',
-        elementSize: 'normal',
-        className: 'jp-ToolbarButtonComponent-icon'
-      }),
-      React.createElement(
-        'span',
-        { className: 'jp-ToolbarButtonComponent-label' },
-        'Share'
-      ),
-      React.createElement(caretDownEmptyIcon.react, {
-        tag: 'span',
-        elementSize: 'normal',
-        className:
-          'jp-PluginPlayground-actionIcon jp-PluginPlayground-shareDropdownCaretIcon'
-      })
-    );
-  }
-
-  render(): JSX.Element {
-    return React.createElement(
-      UseSignal<CommandRegistry, CommandRegistry.ICommandChangedArgs>,
-      {
-        signal: this._commandChanged,
-        shouldUpdate: (_sender, change) =>
-          change.type === 'many-changed' ||
-          change.id === CommandIDs.shareViaLink,
-        children: () => this._renderButton()
-      }
-    );
-  }
 }
 
 const PLUGIN_TEMPLATE = `import {
@@ -347,34 +242,6 @@ const EXPORT_AS_EXTENSION_ARGS_SCHEMA = {
   }
 };
 
-const SHARE_VIA_LINK_ARGS_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    path: {
-      type: 'string',
-      description:
-        'Optional contents path of the file or folder to share. When omitted, the active editor file is used.'
-    },
-    useBrowserSelection: {
-      type: 'boolean',
-      description:
-        'When true, resolve the share path from the current file browser selection.'
-    },
-    useContextTarget: {
-      type: 'boolean',
-      description:
-        'When true, resolve the share path from the current context-menu target before using browser selection.'
-    },
-    shareVariant: {
-      type: 'string',
-      enum: ['file', 'package'],
-      description:
-        'Internal UI variant used by the Share toolbar dropdown label.'
-    }
-  }
-};
-
 const CREATE_PLUGIN_ARGS_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -404,12 +271,9 @@ const CREATE_PLUGIN_FROM_NOTEBOOK_TREE_ARGS_SCHEMA = {
   }
 };
 const LOAD_ON_SAVE_TOGGLE_TOOLBAR_ITEM = 'plugin-playground-load-on-save';
-const SHARE_LINK_TOOLBAR_ITEM = 'share-extension-link';
 const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
 const LOAD_ON_SAVE_SETTING = 'loadOnSave';
 const COMMAND_INSERT_DEFAULT_MODE_SETTING = 'commandInsertDefaultMode';
-const SHARE_FOLDER_SELECTION_DIALOG_MODE_SETTING =
-  'shareFolderSelectionDialogMode';
 const LOAD_ON_SAVE_ENABLED_DESCRIPTION =
   'Toggle auto-loading this file as an extension on save';
 const LOAD_ON_SAVE_DISABLED_DESCRIPTION =
@@ -421,8 +285,6 @@ const JUPYTERLITE_AI_INSTALL_HINT =
 const JUPYTERLITE_AI_PROVIDER_SETUP_HINT =
   'JupyterLite AI provider is not configured. Configure a provider and try again.';
 const DEFAULT_COMMAND_INSERT_MODE: CommandInsertMode = 'insert';
-const DEFAULT_SHARE_FOLDER_SELECTION_DIALOG_MODE: ShareFolderSelectionDialogMode =
-  'always';
 const ARCHIVE_EXCLUDED_DIRECTORIES = new Set([
   '.git',
   '.ipynb_checkpoints',
@@ -430,9 +292,6 @@ const ARCHIVE_EXCLUDED_DIRECTORIES = new Set([
   'node_modules'
 ]);
 const ARCHIVE_FILE_READ_CONCURRENCY = 8;
-const SHARE_URL_WARN_LENGTH = 1800;
-const SHARE_URL_MAX_LENGTH = 8000;
-const SHARED_LINKS_ROOT = 'plugin-playground-shared';
 const URL_LOADED_EDITOR_HINT_CLASS = 'jp-PluginPlayground-urlLoadedEditorHint';
 const URL_LOADED_EDITOR_HINT_TITLE = 'Load as Extension';
 const URL_LOADED_EDITOR_HINT_MESSAGE =
@@ -472,6 +331,20 @@ class PluginPlayground {
     protected logConsoleTracker: ILogConsoleTracker | null
   ) {
     registerCoreKnownModules();
+
+    this._shareViaLinkController = new ShareViaLinkController({
+      app: this.app,
+      editorTracker: this.editorTracker,
+      fileBrowserFactory: this.fileBrowserFactory,
+      settings: this.settings,
+      commandId: CommandIDs.shareViaLink,
+      readSourceFileForExport: this._readSourceFileForExport.bind(this),
+      collectArchiveFilePaths: this._collectArchiveFilePaths.bind(this),
+      mapWithConcurrency: this._mapWithConcurrency.bind(this),
+      relativePath: this._relativePath.bind(this),
+      joinPath: this._joinPath.bind(this),
+      onShowSharedFileToolbarCue: this._showSharedFileToolbarCue.bind(this)
+    });
 
     loadKnownModule('@jupyter-widgets/base').then((module: any) => {
       // Define the widgets base module for RequireJS (left for compatibility only)
@@ -550,133 +423,30 @@ class PluginPlayground {
     });
 
     app.commands.addCommand(CommandIDs.shareViaLink, {
-      label: args => {
-        if (args.shareVariant === 'file') {
-          return 'Share Single File (Default)';
-        }
-        if (args.shareVariant === 'package') {
-          return 'Share Package';
-        }
-        return 'Copy Shareable Plugin Link';
-      },
-      caption: args => {
-        if (args.shareVariant === 'file') {
-          return 'Create a URL for the current file and copy it';
-        }
-        if (args.shareVariant === 'package') {
-          return 'Create a URL for the current package folder and copy it';
-        }
-        return 'Create a URL for the active plugin file or selected folder, then copy it';
-      },
+      label: this._shareViaLinkController.commandLabel.bind(
+        this._shareViaLinkController
+      ),
+      caption: this._shareViaLinkController.commandCaption.bind(
+        this._shareViaLinkController
+      ),
       describedBy: { args: SHARE_VIA_LINK_ARGS_SCHEMA },
-      icon: args => {
-        if (args.shareVariant === 'file') {
-          return fileIcon;
-        }
-        if (args.shareVariant === 'package') {
-          return folderIcon;
-        }
-        return this._copiedCommandId === CommandIDs.shareViaLink
-          ? checkIcon
-          : shareIcon;
-      },
-      isEnabled: args => {
-        if (args.shareVariant === 'package') {
-          return (
-            typeof args.path === 'string' &&
-            ContentUtils.normalizeContentsPath(args.path).length > 0
-          );
-        }
-        return true;
-      },
-      execute: async args => {
-        const requestedPath =
-          typeof args.path === 'string' ? args.path : undefined;
-        const useBrowserSelection = args.useBrowserSelection === true;
-        const useContextTarget = args.useContextTarget === true;
-        if (useBrowserSelection && !requestedPath) {
-          if (useContextTarget) {
-            const contextTarget = this.app.contextMenuHitTest(node =>
-              node.classList.contains('jp-DirListing-item')
-            );
-            const contextTargetName = contextTarget?.querySelector(
-              '.jp-DirListing-itemText'
-            )?.textContent;
-            if (
-              typeof contextTargetName === 'string' &&
-              contextTargetName.length > 0 &&
-              contextTargetName !== '..'
-            ) {
-              const browserDirectory = ContentUtils.normalizeContentsPath(
-                this.fileBrowserFactory?.tracker.currentWidget?.model.path ?? ''
-              );
-              const contextTargetPath = ContentUtils.normalizeContentsPath(
-                browserDirectory
-                  ? PathExt.join(browserDirectory, contextTargetName)
-                  : contextTargetName
-              );
-              if (contextTargetPath) {
-                return this._shareViaLink(contextTargetPath);
-              }
-            }
-            const message =
-              'Could not resolve the context-menu target. Right-click a single file or folder and try again.';
-            Notification.warning(message, {
-              autoClose: 5000
-            });
-            return {
-              ok: false,
-              link: null,
-              sourcePath: null,
-              urlLength: 0,
-              message
-            };
-          }
-
-          const selectedItems: Contents.IModel[] = [];
-          const selectedItemsIterator =
-            this.fileBrowserFactory?.tracker.currentWidget?.selectedItems();
-          if (selectedItemsIterator) {
-            for (
-              let result = selectedItemsIterator.next();
-              !result.done;
-              result = selectedItemsIterator.next()
-            ) {
-              const item = result.value;
-              if (item.type === 'file' || item.type === 'directory') {
-                selectedItems.push(item);
-              }
-            }
-          }
-          if (selectedItems.length === 1) {
-            return this._shareViaLink(selectedItems[0].path);
-          }
-          const message =
-            selectedItems.length === 0
-              ? 'No file or folder is selected in the file browser.'
-              : 'Select a single file or folder in the file browser to share.';
-          Notification.warning(message, {
-            autoClose: 5000
-          });
-          return {
-            ok: false,
-            link: null,
-            sourcePath: null,
-            urlLength: 0,
-            message
-          };
-        }
-        if (requestedPath) {
-          return this.shareViaLink(requestedPath);
-        }
-        return this.shareViaLink();
-      }
+      icon: this._shareViaLinkController.commandIcon.bind(
+        this._shareViaLinkController
+      ),
+      isEnabled: this._shareViaLinkController.isCommandEnabled.bind(
+        this._shareViaLinkController
+      ),
+      execute: this._shareViaLinkController.executeCommand.bind(
+        this._shareViaLinkController
+      )
     });
 
     toolbarWidgetRegistry.addFactory<IDocumentWidget<FileEditor>>(
       'Editor',
       SHARE_LINK_TOOLBAR_ITEM,
-      widget => this._createShareLinkDropdownWidget(widget)
+      this._shareViaLinkController.createToolbarWidget.bind(
+        this._shareViaLinkController
+      )
     );
 
     toolbarWidgetRegistry.addFactory<IDocumentWidget<FileEditor>>(
@@ -965,7 +735,7 @@ class PluginPlayground {
       for (const t of plugins) {
         await this._loadPlugin(t, null);
       }
-      await this._loadSharedPluginFromUrl();
+      await this._shareViaLinkController.loadSharedPluginFromUrl();
 
       settings.changed.connect(updatedSettings => {
         this.settings = updatedSettings;
@@ -1092,77 +862,6 @@ class PluginPlayground {
     widget.disposed.connect(dispose);
 
     return toggleWidget;
-  }
-
-  private _createShareLinkDropdownWidget(
-    widget: IDocumentWidget<FileEditor>
-  ): Widget {
-    const shareButton = new ShareDropdownToolbarButton(
-      this.app.commands.commandChanged,
-      () => this._copiedCommandId === CommandIDs.shareViaLink,
-      anchor => {
-        void this._openShareLinkDropdown(widget, anchor);
-      }
-    );
-    return shareButton;
-  }
-
-  private async _openShareLinkDropdown(
-    widget: IDocumentWidget<FileEditor>,
-    anchor: HTMLElement | null
-  ): Promise<void> {
-    if (!anchor) {
-      return;
-    }
-
-    const filePath = ContentUtils.normalizeContentsPath(widget.context.path);
-    if (!filePath) {
-      return;
-    }
-
-    const sourceDirectory = ContentUtils.normalizeContentsPath(
-      this._dirname(filePath)
-    );
-    const parentDirectory = ContentUtils.normalizeContentsPath(
-      this._dirname(sourceDirectory)
-    );
-    const packageDirectoryCandidates = [sourceDirectory];
-    if (
-      parentDirectory &&
-      parentDirectory !== sourceDirectory &&
-      !packageDirectoryCandidates.includes(parentDirectory)
-    ) {
-      packageDirectoryCandidates.push(parentDirectory);
-    }
-    let packagePath = '';
-    for (const directoryPath of packageDirectoryCandidates) {
-      const packageJsonPath = this._joinPath(directoryPath, 'package.json');
-      const packageJson = await ContentUtils.getFileModel(
-        this.app.serviceManager,
-        packageJsonPath
-      );
-      if (packageJson) {
-        packagePath = directoryPath;
-        break;
-      }
-    }
-
-    const menu = new Menu({ commands: this.app.commands });
-    menu.addItem({
-      command: CommandIDs.shareViaLink,
-      args: { path: filePath, shareVariant: 'file' }
-    });
-    menu.addItem({
-      command: CommandIDs.shareViaLink,
-      args: {
-        path: packagePath,
-        shareVariant: 'package'
-      }
-    });
-    const anchorRect = anchor.getBoundingClientRect();
-    menu.open(anchorRect.right, anchorRect.bottom + 2, {
-      horizontalAlignment: 'right'
-    });
   }
 
   private _showSharedFileToolbarCue(
@@ -1362,596 +1061,6 @@ class PluginPlayground {
         fileCount: 0,
         message
       };
-    }
-  }
-
-  /**
-   * Build a share URL for a file or folder and copy it to clipboard.
-   */
-  public async shareViaLink(path?: string): Promise<IPluginShareResult> {
-    const requestedPath =
-      typeof path === 'string' ? ContentUtils.normalizeContentsPath(path) : '';
-    const currentWidget = this.editorTracker.currentWidget;
-    const currentPath = currentWidget
-      ? ContentUtils.normalizeContentsPath(currentWidget.context.path)
-      : '';
-    const activeSource =
-      currentWidget && currentPath && currentPath === requestedPath
-        ? currentWidget.context.model.toString()
-        : undefined;
-
-    if (requestedPath) {
-      return this._shareViaLink(requestedPath, activeSource);
-    }
-
-    if (!currentWidget || currentWidget !== this.app.shell.currentWidget) {
-      return {
-        ok: false,
-        link: null,
-        sourcePath: null,
-        urlLength: 0,
-        message:
-          'No active editor is available. Pass a path argument to share a specific file or folder.'
-      };
-    }
-
-    return this._shareViaLink(
-      ContentUtils.normalizeContentsPath(currentWidget.context.path),
-      currentWidget.context.model.toString()
-    );
-  }
-
-  /**
-   * Build a share URL for a file or folder and copy it to clipboard.
-   */
-  private async _shareViaLink(
-    sourcePath: string,
-    activeSource?: string
-  ): Promise<IPluginShareResult> {
-    const normalizedSourcePath = ContentUtils.normalizeContentsPath(sourcePath);
-    let sharedSourcePath = normalizedSourcePath;
-    if (!normalizedSourcePath) {
-      return {
-        ok: false,
-        link: null,
-        sourcePath: null,
-        urlLength: 0,
-        message: 'Share path is empty.'
-      };
-    }
-
-    try {
-      const directory = await ContentUtils.getDirectoryModel(
-        this.app.serviceManager,
-        normalizedSourcePath
-      );
-
-      if (directory) {
-        sharedSourcePath = ContentUtils.normalizeContentsPath(directory.path);
-        const folderShareData = await this._collectShareableFolderFiles(
-          sharedSourcePath
-        );
-        const files = folderShareData.files;
-        if (files.length === 0) {
-          throw new Error(
-            `No text-readable files were found in "${sharedSourcePath}".`
-          );
-        }
-        const defaultIncludedFiles = files.filter(file => !file.autoExcluded);
-
-        const shouldOpenSelectionDialogByMode =
-          this._shareFolderSelectionDialogMode === 'always' ||
-          (this._shareFolderSelectionDialogMode === 'auto-excluded-or-limit' &&
-            folderShareData.hasAutoExcludedFiles);
-
-        if (shouldOpenSelectionDialogByMode) {
-          return this._openFolderShareSelectionDialog(
-            sharedSourcePath,
-            files,
-            this._shareFolderSelectionDialogMode === 'always' &&
-              !folderShareData.hasAutoExcludedFiles
-          );
-        }
-
-        if (defaultIncludedFiles.length === 0) {
-          return this._openFolderShareSelectionDialog(
-            sharedSourcePath,
-            files,
-            false
-          );
-        }
-
-        const payload = buildFolderSharePayload(
-          sharedSourcePath,
-          defaultIncludedFiles
-        );
-        const linkResult = await this._createShareLink(payload);
-        if (!linkResult.ok) {
-          this._notifyFolderShareTooLarge(
-            linkResult.message,
-            sharedSourcePath,
-            files
-          );
-          return {
-            ok: false,
-            link: null,
-            sourcePath: sharedSourcePath,
-            urlLength: linkResult.urlLength,
-            message: linkResult.message
-          };
-        }
-        return this._finalizeShareLinkCopy(linkResult.link, sharedSourcePath);
-      }
-      const source =
-        activeSource ?? (await this._readSourceFileForExport(sharedSourcePath));
-      const fileName = this._basename(sharedSourcePath) || 'plugin.ts';
-      const payload: ShareLink.ISharedPluginPayload = {
-        version: 1,
-        kind: 'file',
-        fileName,
-        source
-      };
-      const linkResult = await this._createShareLink(payload);
-      if (!linkResult.ok) {
-        const message =
-          `${linkResult.message} ` +
-          `Share a smaller file or use "Export Plugin Folder As Extension".`;
-        Notification.error(message, {
-          autoClose: false
-        });
-        return {
-          ok: false,
-          link: null,
-          sourcePath: sharedSourcePath,
-          urlLength: linkResult.urlLength,
-          message
-        };
-      }
-
-      return this._finalizeShareLinkCopy(linkResult.link, sharedSourcePath);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      Notification.error(`Plugin share link creation failed: ${message}`, {
-        autoClose: false
-      });
-      return {
-        ok: false,
-        link: null,
-        sourcePath: sharedSourcePath,
-        urlLength: 0,
-        message
-      };
-    }
-  }
-
-  private async _collectShareableFolderFiles(folderPath: string): Promise<{
-    files: IFolderShareCandidateFile[];
-    hasAutoExcludedFiles: boolean;
-  }> {
-    const filePaths = await this._collectArchiveFilePaths(folderPath);
-    const textEncoder = new TextEncoder();
-    const candidates = await this._mapWithConcurrency(
-      filePaths,
-      ARCHIVE_FILE_READ_CONCURRENCY,
-      async (filePath): Promise<IFolderShareCandidateFile | null> => {
-        const relativePath = this._relativePath(folderPath, filePath);
-        const autoExcluded = shouldSkipFolderShareEntry(relativePath);
-
-        const fileModel = await ContentUtils.getFileModel(
-          this.app.serviceManager,
-          filePath
-        );
-        if (!fileModel || fileModel.format === 'base64') {
-          return null;
-        }
-
-        const source = ContentUtils.fileModelToText(fileModel);
-        if (source === null) {
-          return null;
-        }
-
-        return {
-          relativePath,
-          source,
-          sizeBytes: textEncoder.encode(source).length,
-          autoExcluded
-        };
-      }
-    );
-
-    const files = candidates.filter(
-      (candidate): candidate is IFolderShareCandidateFile => candidate !== null
-    );
-
-    return {
-      files,
-      hasAutoExcludedFiles: files.some(file => file.autoExcluded)
-    };
-  }
-
-  private _notifyFolderShareTooLarge(
-    message: string,
-    folderPath: string,
-    files: ReadonlyArray<IFolderShareCandidateFile>
-  ): void {
-    Notification.error(`${message} Select specific files to continue.`, {
-      autoClose: false,
-      actions: [
-        {
-          label: 'Select files',
-          displayType: 'accent',
-          callback: () => {
-            void this._openFolderShareSelectionDialog(folderPath, files, false);
-          }
-        }
-      ]
-    });
-  }
-
-  private async _openFolderShareSelectionDialog(
-    folderPath: string,
-    files: ReadonlyArray<IFolderShareCandidateFile>,
-    includeDisableDialogCheckbox: boolean
-  ): Promise<IPluginShareResult> {
-    try {
-      const selectionResult = await selectFolderSharePaths(
-        files,
-        includeDisableDialogCheckbox
-      );
-      if (selectionResult === null) {
-        return {
-          ok: false,
-          link: null,
-          sourcePath: folderPath,
-          urlLength: 0,
-          message: 'Folder share selection was cancelled.'
-        };
-      }
-
-      const selectedPaths = selectionResult.selectedPaths;
-      if (selectedPaths.length === 0) {
-        Notification.warning('Select at least one file to share.', {
-          autoClose: 5000
-        });
-        return {
-          ok: false,
-          link: null,
-          sourcePath: folderPath,
-          urlLength: 0,
-          message: 'Select at least one file to share.'
-        };
-      }
-
-      const selectedPathSet = new Set(selectedPaths);
-      const selectedFiles = files.filter(file =>
-        selectedPathSet.has(file.relativePath)
-      );
-      const payload = buildFolderSharePayload(folderPath, selectedFiles);
-
-      const linkResult = await this._createShareLink(payload);
-      if (!linkResult.ok) {
-        if (linkResult.reason === 'length') {
-          const message =
-            `The selected files still produce a ${linkResult.urlLength}-character link ` +
-            `(limit: ${SHARE_URL_MAX_LENGTH}). Select fewer files.`;
-          Notification.error(message, { autoClose: false });
-          return {
-            ok: false,
-            link: null,
-            sourcePath: folderPath,
-            urlLength: linkResult.urlLength,
-            message
-          };
-        }
-        Notification.error(`${linkResult.message} Select fewer files.`, {
-          autoClose: false
-        });
-        return {
-          ok: false,
-          link: null,
-          sourcePath: folderPath,
-          urlLength: linkResult.urlLength,
-          message: `${linkResult.message} Select fewer files.`
-        };
-      }
-
-      const result = await this._finalizeShareLinkCopy(
-        linkResult.link,
-        folderPath
-      );
-      const allFilesSelected = selectedPaths.length === files.length;
-      if (
-        includeDisableDialogCheckbox &&
-        allFilesSelected &&
-        selectionResult.disableDialogIfAllFilesCanBeIncluded
-      ) {
-        try {
-          await this.settings.set(
-            SHARE_FOLDER_SELECTION_DIALOG_MODE_SETTING,
-            'auto-excluded-or-limit'
-          );
-          this._shareFolderSelectionDialogMode = 'auto-excluded-or-limit';
-        } catch (error) {
-          console.warn(
-            `Failed to persist "${SHARE_FOLDER_SELECTION_DIALOG_MODE_SETTING}" setting.`,
-            error
-          );
-        }
-      }
-
-      return result;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      Notification.error(`Plugin share link creation failed: ${message}`, {
-        autoClose: false
-      });
-      return {
-        ok: false,
-        link: null,
-        sourcePath: folderPath,
-        urlLength: 0,
-        message
-      };
-    }
-  }
-
-  private async _createShareLink(
-    payload: ShareLink.ISharedPluginPayload
-  ): Promise<IShareLinkCreationResult> {
-    try {
-      const encodedPayload = await ShareLink.encodeSharedPluginPayload(payload);
-      const link = ShareLink.createSharedPluginUrl(encodedPayload);
-      const urlLength = link.length;
-      if (urlLength > SHARE_URL_MAX_LENGTH) {
-        return {
-          ok: false,
-          reason: 'length',
-          urlLength,
-          message:
-            `The generated link is ${urlLength} characters long, which exceeds the configured limit ` +
-            `(${SHARE_URL_MAX_LENGTH}).`
-        };
-      }
-      return {
-        ok: true,
-        link,
-        urlLength
-      };
-    } catch (error) {
-      if (ShareLink.isSharedPayloadTooLargeError(error)) {
-        const message = error instanceof Error ? error.message : String(error);
-        return {
-          ok: false,
-          reason: 'payload',
-          urlLength: 0,
-          message
-        };
-      }
-      throw error;
-    }
-  }
-
-  private async _finalizeShareLinkCopy(
-    link: string,
-    sourcePath: string
-  ): Promise<IPluginShareResult> {
-    const urlLength = link.length;
-    await ContentUtils.copyValueToClipboard(link);
-    ContentUtils.setCopiedStateWithTimeout(
-      CommandIDs.shareViaLink,
-      this._copiedCommandTimer,
-      timer => {
-        this._copiedCommandTimer = timer;
-      },
-      copiedCommandId => {
-        this._copiedCommandId = copiedCommandId;
-      },
-      () => {
-        this.app.commands.notifyCommandChanged(CommandIDs.shareViaLink);
-      },
-      1400
-    );
-    const details = `Copied a share link for "${sourcePath}" (${urlLength} characters).`;
-
-    if (urlLength > SHARE_URL_WARN_LENGTH) {
-      Notification.warning(
-        `${details} Some browsers may reject very long URLs.`,
-        {
-          autoClose: 7000
-        }
-      );
-    } else {
-      Notification.success(details, {
-        autoClose: 5000
-      });
-    }
-    return {
-      ok: true,
-      link,
-      sourcePath,
-      urlLength
-    };
-  }
-
-  /**
-   * Restore shared file(s) from URL token into a workspace folder and open one.
-   * Files are not executed automatically.
-   */
-  private async _loadSharedPluginFromUrl(): Promise<void> {
-    const sharedToken = ShareLink.getSharedPluginTokenFromLocation();
-    if (!sharedToken) {
-      return;
-    }
-    // Remove the token immediately so a refresh/back navigation does not
-    // repeatedly re-import the same shared payload.
-    ShareLink.clearSharedPluginTokenFromLocation();
-
-    try {
-      const payload = await ShareLink.decodeSharedPluginPayload(sharedToken);
-      const sharedEntries =
-        payload.kind === 'folder'
-          ? Object.entries(payload.files).map(([relativePath, source]) => ({
-              relativePath,
-              source
-            }))
-          : [
-              {
-                relativePath: this._basename(payload.fileName) || 'plugin.ts',
-                source: payload.source
-              }
-            ];
-      if (sharedEntries.length === 0) {
-        throw new Error('Shared payload does not include any files.');
-      }
-
-      const rootName = (() => {
-        if (payload.kind === 'folder') {
-          return this._basename(payload.rootName) || 'shared-plugin';
-        }
-        const fileName = this._basename(payload.fileName) || 'plugin.ts';
-        const extension = PathExt.extname(fileName);
-        return extension ? fileName.slice(0, -extension.length) : fileName;
-      })();
-      const baseRootFolder = ShareLink.sharedPluginFolderName(
-        rootName,
-        sharedToken
-      );
-      const maxVariants = 100;
-      let rootPath = '';
-
-      for (let variant = 1; variant <= maxVariants; variant++) {
-        const folderName =
-          variant === 1 ? baseRootFolder : `${baseRootFolder}-${variant}`;
-        const candidateRootPath = ContentUtils.normalizeContentsPath(
-          this._joinPath(SHARED_LINKS_ROOT, folderName)
-        );
-        await ContentUtils.ensureContentsDirectory(
-          this.app.serviceManager,
-          candidateRootPath
-        );
-
-        let isCompatible = true;
-        for (const entry of sharedEntries) {
-          const candidatePath = ContentUtils.normalizeContentsPath(
-            this._joinPath(candidateRootPath, entry.relativePath)
-          );
-          const existingFile = await ContentUtils.getFileModel(
-            this.app.serviceManager,
-            candidatePath
-          );
-          if (!existingFile) {
-            continue;
-          }
-          const existingSource = ContentUtils.fileModelToText(existingFile);
-          if (existingSource !== entry.source) {
-            isCompatible = false;
-            break;
-          }
-        }
-        if (isCompatible) {
-          rootPath = candidateRootPath;
-          break;
-        }
-      }
-
-      if (!rootPath) {
-        throw new Error(
-          `Could not find a writable location for shared files under "${SHARED_LINKS_ROOT}/${baseRootFolder}".`
-        );
-      }
-
-      const restoredPaths: string[] = [];
-      for (const entry of sharedEntries) {
-        const entryPath = ContentUtils.normalizeContentsPath(
-          this._joinPath(rootPath, entry.relativePath)
-        );
-        const entryDirectory = this._dirname(entryPath);
-        if (entryDirectory) {
-          await ContentUtils.ensureContentsDirectory(
-            this.app.serviceManager,
-            entryDirectory
-          );
-        }
-
-        const existingFile = await ContentUtils.getFileModel(
-          this.app.serviceManager,
-          entryPath
-        );
-        const existingSource = ContentUtils.fileModelToText(existingFile);
-        if (existingSource !== entry.source) {
-          const saved = await this.app.serviceManager.contents.save(entryPath, {
-            type: 'file',
-            format: 'text',
-            content: entry.source
-          });
-          if (!saved || saved.type !== 'file') {
-            throw new Error(`Failed to save shared file at "${entryPath}".`);
-          }
-          const normalizedSavedPath = ContentUtils.normalizeContentsPath(
-            saved.path
-          );
-          if (normalizedSavedPath !== entryPath) {
-            throw new Error(
-              `Shared file was saved to unexpected path "${normalizedSavedPath}" instead of "${entryPath}".`
-            );
-          }
-        }
-
-        let restoredFile = await ContentUtils.getFileModel(
-          this.app.serviceManager,
-          entryPath
-        );
-        for (let attempt = 0; !restoredFile && attempt < 8; attempt++) {
-          await new Promise<void>(resolve => {
-            window.setTimeout(resolve, 75);
-          });
-          restoredFile = await ContentUtils.getFileModel(
-            this.app.serviceManager,
-            entryPath
-          );
-        }
-        if (!restoredFile) {
-          throw new Error(
-            `Shared file "${entryPath}" could not be found after restore.`
-          );
-        }
-        restoredPaths.push(
-          ContentUtils.normalizeContentsPath(restoredFile.path)
-        );
-      }
-
-      const openedPath = restoredPaths[0];
-      await this.app.commands.execute('docmanager:open', {
-        path: openedPath,
-        factory: 'Editor'
-      });
-      let restoredWidget: IDocumentWidget<FileEditor> | null = null;
-      this.editorTracker.forEach(candidate => {
-        if (
-          !restoredWidget &&
-          ContentUtils.normalizeContentsPath(candidate.context.path) ===
-            openedPath
-        ) {
-          restoredWidget = candidate;
-        }
-      });
-      if (restoredWidget) {
-        this._showSharedFileToolbarCue(restoredWidget, openedPath);
-      }
-      const fileCount = restoredPaths.length;
-      const openedLocation = fileCount === 1 ? openedPath : rootPath;
-      Notification.success(
-        `Opened shared plugin from URL at "${openedLocation}" ` +
-          `(${fileCount} file${fileCount === 1 ? '' : 's'}).`,
-        {
-          autoClose: 6000
-        }
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      Notification.error(`Failed to load shared plugin from URL: ${message}`, {
-        autoClose: false
-      });
     }
   }
 
@@ -2226,22 +1335,6 @@ class PluginPlayground {
     return normalizedRelativePath;
   }
 
-  private _dirname(path: string): string {
-    const normalizedPath = ContentUtils.normalizeContentsPath(path).replace(
-      /\/+$/g,
-      ''
-    );
-    return PathExt.dirname(normalizedPath);
-  }
-
-  private _basename(path: string): string {
-    const normalizedPath = ContentUtils.normalizeContentsPath(path).replace(
-      /\/+$/g,
-      ''
-    );
-    return PathExt.basename(normalizedPath);
-  }
-
   private async _findExtensionRoot(
     startDirectory: string
   ): Promise<string | null> {
@@ -2315,16 +1408,8 @@ class PluginPlayground {
     );
     this._commandInsertMode =
       rawCommandInsertMode === 'ai' ? 'ai' : DEFAULT_COMMAND_INSERT_MODE;
-
-    const rawShareFolderSelectionDialogMode = this._stringValue(
-      composite[SHARE_FOLDER_SELECTION_DIALOG_MODE_SETTING]
-    );
-    this._shareFolderSelectionDialogMode =
-      rawShareFolderSelectionDialogMode === 'always' ||
-      rawShareFolderSelectionDialogMode === 'auto-excluded-or-limit' ||
-      rawShareFolderSelectionDialogMode === 'limit-only'
-        ? rawShareFolderSelectionDialogMode
-        : DEFAULT_SHARE_FOLDER_SELECTION_DIALOG_MODE;
+    this._shareViaLinkController.setSettings(settings);
+    this._shareViaLinkController.updateSettingsComposite(composite);
   }
 
   private _getTokenRecords(): ReadonlyArray<TokenSidebar.ITokenRecord> {
@@ -3646,6 +2731,7 @@ class PluginPlayground {
     Promise<IPluginLoadResult>
   >();
   private readonly _exportToolbar = new ExportToolbarController();
+  private readonly _shareViaLinkController: ShareViaLinkController;
   private readonly _loadOnSaveByFile = new Set<string>();
   private readonly _loadOnSaveToggleRefreshers = new Set<() => void>();
   private _sharedFileCueWidgetId: string | null = null;
@@ -3658,10 +2744,6 @@ class PluginPlayground {
   >();
   private readonly _pluginLocalStylePaths = new Map<string, Set<string>>();
   private _commandInsertMode: CommandInsertMode = DEFAULT_COMMAND_INSERT_MODE;
-  private _shareFolderSelectionDialogMode: ShareFolderSelectionDialogMode =
-    DEFAULT_SHARE_FOLDER_SELECTION_DIALOG_MODE;
-  private _copiedCommandId: string | null = null;
-  private _copiedCommandTimer: number | null = null;
   private _playgroundSidebar: SidePanel | null = null;
   private _tokenSidebar: TokenSidebar | null = null;
   private _documentationWidgetId = 0;
@@ -3760,7 +2842,10 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
         if (!playground) {
           throw new Error('Plugin Playground is not ready yet. Try again.');
         }
-        return playground.shareViaLink(path);
+        return (await app.commands.execute(
+          CommandIDs.shareViaLink,
+          path ? { path } : {}
+        )) as IPluginShareResult;
       }
     };
 

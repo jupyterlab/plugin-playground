@@ -228,10 +228,12 @@ await app.commands.execute('plugin-playground:share-via-link', {
 `plugin-playground:share-via-link` shares a file or folder. If no `path` is
 provided, it shares the active file. The file/folder right-click context-menu
 entries use the selected browser item path automatically.
-In the editor toolbar, the Share action is a dropdown with `Share Single File
-(Default)` and `Share Package`; package sharing is enabled when a
+In the editor toolbar, the Share action is a dropdown with `Share Single File`
+and `Share Package`; package sharing is enabled when a
 `package.json` is found in the current file directory or its parent directory.
-Folder sharing skips non-text/media files (for example images and videos).
+Folder sharing excludes common non-exportable files by default (for example
+media assets, README/docs files, and test/spec files), but you can include them
+manually from the selection dialog.
 By default, folder sharing always opens a file-selection dialog so you can
 exclude files before creating the link. You can control this with
 `shareFolderSelectionDialogMode` (`always`, `auto-excluded-or-limit`, or

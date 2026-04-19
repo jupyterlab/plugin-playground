@@ -92,6 +92,8 @@ function normalizeSharedFolderFiles(files: unknown): Record<string, string> {
 
 export namespace ShareLink {
   export const SHARE_URL_PARAM = 'plugin';
+  export const SHARE_URL_WARN_LENGTH = 1800;
+  export const SHARE_URL_MAX_LENGTH = 8000;
 
   /**
    * Shared payload for a single plugin file.
@@ -113,12 +115,60 @@ export namespace ShareLink {
     files: Record<string, string>;
   }
 
+  export interface ISharedEntry {
+    relativePath: string;
+    source: string;
+  }
+
   /**
    * Supported shared payload shapes (single file or folder map).
    */
   export type ISharedPluginPayload =
     | ISharedPluginFilePayload
     | ISharedPluginFolderPayload;
+
+  export type ICreateSharedPluginLinkResult =
+    | {
+        ok: true;
+        link: string;
+        urlLength: number;
+      }
+    | {
+        ok: false;
+        reason: 'length' | 'payload';
+        urlLength: number;
+        message: string;
+      };
+
+  export function payloadRootName(payload: ISharedPluginPayload): string {
+    if (payload.kind === 'folder') {
+      return PathExt.basename(payload.rootName) || 'shared-plugin';
+    }
+    const fileName = PathExt.basename(payload.fileName) || 'plugin.ts';
+    const extension = PathExt.extname(fileName);
+    return extension ? fileName.slice(0, -extension.length) : fileName;
+  }
+
+  export function payloadEntries(
+    payload: ISharedPluginPayload
+  ): ISharedEntry[] {
+    const entries: ISharedEntry[] =
+      payload.kind === 'folder'
+        ? Object.entries(payload.files).map(([relativePath, source]) => ({
+            relativePath,
+            source
+          }))
+        : [
+            {
+              relativePath: PathExt.basename(payload.fileName) || 'plugin.ts',
+              source: payload.source
+            }
+          ];
+    entries.sort((left, right) =>
+      left.relativePath.localeCompare(right.relativePath)
+    );
+    return entries;
+  }
 
   export async function encodeSharedPluginPayload(
     payload: ISharedPluginPayload
@@ -178,6 +228,43 @@ export namespace ShareLink {
     }
 
     return `${SHARE_TOKEN_VERSION}.${codec}.${bytesToBase64Url(encodedBytes)}`;
+  }
+
+  export async function createSharedPluginLink(
+    payload: ISharedPluginPayload,
+    maxUrlLength = SHARE_URL_MAX_LENGTH
+  ): Promise<ICreateSharedPluginLinkResult> {
+    try {
+      const encodedPayload = await encodeSharedPluginPayload(payload);
+      const link = createSharedPluginUrl(encodedPayload);
+      const urlLength = link.length;
+      if (urlLength > maxUrlLength) {
+        return {
+          ok: false,
+          reason: 'length',
+          urlLength,
+          message:
+            `The generated link is ${urlLength} characters long, which exceeds the configured limit ` +
+            `(${maxUrlLength}).`
+        };
+      }
+      return {
+        ok: true,
+        link,
+        urlLength
+      };
+    } catch (error) {
+      if (isSharedPayloadTooLargeError(error)) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          ok: false,
+          reason: 'payload',
+          urlLength: 0,
+          message
+        };
+      }
+      throw error;
+    }
   }
 
   export async function decodeSharedPluginPayload(

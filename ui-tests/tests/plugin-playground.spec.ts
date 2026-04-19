@@ -2195,6 +2195,87 @@ test('shows auto-excluded files as optional in always mode', async ({
   expect(result.link).toContain('plugin=');
 });
 
+test.describe('share capacity meter', () => {
+  test.use({
+    mockSettings: {
+      ...galata.DEFAULT_SETTINGS,
+      [PLAYGROUND_PLUGIN_ID]: {
+        shareFolderSelectionDialogMode: 'always'
+      }
+    }
+  });
+
+  test('shows share capacity meter and excludes docs/test files by default', async ({
+    page,
+    tmpPath
+  }) => {
+    const projectRoot = `${tmpPath}/share-folder-capacity-meter-test`;
+    const folderPath = `${projectRoot}/src`;
+    const sourcePath = `${folderPath}/index.ts`;
+    const readmePath = `${folderPath}/README.md`;
+    const specPath = `${folderPath}/index.spec.ts`;
+
+    await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+    await page.contents.uploadContent('# test readme\n', 'text', readmePath);
+    await page.contents.uploadContent(
+      'describe("spec", () => { expect(true).toBe(true); });',
+      'text',
+      specPath
+    );
+    await page.goto();
+
+    await page.waitForCondition(() =>
+      page.evaluate((id: string) => {
+        return window.jupyterapp.commands.hasCommand(id);
+      }, SHARE_COMMAND)
+    );
+
+    const sharePromise = page.evaluate(
+      ({ id, path }: { id: string; path: string }) => {
+        return window.jupyterapp.commands.execute(id, {
+          path
+        });
+      },
+      {
+        id: SHARE_COMMAND,
+        path: folderPath
+      }
+    );
+
+    const shareSelectedFilesButton = page.getByRole('button', {
+      name: 'Share Selected Files',
+      exact: true
+    });
+    await expect(shareSelectedFilesButton).toBeVisible();
+    await expect(
+      page.locator('.jp-PluginPlayground-folderShareSelectionCapacityLabel')
+    ).toContainText(/selected/i);
+    await expect(
+      page.locator('.jp-PluginPlayground-folderShareSelectionCapacityDetails')
+    ).toContainText(/URL chars used/i);
+
+    const sourceCheckbox = page
+      .locator('label', { hasText: /^index\.ts \(/ })
+      .locator('input[type="checkbox"]');
+    await expect(sourceCheckbox).toBeChecked();
+
+    const readmeCheckbox = page
+      .locator('label', { hasText: /^README\.md \(/i })
+      .locator('input[type="checkbox"]');
+    await expect(readmeCheckbox).not.toBeChecked();
+
+    const specCheckbox = page
+      .locator('label', { hasText: /^index\.spec\.ts \(/ })
+      .locator('input[type="checkbox"]');
+    await expect(specCheckbox).not.toBeChecked();
+
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    const result = await sharePromise;
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('cancelled');
+  });
+});
+
 test.describe('share folder selection dialog modes', () => {
   test.describe('auto-excluded-or-limit', () => {
     test.use({
@@ -2427,7 +2508,7 @@ test('shows toolbar share dropdown package option availability', async ({
 
   await shareToolbarButton.click();
   const singleFileMenuItem = page.getByRole('menuitem', {
-    name: 'Share Single File (Default)',
+    name: 'Share Single File',
     exact: true
   });
   await expect(singleFileMenuItem).toBeVisible();
