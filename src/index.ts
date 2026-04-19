@@ -34,6 +34,12 @@ import {
   downloadIcon,
   extensionIcon,
   IFrame,
+  checkIcon,
+  fileUploadIcon,
+  IFrame,
+  infoIcon,
+  offlineBoltIcon,
+  shareIcon,
   SidePanel
 } from '@jupyterlab/ui-components';
 
@@ -73,7 +79,7 @@ import {
 import { ExampleSidebar, filterExampleRecords } from './example-sidebar';
 import { createFloatingUrlLoadHint } from './components/url-load-hint';
 
-import { tokenSidebarIcon } from './icons';
+import { loadOnSaveToggleIcon, runTileIcon, tokenSidebarIcon } from './icons';
 
 import {
   CommandCompletionProvider,
@@ -95,6 +101,11 @@ import {
 import { downloadArchive, IArchiveEntry } from './archive';
 import { createTemplateArchive } from './export-template';
 import {
+  hasPluginPlaygroundTourSupport,
+  launchPluginPlaygroundTour,
+  PLUGIN_PLAYGROUND_TOUR_MISSING_HINT
+} from './tour';
+import {
   DEFAULT_EXPORT_ARCHIVE_FORMAT,
   EXPORT_EXTENSION_TOOLBAR_ITEM,
   ExportToolbarController,
@@ -108,7 +119,7 @@ import {
 } from './share-via-link-controller';
 import { createPythonWheelArchive } from './wheel';
 
-import { Token } from '@lumino/coreutils';
+import { ReadonlyPartialJSONObject, Token } from '@lumino/coreutils';
 
 import { AccordionPanel, MenuBar, Widget } from '@lumino/widgets';
 
@@ -118,8 +129,15 @@ export type { IPluginShareResult } from './share-via-link-controller';
 
 namespace CommandIDs {
   export const createNewFile = 'plugin-playground:create-new-plugin';
+  export const createNewFileWithAI =
+    'plugin-playground:create-new-plugin-with-ai';
+  export const takeTour = 'plugin-playground:take-tour';
   export const createNewFileFromNotebookTree =
     'plugin-playground:create-new-plugin-from-notebook-tree';
+  export const createNewFileWithAIFromNotebookTree =
+    'plugin-playground:create-new-plugin-with-ai-from-notebook-tree';
+  export const takeTourFromNotebookTree =
+    'plugin-playground:take-tour-from-notebook-tree';
   export const loadCurrentAsExtension = 'plugin-playground:load-as-extension';
   export const exportAsExtension = 'plugin-playground:export-as-extension';
   export const shareViaLink = 'plugin-playground:share-via-link';
@@ -144,6 +162,10 @@ interface IPluginLoadResult {
   transpiled: boolean | null;
   message?: string;
   skippedAutoStartPluginIds?: string[];
+}
+
+interface IPluginLoadQueueOptions {
+  notifyResult?: boolean;
 }
 
 /**
@@ -279,11 +301,25 @@ const LOAD_ON_SAVE_ENABLED_DESCRIPTION =
 const LOAD_ON_SAVE_DISABLED_DESCRIPTION =
   'Auto load on save is available for JavaScript and TypeScript files';
 const JUPYTERLITE_AI_OPEN_CHAT_COMMAND = '@jupyterlite/ai:open-chat';
+const JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND = '@jupyterlite/ai:open-settings';
 const JUPYTERLITE_AI_CHAT_PANEL_ID = '@jupyterlite/ai:chat-panel';
 const JUPYTERLITE_AI_INSTALL_HINT =
-  'JupyterLite AI is unavailable. Install the "jupyterlite-ai" extension and reload.';
-const JUPYTERLITE_AI_PROVIDER_SETUP_HINT =
-  'JupyterLite AI provider is not configured. Configure a provider and try again.';
+  'JupyterLite AI is unavailable. Install the jupyterlite-ai extension and reload the application.';
+const JUPYTERLITE_AI_PROVIDER_SETUP_HINT = 'No AI provider configured.';
+type JupyterLiteAIErrorCode = 'install-unavailable' | 'provider-setup-required';
+type JupyterLiteAIChatOpenStatus =
+  | 'opened'
+  | 'provider-setup-required'
+  | 'install-unavailable'
+  | 'failed';
+
+class JupyterLiteAIError extends Error {
+  constructor(readonly code: JupyterLiteAIErrorCode, message: string) {
+    super(message);
+    this.name = 'JupyterLiteAIError';
+  }
+}
+
 const DEFAULT_COMMAND_INSERT_MODE: CommandInsertMode = 'insert';
 const ARCHIVE_EXCLUDED_DIRECTORIES = new Set([
   '.git',
@@ -301,6 +337,8 @@ const NOTEBOOK_FILE_BROWSER_FACTORY = 'FileBrowser';
 const NOTEBOOK_NEW_DROPDOWN_TOOLBAR_ITEM = 'new-dropdown';
 const NOTEBOOK_TREE_OPEN_SIDEBAR_KEY =
   'plugin-playground:open-sidebar-from-tree';
+const NOTEBOOK_TREE_OPEN_AI_CHAT_KEY =
+  'plugin-playground:open-ai-chat-from-tree';
 const NOTEBOOK_SHELL_PLUGIN_ID =
   '@jupyter-notebook/application-extension:shell';
 const NOTEBOOK_TREE_WIDGET_PLUGIN_ID =
@@ -356,7 +394,7 @@ class PluginPlayground {
       caption:
         'Load the active editor file as an extension for plugin development',
       describedBy: { args: null },
-      icon: extensionIcon,
+      icon: runTileIcon,
       isEnabled: () =>
         editorTracker.currentWidget !== null &&
         editorTracker.currentWidget === app.shell.currentWidget,
@@ -385,7 +423,7 @@ class PluginPlayground {
       caption:
         'Download the active plugin folder as an extension archive (.zip or .whl)',
       describedBy: { args: EXPORT_AS_EXTENSION_ARGS_SCHEMA },
-      icon: downloadIcon,
+      icon: fileUploadIcon,
       isEnabled: () => this.documentManager !== null,
       execute: async args => {
         const exportFormat: ExportArchiveFormat =
@@ -480,7 +518,9 @@ class PluginPlayground {
           );
           if (state === 'completed' && this._shouldLoadOnSave(normalizedPath)) {
             const currentText = widget.context.model.toString();
-            void this._queuePluginLoad(currentText, widget.context.path);
+            void this._queuePluginLoad(currentText, widget.context.path, {
+              notifyResult: false
+            });
           }
         };
         widget.context.saveState.connect(onSaveState);
@@ -525,10 +565,11 @@ class PluginPlayground {
     });
 
     app.commands.addCommand(CommandIDs.createNewFile, {
-      label: 'TypeScript File (Playground)',
-      caption: 'Create a new TypeScript file',
+      label: 'Start from File',
+      caption:
+        'Create a new TypeScript plugin file and open the playground sidebar',
       describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
-      icon: extensionIcon,
+      icon: tokenSidebarIcon,
       execute: async args => {
         const rawPathArg =
           typeof args.path === 'string' ? args.path.trim() : '';
@@ -593,8 +634,87 @@ class PluginPlayground {
             activeWidget.content.model.sharedModel.setSource(PLUGIN_TEMPLATE);
           });
         }
+        this._openPlaygroundSidebar();
         return activeWidget;
       }
+    });
+
+    commandPalette.addItem({
+      command: CommandIDs.createNewFile,
+      category: 'Plugin Playground',
+      args: {}
+    });
+
+    app.commands.addCommand(CommandIDs.createNewFileWithAI, {
+      label: 'Build with AI',
+      caption:
+        'Create a new TypeScript plugin file and open AI chat setup for guided building',
+      describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
+      icon: offlineBoltIcon,
+      execute: async args => {
+        const chatStatus = await this._openJupyterLiteAIChatWithSetupFallback();
+        if (chatStatus === 'provider-setup-required') {
+          return null;
+        }
+        const activeWidget = (await app.commands.execute(
+          CommandIDs.createNewFile,
+          args
+        )) as IDocumentWidget<FileEditor> | null;
+        if (chatStatus === 'opened') {
+          await this._openJupyterLiteAIChatWithSetupFallback();
+        }
+        return activeWidget;
+      }
+    });
+
+    commandPalette.addItem({
+      command: CommandIDs.createNewFileWithAI,
+      category: 'Plugin Playground',
+      args: {}
+    });
+
+    app.commands.addCommand(CommandIDs.takeTour, {
+      label: 'Take the Tour',
+      caption:
+        'Open a guided walkthrough of Plugin Playground, extension examples, and AI setup',
+      describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
+      icon: infoIcon,
+      execute: async args => {
+        if (!hasPluginPlaygroundTourSupport(app)) {
+          Notification.warning(
+            `${PLUGIN_PLAYGROUND_TOUR_MISSING_HINT} Install "jupyterlab-tour" and reload JupyterLab.`,
+            {
+              autoClose: 7000
+            }
+          );
+          return {
+            ok: false,
+            message: PLUGIN_PLAYGROUND_TOUR_MISSING_HINT
+          };
+        }
+
+        try {
+          await this._preparePluginPlaygroundTourContext(args);
+          await launchPluginPlaygroundTour(app);
+          return { ok: true };
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          Notification.warning(`Could not start the tour: ${message}`, {
+            autoClose: 7000
+          });
+          return {
+            ok: false,
+            message
+          };
+        }
+      }
+    });
+
+    commandPalette.addItem({
+      command: CommandIDs.takeTour,
+      category: 'Plugin Playground',
+      args: {}
     });
 
     app.commands.addCommand(CommandIDs.listTokens, {
@@ -691,19 +811,23 @@ class PluginPlayground {
       playgroundSidebar.title.icon = tokenSidebarIcon;
       playgroundSidebar.addWidget(tokenSidebar);
       playgroundSidebar.addWidget(exampleSidebar);
-      (playgroundSidebar.content as AccordionPanel).expand(0);
-      (playgroundSidebar.content as AccordionPanel).expand(1);
       this.app.shell.add(playgroundSidebar, 'right', { rank: 650 });
       this._playgroundSidebar = playgroundSidebar;
+      this._expandPlaygroundSidebarSections();
       if (typeof window !== 'undefined') {
         const shouldOpenFromTree = window.sessionStorage.getItem(
           NOTEBOOK_TREE_OPEN_SIDEBAR_KEY
         );
         if (shouldOpenFromTree === '1') {
           window.sessionStorage.removeItem(NOTEBOOK_TREE_OPEN_SIDEBAR_KEY);
-          if (!playgroundSidebar.isVisible) {
-            this.app.shell.activateById(playgroundSidebar.id);
-          }
+          this._openPlaygroundSidebar();
+        }
+        const shouldOpenAIChatFromTree = window.sessionStorage.getItem(
+          NOTEBOOK_TREE_OPEN_AI_CHAT_KEY
+        );
+        if (shouldOpenAIChatFromTree === '1') {
+          window.sessionStorage.removeItem(NOTEBOOK_TREE_OPEN_AI_CHAT_KEY);
+          void this._openJupyterLiteAIChatWithSetupFallback();
         }
       }
 
@@ -722,8 +846,18 @@ class PluginPlayground {
       if (launcher && (settings.composite.showIconInLauncher as boolean)) {
         launcher.add({
           command: CommandIDs.createNewFile,
-          category: 'Other',
+          category: 'Plugin Playground',
           rank: 1
+        });
+        launcher.add({
+          command: CommandIDs.createNewFileWithAI,
+          category: 'Plugin Playground',
+          rank: 2
+        });
+        launcher.add({
+          command: CommandIDs.takeTour,
+          category: 'Plugin Playground',
+          rank: 3
         });
       }
 
@@ -771,18 +905,20 @@ class PluginPlayground {
   private _createLoadOnSaveToggleWidget(
     widget: IDocumentWidget<FileEditor>
   ): Widget {
-    const toggleNode = document.createElement('label');
+    const toggleNode = document.createElement('span');
     toggleNode.className = 'jp-PluginPlayground-loadOnSaveToggle';
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'jp-PluginPlayground-loadOnSaveCheckbox';
-    checkbox.setAttribute('aria-label', LOAD_ON_SAVE_CHECKBOX_LABEL);
-    const label = document.createElement('span');
-    label.className = 'jp-PluginPlayground-loadOnSaveText';
-    label.id = `${widget.id}-load-on-save-label`;
-    checkbox.setAttribute('aria-describedby', label.id);
-    label.textContent = LOAD_ON_SAVE_CHECKBOX_LABEL;
-    toggleNode.append(checkbox, label);
+    const toggleButton = document.createElement('button');
+    toggleButton.type = 'button';
+    toggleButton.className =
+      'jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-loadOnSaveToggleIconButton';
+    toggleButton.setAttribute('aria-label', LOAD_ON_SAVE_CHECKBOX_LABEL);
+    toggleButton.setAttribute('aria-pressed', 'false');
+    const icon = loadOnSaveToggleIcon.element({
+      tag: 'span',
+      className: 'jp-PluginPlayground-loadOnSaveIcon'
+    });
+    toggleButton.append(icon);
+    toggleNode.append(toggleButton);
 
     const toggleWidget = new Widget({ node: toggleNode });
     toggleWidget.addClass('jp-PluginPlayground-loadOnSaveWidget');
@@ -790,34 +926,38 @@ class PluginPlayground {
     let currentPath = ContentUtils.normalizeContentsPath(widget.context.path);
     const refresh = () => {
       if (this._isGlobalLoadOnSaveEnabled()) {
-        checkbox.disabled = true;
-        checkbox.setAttribute('aria-hidden', 'true');
-        checkbox.setAttribute('aria-disabled', 'true');
+        toggleButton.disabled = true;
+        toggleButton.setAttribute('aria-pressed', 'false');
+        toggleButton.setAttribute('aria-disabled', 'true');
+        toggleNode.classList.add('jp-mod-disabled');
         toggleWidget.hide();
         return;
       }
       toggleWidget.show();
-      checkbox.removeAttribute('aria-hidden');
       currentPath = ContentUtils.normalizeContentsPath(widget.context.path);
       const enabled = this._isSupportedLoadOnSaveFile(currentPath);
-      checkbox.disabled = !enabled;
-      checkbox.setAttribute('aria-disabled', String(!enabled));
-      checkbox.checked = enabled && this._shouldLoadOnSave(currentPath);
+      const isPressed = enabled && this._shouldLoadOnSave(currentPath);
+      toggleButton.disabled = !enabled;
+      toggleButton.setAttribute('aria-pressed', String(isPressed));
+      toggleButton.setAttribute('aria-disabled', String(!enabled));
+      toggleNode.classList.toggle('jp-mod-disabled', !enabled);
       const description = enabled
         ? LOAD_ON_SAVE_ENABLED_DESCRIPTION
         : LOAD_ON_SAVE_DISABLED_DESCRIPTION;
-      toggleNode.title = description;
+      toggleButton.title = description;
     };
 
-    const onCheckboxChanged = () => {
-      if (
-        this._isSupportedLoadOnSaveFile(currentPath) &&
-        !this._isGlobalLoadOnSaveEnabled() &&
-        checkbox.checked
-      ) {
-        this._loadOnSaveByFile.add(currentPath);
-      } else {
+    const onToggleClicked = () => {
+      if (this._isGlobalLoadOnSaveEnabled()) {
+        return;
+      }
+      if (!this._isSupportedLoadOnSaveFile(currentPath)) {
+        return;
+      }
+      if (this._loadOnSaveByFile.has(currentPath)) {
         this._loadOnSaveByFile.delete(currentPath);
+      } else {
+        this._loadOnSaveByFile.add(currentPath);
       }
       for (const refreshState of this._loadOnSaveToggleRefreshers) {
         refreshState();
@@ -842,7 +982,7 @@ class PluginPlayground {
       refresh();
     };
 
-    checkbox.addEventListener('change', onCheckboxChanged);
+    toggleButton.addEventListener('click', onToggleClicked);
     widget.context.pathChanged.connect(onPathChanged);
     this._loadOnSaveToggleRefreshers.add(refresh);
     refresh();
@@ -853,7 +993,7 @@ class PluginPlayground {
         return;
       }
       isDisposed = true;
-      checkbox.removeEventListener('change', onCheckboxChanged);
+      toggleButton.removeEventListener('click', onToggleClicked);
       widget.context.pathChanged.disconnect(onPathChanged);
       this._loadOnSaveToggleRefreshers.delete(refresh);
     };
@@ -958,8 +1098,10 @@ class PluginPlayground {
 
   private _queuePluginLoad(
     pluginSource: string,
-    path: string
+    path: string,
+    options: IPluginLoadQueueOptions = {}
   ): Promise<IPluginLoadResult> {
+    const shouldNotify = options.notifyResult ?? true;
     const normalizedPath = ContentUtils.normalizeContentsPath(path);
     const previous = this._inFlightLoads.get(normalizedPath);
     const next = previous
@@ -969,8 +1111,14 @@ class PluginPlayground {
           })
           .then(() => this._loadPlugin(pluginSource, path))
       : this._loadPlugin(pluginSource, path);
+    const notifiedNext = next.then(result => {
+      if (shouldNotify) {
+        this._notifyPluginLoadResult(result, normalizedPath);
+      }
+      return result;
+    });
 
-    const guardedNext = next.finally(() => {
+    const guardedNext = notifiedNext.finally(() => {
       if (this._inFlightLoads.get(normalizedPath) === guardedNext) {
         this._inFlightLoads.delete(normalizedPath);
       }
@@ -978,6 +1126,38 @@ class PluginPlayground {
 
     this._inFlightLoads.set(normalizedPath, guardedNext);
     return guardedNext;
+  }
+
+  private _notifyPluginLoadResult(
+    result: IPluginLoadResult,
+    normalizedPath: string
+  ): void {
+    if (!result.ok || result.status !== 'loaded' || !normalizedPath) {
+      return;
+    }
+    const pluginCount = result.pluginIds.length;
+    const pluginLabel = pluginCount === 1 ? 'plugin' : 'plugins';
+    if (
+      result.skippedAutoStartPluginIds &&
+      result.skippedAutoStartPluginIds.length > 0
+    ) {
+      Notification.warning(
+        `Loaded ${pluginCount} ${pluginLabel} from "${normalizedPath}", but skipped auto-start for ${result.skippedAutoStartPluginIds.join(
+          ', '
+        )}.`,
+        {
+          autoClose: 7000
+        }
+      );
+      return;
+    }
+
+    Notification.success(
+      `Loaded ${pluginCount} ${pluginLabel} from "${normalizedPath}".`,
+      {
+        autoClose: 3500
+      }
+    );
   }
 
   private async _exportAsExtension(
@@ -1702,18 +1882,51 @@ class PluginPlayground {
     this._tokenSidebar?.update();
   }
 
+  private _openPlaygroundSidebar(): void {
+    if (!this._playgroundSidebar) {
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.setItem(NOTEBOOK_TREE_OPEN_SIDEBAR_KEY, '1');
+      }
+      return;
+    }
+
+    this.app.shell.activateById(this._playgroundSidebar.id);
+    (this._playgroundSidebar.content as AccordionPanel).expand(0);
+  }
+
+  private _expandPlaygroundSidebarSections(): void {
+    if (!this._playgroundSidebar) {
+      return;
+    }
+    const content = this._playgroundSidebar.content;
+    if (content instanceof AccordionPanel) {
+      content.expand(0);
+      content.expand(1);
+    }
+  }
+
+  private async _preparePluginPlaygroundTourContext(
+    args: ReadonlyPartialJSONObject
+  ): Promise<void> {
+    const hasActiveEditor =
+      this.editorTracker.currentWidget !== null &&
+      this.editorTracker.currentWidget === this.app.shell.currentWidget;
+
+    if (!hasActiveEditor) {
+      await this.app.commands.execute(CommandIDs.createNewFile, args);
+    }
+
+    this._openPlaygroundSidebar();
+    this._expandPlaygroundSidebarSections();
+  }
+
   private _openPackagesReference(): void {
     if (!this._tokenSidebar) {
       return;
     }
 
     this._tokenSidebar.showPackagesView();
-    this.app.shell.activateById(
-      this._playgroundSidebar?.id ?? this._tokenSidebar.id
-    );
-    if (this._playgroundSidebar) {
-      (this._playgroundSidebar.content as AccordionPanel).expand(0);
-    }
+    this._openPlaygroundSidebar();
   }
 
   private _openDocumentationLink(
@@ -2182,9 +2395,11 @@ class PluginPlayground {
         'Failed to prefill JupyterLite AI prompt for insertion.',
         error
       );
+      const aiErrorCode =
+        error instanceof JupyterLiteAIError ? error.code : null;
       const warningMessage =
-        message === JUPYTERLITE_AI_PROVIDER_SETUP_HINT ||
-        message.startsWith(JUPYTERLITE_AI_INSTALL_HINT)
+        aiErrorCode === 'provider-setup-required' ||
+        aiErrorCode === 'install-unavailable'
           ? message
           : `Could not prefill AI insertion prompt for "${commandId}": ${message}`;
       Notification.warning(warningMessage, {
@@ -2310,16 +2525,7 @@ class PluginPlayground {
       commandArguments
     });
 
-    if (!this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_CHAT_COMMAND)) {
-      throw new Error(
-        `${JUPYTERLITE_AI_INSTALL_HINT} Missing command: "${JUPYTERLITE_AI_OPEN_CHAT_COMMAND}".`
-      );
-    }
-
-    await this.app.commands.execute(JUPYTERLITE_AI_OPEN_CHAT_COMMAND, {
-      area: 'side'
-    });
-    this.app.shell.activateById(JUPYTERLITE_AI_CHAT_PANEL_ID);
+    await this._openJupyterLiteAIChatPanel();
 
     const inputModel = await this._requireJupyterLiteAIChatInputModel();
     inputModel.value = prompt;
@@ -2337,6 +2543,96 @@ class PluginPlayground {
     });
   }
 
+  private async _openJupyterLiteAIChatPanel(): Promise<void> {
+    if (!this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_CHAT_COMMAND)) {
+      throw new JupyterLiteAIError(
+        'install-unavailable',
+        JUPYTERLITE_AI_INSTALL_HINT
+      );
+    }
+
+    const openResult = await this.app.commands.execute(
+      JUPYTERLITE_AI_OPEN_CHAT_COMMAND,
+      {
+        area: 'side'
+      }
+    );
+    if (openResult === false) {
+      throw new JupyterLiteAIError(
+        'provider-setup-required',
+        JUPYTERLITE_AI_PROVIDER_SETUP_HINT
+      );
+    }
+    this.app.shell.activateById(JUPYTERLITE_AI_CHAT_PANEL_ID);
+  }
+
+  private async _openJupyterLiteAIChatWithSetupFallback(): Promise<JupyterLiteAIChatOpenStatus> {
+    try {
+      await this._openJupyterLiteAIChatPanel();
+      const inputModel = await this._requireJupyterLiteAIChatInputModel();
+      inputModel.focus();
+      return 'opened';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const aiErrorCode =
+        error instanceof JupyterLiteAIError ? error.code : null;
+
+      if (aiErrorCode === 'provider-setup-required') {
+        Notification.warning(
+          'No AI provider configured. Configure a provider in AI Settings to continue.',
+          {
+            autoClose: false,
+            actions: [
+              {
+                label: 'Configure Provider',
+                displayType: 'accent',
+                callback: () => {
+                  void this._openAISettingsInMainArea().then(
+                    didOpenSettings => {
+                      if (!didOpenSettings) {
+                        Notification.warning(
+                          'Could not open AI Settings. Open AI Settings to continue.',
+                          {
+                            autoClose: 5000
+                          }
+                        );
+                      }
+                    }
+                  );
+                }
+              }
+            ]
+          }
+        );
+        return 'provider-setup-required';
+      }
+
+      if (aiErrorCode === 'install-unavailable') {
+        Notification.warning(JUPYTERLITE_AI_INSTALL_HINT, {
+          autoClose: 4500
+        });
+        return 'install-unavailable';
+      }
+
+      Notification.warning(`Could not open AI chat: ${message}`, {
+        autoClose: 5000
+      });
+      return 'failed';
+    }
+  }
+
+  private async _openAISettingsInMainArea(): Promise<boolean> {
+    if (!this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND)) {
+      return false;
+    }
+    try {
+      await this.app.commands.execute(JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private async _requireJupyterLiteAIChatInputModel(): Promise<{
     value: string;
     focus: () => void;
@@ -2344,30 +2640,44 @@ class PluginPlayground {
     const chatTracker =
       this.chatTracker ?? (await this.app.resolveOptionalService(IChatTracker));
     if (!chatTracker) {
-      throw new Error(
-        `${JUPYTERLITE_AI_INSTALL_HINT} Missing service: "@jupyter/chat:IChatTracker".`
+      throw new JupyterLiteAIError(
+        'install-unavailable',
+        JUPYTERLITE_AI_INSTALL_HINT
       );
     }
 
-    const chatWidget =
-      chatTracker.currentWidget ?? chatTracker.find(() => true);
-    if (!chatWidget) {
-      throw new Error(
-        `${JUPYTERLITE_AI_INSTALL_HINT} Chat tracker has no active widgets.`
-      );
-    }
-
-    const inputModel = (
-      chatWidget as {
-        model?: {
-          input?: unknown;
-        };
+    const maxAnimationFrameRetries = 3;
+    for (let attempt = 0; attempt <= maxAnimationFrameRetries; attempt++) {
+      const chatWidget =
+        chatTracker.currentWidget ?? chatTracker.find(() => true);
+      const inputModel = (
+        chatWidget as {
+          model?: {
+            input?: unknown;
+          };
+        } | null
+      )?.model?.input;
+      if (this._isJupyterLiteAIChatInputModel(inputModel)) {
+        return inputModel;
       }
-    ).model?.input;
-    if (this._isJupyterLiteAIChatInputModel(inputModel)) {
-      return inputModel;
+
+      if (
+        typeof window === 'undefined' ||
+        attempt === maxAnimationFrameRetries
+      ) {
+        break;
+      }
+      await new Promise<void>(resolve => {
+        window.requestAnimationFrame(() => {
+          resolve();
+        });
+      });
     }
-    throw new Error(JUPYTERLITE_AI_PROVIDER_SETUP_HINT);
+
+    throw new JupyterLiteAIError(
+      'provider-setup-required',
+      JUPYTERLITE_AI_PROVIDER_SETUP_HINT
+    );
   }
 
   private _isJupyterLiteAIChatInputModel(candidate: unknown): candidate is {
@@ -2876,11 +3186,11 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
 
     if (!app.commands.hasCommand(CommandIDs.createNewFileFromNotebookTree)) {
       app.commands.addCommand(CommandIDs.createNewFileFromNotebookTree, {
-        label: 'Plugin (Playground)',
+        label: 'Start from File',
         caption:
           'Create a new TypeScript plugin file and open the playground sidebar',
         describedBy: { args: CREATE_PLUGIN_FROM_NOTEBOOK_TREE_ARGS_SCHEMA },
-        icon: extensionIcon,
+        icon: tokenSidebarIcon,
         execute: async args => {
           const rawCwdArg = typeof args.cwd === 'string' ? args.cwd.trim() : '';
           const normalizedCwdArg =
@@ -2909,15 +3219,75 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
       });
     }
 
+    if (
+      !app.commands.hasCommand(CommandIDs.createNewFileWithAIFromNotebookTree)
+    ) {
+      app.commands.addCommand(CommandIDs.createNewFileWithAIFromNotebookTree, {
+        label: 'Build with AI',
+        caption:
+          'Create a new TypeScript plugin file and open AI chat setup for guided building',
+        describedBy: { args: CREATE_PLUGIN_FROM_NOTEBOOK_TREE_ARGS_SCHEMA },
+        icon: offlineBoltIcon,
+        execute: async args => {
+          if (typeof window !== 'undefined') {
+            window.sessionStorage.setItem(NOTEBOOK_TREE_OPEN_AI_CHAT_KEY, '1');
+          }
+          return app.commands.execute(
+            CommandIDs.createNewFileFromNotebookTree,
+            args
+          );
+        }
+      });
+    }
+
+    if (!app.commands.hasCommand(CommandIDs.takeTourFromNotebookTree)) {
+      app.commands.addCommand(CommandIDs.takeTourFromNotebookTree, {
+        label: 'Take the Tour',
+        caption:
+          'Open a first-time-friendly tour of Plugin Playground and AI setup',
+        describedBy: { args: CREATE_PLUGIN_FROM_NOTEBOOK_TREE_ARGS_SCHEMA },
+        icon: infoIcon,
+        execute: async args => {
+          const rawCwdArg = typeof args.cwd === 'string' ? args.cwd.trim() : '';
+          const normalizedCwdArg =
+            ContentUtils.normalizeContentsPath(rawCwdArg);
+          return app.commands.execute(
+            CommandIDs.takeTour,
+            normalizedCwdArg ? { cwd: normalizedCwdArg } : {}
+          );
+        }
+      });
+    }
+
     if (mainMenu) {
-      const hasPluginEntryInFileNewMenu = mainMenu.fileMenu.newMenu.items.some(
+      const hasStartFromFileEntry = mainMenu.fileMenu.newMenu.items.some(
         item =>
           item.type === 'command' &&
           item.command === CommandIDs.createNewFileFromNotebookTree
       );
-      if (!hasPluginEntryInFileNewMenu) {
+      if (!hasStartFromFileEntry) {
         mainMenu.fileMenu.newMenu.addItem({
           command: CommandIDs.createNewFileFromNotebookTree
+        });
+      }
+      const hasBuiltWithAIEntry = mainMenu.fileMenu.newMenu.items.some(
+        item =>
+          item.type === 'command' &&
+          item.command === CommandIDs.createNewFileWithAIFromNotebookTree
+      );
+      if (!hasBuiltWithAIEntry) {
+        mainMenu.fileMenu.newMenu.addItem({
+          command: CommandIDs.createNewFileWithAIFromNotebookTree
+        });
+      }
+      const hasTakeTourEntry = mainMenu.fileMenu.newMenu.items.some(
+        item =>
+          item.type === 'command' &&
+          item.command === CommandIDs.takeTourFromNotebookTree
+      );
+      if (!hasTakeTourEntry) {
+        mainMenu.fileMenu.newMenu.addItem({
+          command: CommandIDs.takeTourFromNotebookTree
         });
       }
     }
@@ -2937,14 +3307,34 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
         return widget;
       }
       const newMenu = widget.menus[0];
-      const hasPluginEntry = newMenu.items.some(
+      const hasStartFromFileEntry = newMenu.items.some(
         item =>
           item.type === 'command' &&
           item.command === CommandIDs.createNewFileFromNotebookTree
       );
-      if (!hasPluginEntry) {
+      if (!hasStartFromFileEntry) {
         newMenu.addItem({
           command: CommandIDs.createNewFileFromNotebookTree
+        });
+      }
+      const hasBuiltWithAIEntry = newMenu.items.some(
+        item =>
+          item.type === 'command' &&
+          item.command === CommandIDs.createNewFileWithAIFromNotebookTree
+      );
+      if (!hasBuiltWithAIEntry) {
+        newMenu.addItem({
+          command: CommandIDs.createNewFileWithAIFromNotebookTree
+        });
+      }
+      const hasTakeTourEntry = newMenu.items.some(
+        item =>
+          item.type === 'command' &&
+          item.command === CommandIDs.takeTourFromNotebookTree
+      );
+      if (!hasTakeTourEntry) {
+        newMenu.addItem({
+          command: CommandIDs.takeTourFromNotebookTree
         });
       }
       return widget;

@@ -232,16 +232,18 @@ test('generate README screenshots', async ({ page }) => {
     name: 'main area toolbar'
   });
   await expect(toolbar).toBeVisible();
-  const loadOnSaveCheckbox = page.getByRole('checkbox', {
+  const loadOnSaveToggle = page.getByRole('button', {
     name: LOAD_ON_SAVE_CHECKBOX_LABEL
   });
-  await expect(loadOnSaveCheckbox).toBeVisible();
-  if (!(await loadOnSaveCheckbox.isChecked())) {
-    await loadOnSaveCheckbox.check();
+  await expect(loadOnSaveToggle).toBeVisible();
+  if ((await loadOnSaveToggle.getAttribute('aria-pressed')) !== 'true') {
+    await loadOnSaveToggle.click();
   }
 
   const extensionPointsSection = await openSidebarPanel(page, TOKEN_SECTION_ID);
-  await page.sidebar.setWidth(EXTENSION_POINTS_GALLERY_WIDTH, 'right');
+  const sidebarSide =
+    (await page.sidebar.getTabPosition(PLAYGROUND_SIDEBAR_ID)) ?? 'right';
+  await page.sidebar.setWidth(EXTENSION_POINTS_GALLERY_WIDTH, sidebarSide);
 
   await saveTopCroppedScreenshot(
     page,
@@ -282,7 +284,7 @@ test('generate README screenshots', async ({ page }) => {
   });
   await saveScreenshot(extensionPointsSection, 'packages-reference.png');
 
-  await page.sidebar.setWidth(RIGHT_SIDEBAR_SCREENSHOT_WIDTH, 'right');
+  await page.sidebar.setWidth(RIGHT_SIDEBAR_SCREENSHOT_WIDTH, sidebarSide);
   await extensionPointsSection.getByRole('tab', { name: 'Commands' }).click();
   await commandFilter.fill('plugin-playground:');
   await expect(

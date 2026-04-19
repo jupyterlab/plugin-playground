@@ -1,6 +1,6 @@
 {
   "title": "Plugin Playground",
-  "jupyter.lab.setting-icon": "ui-components:extension",
+  "jupyter.lab.setting-icon": "plugin-playground:token-sidebar",
   "jupyter.lab.setting-icon-label": "Plugin Playground",
   "properties": {
     "allowCDN": {
@@ -75,6 +75,7 @@
       {
         "name": "load-as-extension",
         "command": "plugin-playground:load-as-extension",
+        "label": "Run",
         "rank": 20
       },
       { "name": "plugin-playground-load-on-save", "rank": 21 },

@@ -135,6 +135,7 @@
     "webpackConfig": "./webpack.config.js",
     "extension": true,
     "outputDir": "jupyterlab_plugin_playground/labextension",
-    "schemaDir": "schema"
+    "schemaDir": "schema",
+    "disabledExtensions": ["jupyterlab-tour:default-tours"]
   }
 }

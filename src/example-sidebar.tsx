@@ -7,6 +7,9 @@ import * as React from 'react';
 import { Message } from '@lumino/messaging';
 import { ContentUtils } from './contents';
 
+const TOUR_FIRST_EXAMPLE_ACTIONS_ID =
+  'jp-PluginPlayground-tour-example-actions';
+
 export namespace ExampleSidebar {
   export interface IExampleRecord {
     name: string;
@@ -101,13 +104,16 @@ export class ExampleSidebar extends ReactWidget {
         ) : null}
         {filteredExamples.length > 0 ? (
           <ul className="jp-PluginPlayground-list">
-            {filteredExamples.map(example => (
+            {filteredExamples.map((example, index) => (
               <li key={example.path} className="jp-PluginPlayground-listItem">
                 <div className="jp-PluginPlayground-row">
                   <span className="jp-PluginPlayground-entryLabel">
                     {example.name}
                   </span>
-                  <div className="jp-PluginPlayground-tokenActions">
+                  <div
+                    className="jp-PluginPlayground-tokenActions"
+                    id={index === 0 ? TOUR_FIRST_EXAMPLE_ACTIONS_ID : undefined}
+                  >
                     <button
                       className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-exampleOpenButton"
                       type="button"
