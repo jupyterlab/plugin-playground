@@ -164,10 +164,9 @@ class FolderShareSelectionDialogBody
       }
 
       const urlLength = linkResult.urlLength;
-      let usagePercent =
-        this._maxUrlLength > 0
-          ? Math.min(100, (urlLength / this._maxUrlLength) * 100)
-          : 0;
+      const uncappedUsagePercent =
+        this._maxUrlLength > 0 ? (urlLength / this._maxUrlLength) * 100 : 0;
+      let usagePercent = Math.min(100, uncappedUsagePercent);
       if (!linkResult.ok && linkResult.reason !== 'length') {
         usagePercent = 100;
       }
@@ -185,18 +184,16 @@ class FolderShareSelectionDialogBody
         `${formatFileSize(estimatedCapacityBytes, 1, 1024)} selected`;
 
       if (linkResult.ok) {
-        const remaining = Math.max(this._maxUrlLength - urlLength, 0);
+        const remainingPercent = Math.max(100 - usagePercent, 0);
         this._capacityDetails =
-          `${urlLength.toLocaleString()} / ` +
-          `${this._maxUrlLength.toLocaleString()} URL chars used ` +
-          `(${remaining.toLocaleString()} remaining).`;
+          `${usagePercent.toFixed(1)}% capacity used ` +
+          `(${remainingPercent.toFixed(1)}% remaining).`;
         this._setCapacityTone(usagePercent >= 85 ? 'warning' : 'normal');
       } else if (linkResult.reason === 'length') {
-        const overLimit = Math.max(urlLength - this._maxUrlLength, 0);
+        const overLimitPercent = Math.max(uncappedUsagePercent - 100, 0);
         this._capacityDetails =
-          `${urlLength.toLocaleString()} / ` +
-          `${this._maxUrlLength.toLocaleString()} URL chars used ` +
-          `(${overLimit.toLocaleString()} over limit).`;
+          `${uncappedUsagePercent.toFixed(1)}% capacity used ` +
+          `(${overLimitPercent.toFixed(1)}% over limit).`;
         this._setCapacityTone('error');
       } else {
         this._capacityDetails =
