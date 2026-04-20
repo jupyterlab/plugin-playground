@@ -164,10 +164,13 @@ class FolderShareSelectionDialogBody
       }
 
       const urlLength = linkResult.urlLength;
-      const usagePercent =
+      let usagePercent =
         this._maxUrlLength > 0
           ? Math.min(100, (urlLength / this._maxUrlLength) * 100)
           : 0;
+      if (!linkResult.ok && linkResult.reason !== 'length') {
+        usagePercent = 100;
+      }
       this._capacityUsagePercent = usagePercent;
 
       const estimatedCapacityBytes =
