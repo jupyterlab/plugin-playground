@@ -44,6 +44,13 @@
       "type": "string",
       "enum": ["insert", "ai"]
     },
+    "shareFolderSelectionDialogMode": {
+      "title": "Show file selection dialog on folder share",
+      "description": "Control when folder sharing opens the file-selection dialog. Use \"always\" to always ask, \"auto-excluded-or-limit\" to ask when files are auto-excluded or the URL size limit is hit, or \"limit-only\" to ask only when the URL size limit is hit.",
+      "default": "always",
+      "type": "string",
+      "enum": ["always", "auto-excluded-or-limit", "limit-only"]
+    },
     "plugins": {
       "title": "Plugins",
       "description": "List of strings of plugin text to load automatically. Line breaks are encoded as '\\n'",
@@ -81,6 +88,22 @@
         "command": "plugin-playground:share-via-link",
         "label": "Share",
         "rank": 23
+      }
+    ]
+  },
+  "jupyter.lab.menus": {
+    "context": [
+      {
+        "command": "plugin-playground:share-via-link",
+        "args": { "useBrowserSelection": true, "useContextTarget": true },
+        "selector": ".jp-DirListing-item[data-isdir=\"false\"]",
+        "rank": 11
+      },
+      {
+        "command": "plugin-playground:share-via-link",
+        "args": { "useBrowserSelection": true, "useContextTarget": true },
+        "selector": ".jp-DirListing-item[data-isdir=\"true\"]",
+        "rank": 12
       }
     ]
   },

@@ -201,7 +201,7 @@ Plugin Playground exposes command APIs for scripting, agents, and automation:
 - `plugin-playground:list-commands` (supports optional `{ query?: string }`)
 - `plugin-playground:list-extension-examples` (supports optional `{ query?: string }`)
 - `plugin-playground:export-as-extension` (supports optional `{ path?: string, format?: 'zip' | 'wheel' }`)
-- `plugin-playground:share-via-link` (supports optional `{ path?: string }`)
+- `plugin-playground:share-via-link` (supports optional `{ path?: string, useBrowserSelection?: boolean, useContextTarget?: boolean }`)
 
 Example:
 
@@ -225,18 +225,30 @@ await app.commands.execute('plugin-playground:export-as-extension', {
 });
 
 await app.commands.execute('plugin-playground:share-via-link', {
-  path: 'my-extension/src/index.ts'
+  path: 'my-extension'
 });
 ```
 
-`plugin-playground:share-via-link` shares a single file. If no `path` is
-provided, it shares the active file.
+`plugin-playground:share-via-link` shares a file or folder. If no `path` is
+provided, it shares the active file. The file/folder right-click context-menu
+entries use the selected browser item path automatically.
+In the editor toolbar, the Share action is a dropdown with `Share Single File`
+and `Share Package`; package sharing is enabled when a
+`package.json` is found in the current file directory or its parent directory.
+Folder sharing excludes common non-exportable files by default (for example
+media assets, README/docs files, and test/spec files), but you can include them
+manually from the selection dialog.
+By default, folder sharing always opens a file-selection dialog so you can
+exclude files before creating the link. You can control this with
+`shareFolderSelectionDialogMode` (`always`, `auto-excluded-or-limit`, or
+`limit-only`). If the generated URL is too long, you can pick a smaller subset
+of files in the same dialog.
 The same action is also available from the `IPluginPlayground` API via
 `shareViaLink(path?)`.
 
-When opening a shared URL, Plugin Playground restores and opens the shared
-file but does not execute it automatically. Run `Load Current File As
-Extension` when you are ready.
+When opening a shared URL, Plugin Playground restores the shared file(s) and
+opens one restored file, but does not execute it automatically. Run `Load
+Current File As Extension` when you are ready.
 
 List commands (`list-tokens`, `list-commands`, `list-extension-examples`)
 return a JSON object with:
