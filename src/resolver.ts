@@ -397,7 +397,7 @@ export class ImportResolver {
       }
 
       const resolvedPath = ContentUtils.normalizeContentsPath(file.path);
-      console.log(`Resolved ${module} to ${resolvedPath}`);
+      console.debug(`Resolved ${module} to ${resolvedPath}`);
       const content = ContentUtils.fileModelToText(file);
       if (content === null) {
         continue;
