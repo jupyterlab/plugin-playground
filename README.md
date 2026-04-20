@@ -1,6 +1,9 @@
 # JupyterLab Plugin Playground
 
 [![Github Actions Status](https://github.com/jupyterlab/plugin-playground/workflows/Build/badge.svg)](https://github.com/jupyterlab/plugin-playground/actions/workflows/build.yml)
+[![version on npm](https://img.shields.io/npm/v/@jupyterlab/plugin-playground.svg)](https://www.npmjs.com/package/@jupyterlab/plugin-playground)
+[![version on PyPI](https://img.shields.io/pypi/v/jupyterlab-plugin-playground.svg)](https://pypi.org/project/jupyterlab-plugin-playground/)
+[![version on conda-forge](https://img.shields.io/conda/vn/conda-forge/jupyterlab-plugin-playground.svg)](https://anaconda.org/conda-forge/jupyterlab-plugin-playground)
 
 | Preview     | Lab                                                                                                                                                       | Notebook v7                                                                                                                                                            |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
