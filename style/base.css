@@ -515,7 +515,6 @@
   svg
   * {
   fill: currentColor;
-  stroke: currentColor;
 }
 
 .jp-PluginPlayground-urlLoadedHintCard {
