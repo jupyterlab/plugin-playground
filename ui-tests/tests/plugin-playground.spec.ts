@@ -2457,7 +2457,7 @@ test.describe('share capacity meter', () => {
     ).toContainText(/selected/i);
     await expect(
       page.locator('.jp-PluginPlayground-folderShareSelectionCapacityDetails')
-    ).toContainText(/URL chars used/i);
+    ).toContainText(/% URL capacity used/i);
 
     const sourceCheckbox = page
       .locator('label', { hasText: /^index\.ts \(/ })
