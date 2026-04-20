@@ -69,6 +69,10 @@
   position: relative;
 }
 
+.jp-PluginPlayground-exampleFilterRow {
+  margin-bottom: 5px;
+}
+
 .jp-PluginPlayground-filter {
   background: var(--jp-layout-color1);
   border: var(--jp-border-width) solid var(--jp-border-color1);
@@ -208,6 +212,11 @@
   width: 10px;
 }
 
+.jp-PluginPlayground-shareDropdownCaretIcon {
+  margin-left: 2px;
+  opacity: 0.8;
+}
+
 .jp-PluginPlayground-argumentBadgeButton {
   position: relative;
 }
@@ -342,6 +351,82 @@
 .jp-PluginPlayground-packageName {
   overflow-wrap: break-word;
   word-break: normal;
+}
+
+.jp-PluginPlayground-folderShareSelectionDialog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jp-PluginPlayground-folderShareSelectionSummary {
+  margin: 0;
+}
+
+.jp-PluginPlayground-folderShareSelectionCapacity {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.jp-PluginPlayground-folderShareSelectionCapacityLabel {
+  font-weight: 600;
+  margin: 0;
+}
+
+.jp-PluginPlayground-folderShareSelectionCapacityTrack {
+  background: var(--jp-layout-color2);
+  border: var(--jp-border-width) solid var(--jp-border-color1);
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+}
+
+.jp-PluginPlayground-folderShareSelectionCapacityFill {
+  background: var(--jp-brand-color1);
+  height: 100%;
+  transition: width 120ms ease-out;
+  width: 0;
+}
+
+.jp-PluginPlayground-folderShareSelectionCapacity.jp-mod-warning
+  .jp-PluginPlayground-folderShareSelectionCapacityFill {
+  background: var(--jp-warn-color1);
+}
+
+.jp-PluginPlayground-folderShareSelectionCapacity.jp-mod-error
+  .jp-PluginPlayground-folderShareSelectionCapacityFill {
+  background: var(--jp-error-color1);
+}
+
+.jp-PluginPlayground-folderShareSelectionCapacityDetails {
+  color: var(--jp-ui-font-color2);
+  margin: 0;
+}
+
+.jp-PluginPlayground-folderShareSelectionList {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.jp-PluginPlayground-folderShareSelectionHeading {
+  font-weight: 600;
+  margin: 10px 0 6px;
+}
+
+.jp-PluginPlayground-folderShareSelectionHeading:first-child {
+  margin-top: 0;
+}
+
+.jp-PluginPlayground-folderShareSelectionRow {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.jp-PluginPlayground-folderShareSelectionPath {
+  overflow-wrap: anywhere;
 }
 
 .jp-PluginPlayground-exampleError {
