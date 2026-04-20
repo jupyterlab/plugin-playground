@@ -25,6 +25,10 @@ function handleImportError(error: Error, module: string) {
   });
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export namespace ImportResolver {
   export interface IOptions {
     loadKnownModule: (name: string) => Promise<IModule | null>;
@@ -81,6 +85,10 @@ interface ICDNConsent {
 interface ILocalCssSnapshotEntry {
   id: number;
   previousCss: string | null;
+}
+
+interface IFederatedExtensionContainer {
+  get: (key: string) => Promise<(() => IModule) | IModule>;
 }
 
 export class ImportResolver {
@@ -183,31 +191,18 @@ export class ImportResolver {
    */
   async resolve(module: string): Promise<Token<any> | IModule | IModuleMember> {
     try {
-      const tokenAndDefaultHandler = {
-        get: (
-          target: IModule,
-          prop: string | number | symbol,
-          receiver: any
-        ) => {
-          if (typeof prop !== 'string') {
-            return Reflect.get(target, prop, receiver);
-          }
-          const tokenName = `${module}:${prop}`;
-          if (this._options.tokenMap.has(tokenName)) {
-            return this._options.tokenMap.get(tokenName);
-          }
-          // synthetic default import (without proxy)
-          if (prop === 'default' && !(prop in target)) {
-            return target;
-          }
-          return Reflect.get(target, prop, receiver);
-        }
-      };
-
       const knownModule = await this._resolveKnownModule(module);
       if (knownModule !== null) {
-        return new Proxy(knownModule, tokenAndDefaultHandler);
+        return this._createTokenAwareModule(module, knownModule);
       }
+
+      const federatedModule = await this._resolveFederatedExtensionModule(
+        module
+      );
+      if (federatedModule !== null) {
+        return this._createTokenAwareModule(module, federatedModule);
+      }
+
       const localFile = await this._resolveLocalFile(module);
       if (localFile !== null) {
         return localFile;
@@ -231,6 +226,90 @@ export class ImportResolver {
       handleImportError(error as Error, module);
       throw error;
     }
+  }
+
+  private _createTokenAwareModule(
+    module: string,
+    targetModule: IModule
+  ): IModule {
+    return new Proxy(targetModule, {
+      get: (target: IModule, prop: string | number | symbol, receiver: any) => {
+        if (typeof prop !== 'string') {
+          return Reflect.get(target, prop, receiver);
+        }
+        const tokenName = `${module}:${prop}`;
+        if (this._options.tokenMap.has(tokenName)) {
+          return this._options.tokenMap.get(tokenName);
+        }
+        // synthetic default import (without proxy)
+        if (prop === 'default' && !(prop in target)) {
+          return target;
+        }
+        return Reflect.get(target, prop, receiver);
+      }
+    });
+  }
+
+  private async _resolveFederatedExtensionModule(
+    module: string
+  ): Promise<IModule | null> {
+    if (module.startsWith('.')) {
+      return null;
+    }
+    if (typeof window === 'undefined') {
+      return null;
+    }
+
+    const runtime = window as Window & {
+      _JUPYTERLAB?: Record<string, IFederatedExtensionContainer>;
+    };
+    const container = runtime._JUPYTERLAB?.[module];
+    if (!container) {
+      return null;
+    }
+    if (typeof container.get !== 'function') {
+      throw new Error(
+        `Federated extension container ${module} does not expose get().`
+      );
+    }
+
+    let exposed: (() => IModule) | IModule;
+    try {
+      exposed = await container.get('./extension');
+    } catch (error) {
+      throw new Error(
+        `Failed to resolve federated extension module ${module} from ./extension: ${errorMessage(
+          error
+        )}`
+      );
+    }
+
+    const factory =
+      typeof exposed === 'function'
+        ? (exposed as () => IModule)
+        : () => exposed as IModule;
+
+    let resolved: unknown;
+    try {
+      resolved = factory();
+    } catch (error) {
+      throw new Error(
+        `Failed to evaluate federated extension module ${module} from ./extension: ${errorMessage(
+          error
+        )}`
+      );
+    }
+
+    if (
+      !resolved ||
+      (typeof resolved !== 'object' && typeof resolved !== 'function')
+    ) {
+      throw new Error(
+        `Federated extension module ${module} did not return a module object from ./extension.`
+      );
+    }
+
+    return resolved as IModule;
   }
 
   private async _getCDNConsent(
@@ -318,7 +397,7 @@ export class ImportResolver {
       }
 
       const resolvedPath = ContentUtils.normalizeContentsPath(file.path);
-      console.log(`Resolved ${module} to ${resolvedPath}`);
+      console.debug(`Resolved ${module} to ${resolvedPath}`);
       const content = ContentUtils.fileModelToText(file);
       if (content === null) {
         continue;
