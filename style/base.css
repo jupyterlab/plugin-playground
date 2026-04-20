@@ -69,6 +69,10 @@
   position: relative;
 }
 
+.jp-PluginPlayground-exampleFilterRow {
+  margin-bottom: 5px;
+}
+
 .jp-PluginPlayground-filter {
   background: var(--jp-layout-color1);
   border: var(--jp-border-width) solid var(--jp-border-color1);
@@ -596,7 +600,6 @@
   svg
   * {
   fill: currentColor;
-  stroke: currentColor;
 }
 
 .jp-PluginPlayground-urlLoadedHintCard {
