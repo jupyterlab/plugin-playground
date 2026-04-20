@@ -344,6 +344,21 @@
   white-space: normal;
 }
 
+.jp-PluginPlayground-emptyState {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.jp-PluginPlayground-emptyStateLine {
+  line-height: 1.4;
+  margin: 0;
+}
+
+.jp-PluginPlayground-emptyStateLine code {
+  font-size: inherit;
+}
+
 .jp-PluginPlayground-tokenString {
   font-family: var(--jp-code-font-family);
 }

@@ -711,6 +711,54 @@ test('opens a dummy extension example from the sidebar', async ({ page }) => {
   }, expectedReadmePath);
 });
 
+test('shows a no-match empty state for extension example filters', async ({
+  page
+}) => {
+  const integrationExampleName = 'integration-example-filter-no-match';
+  const integrationExampleRoot = `extension-examples/${integrationExampleName}`;
+  const expectedPath = `${integrationExampleRoot}/src/index.ts`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: '@jupyterlab-examples/integration-example-filter-no-match',
+        description: 'Integration test extension example (filter empty state)'
+      },
+      null,
+      2
+    ),
+    'text',
+    `${integrationExampleRoot}/package.json`
+  );
+  await page.contents.uploadContent(
+    "const plugin = { id: 'integration-example-filter-no-match:plugin', autoStart: true, activate: () => undefined }; export default plugin;\n",
+    'text',
+    expectedPath
+  );
+
+  await page.goto();
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LIST_EXAMPLES_COMMAND)
+  );
+
+  const section = await openSidebarPanel(page, EXAMPLE_SECTION_ID);
+  const filterInput = section.getByPlaceholder('Filter extension examples');
+  await expect(filterInput).toBeVisible();
+
+  await filterInput.fill('does-not-match-any-example');
+
+  const exampleItems = section.locator('.jp-PluginPlayground-listItem');
+  await expect(exampleItems).toHaveCount(0);
+  await expect(
+    section.getByText('No matching extension examples Found.', { exact: true })
+  ).toBeVisible();
+  await expect(
+    section.locator('text=git submodule update --init --recursive')
+  ).toHaveCount(0);
+});
+
 test('creates a plugin file with an explicit path argument', async ({
   page,
   tmpPath
