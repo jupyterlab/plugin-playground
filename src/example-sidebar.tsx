@@ -9,6 +9,8 @@ import { ContentUtils } from './contents';
 
 const TOUR_FIRST_EXAMPLE_ACTIONS_ID =
   'jp-PluginPlayground-tour-example-actions';
+const FILTER_COUNT_SUMMARY_ID =
+  'jp-PluginPlayground-extensionExamples-filter-count-summary';
 
 export namespace ExampleSidebar {
   export interface IExampleRecord {
@@ -57,21 +59,39 @@ export class ExampleSidebar extends ReactWidget {
 
   render(): JSX.Element {
     const filteredExamples = filterExampleRecords(this._examples, this._query);
+    const isExamplesLoaded = !this._isLoading && !this._errorMessage;
+    const countSummary = isExamplesLoaded
+      ? `${filteredExamples.length} of ${this._examples.length} extension examples`
+      : 'Loading extension examples';
 
     return (
       <div className="jp-PluginPlayground-sidebarInner">
-        <input
-          className="jp-PluginPlayground-filter"
-          type="search"
-          placeholder="Filter extension examples"
-          aria-label="Filter extension examples"
-          value={this._query}
-          onChange={this._onQueryChange}
-        />
-        <p className="jp-PluginPlayground-count">
-          {filteredExamples.length} of {this._examples.length} extension
-          examples
-        </p>
+        <div className="jp-PluginPlayground-filterRow">
+          <input
+            className="jp-PluginPlayground-filter"
+            type="search"
+            placeholder="Filter extension examples"
+            aria-label="Filter extension examples"
+            aria-describedby={FILTER_COUNT_SUMMARY_ID}
+            title={countSummary}
+            value={this._query}
+            onChange={this._onQueryChange}
+          />
+          <span
+            id={FILTER_COUNT_SUMMARY_ID}
+            className="jp-PluginPlayground-visuallyHidden"
+          >
+            {countSummary}
+          </span>
+          {isExamplesLoaded ? (
+            <span
+              className="jp-PluginPlayground-filterCount"
+              aria-hidden="true"
+            >
+              {filteredExamples.length}/{this._examples.length}
+            </span>
+          ) : null}
+        </div>
         {this._isLoading ? (
           <p className="jp-PluginPlayground-count">
             Loading extension examples…
@@ -233,6 +253,6 @@ export class ExampleSidebar extends ReactWidget {
   private readonly _onOpenReadme: (readmePath: string) => Promise<void> | void;
   private _query = '';
   private _examples: ReadonlyArray<ExampleSidebar.IExampleRecord> = [];
-  private _isLoading = false;
+  private _isLoading = true;
   private _errorMessage = '';
 }
