@@ -25,8 +25,7 @@ import {
   docsLinkIcon,
   gitRepositoryIcon,
   githubRepositoryIcon,
-  npmPackageIcon,
-  schemaNumberIcon
+  npmPackageIcon
 } from './icons';
 
 export type CommandInsertMode = 'insert' | 'ai';
@@ -566,18 +565,10 @@ export class TokenSidebar extends ReactWidget {
                             }
                           >
                             <span
-                              className="jp-PluginPlayground-argumentSchemaIcon"
+                              className="jp-PluginPlayground-argumentCountBadge"
                               aria-hidden="true"
                             >
-                              {React.createElement(schemaNumberIcon.react, {
-                                tag: 'span',
-                                elementSize: 'normal',
-                                className:
-                                  'jp-PluginPlayground-actionIcon jp-PluginPlayground-argumentSchemaBaseIcon'
-                              })}
-                              <span className="jp-PluginPlayground-argumentSchemaCount">
-                                {argumentCountBadge}
-                              </span>
+                              {`{${argumentCountBadge}}`}
                             </span>
                           </button>
                           <button
