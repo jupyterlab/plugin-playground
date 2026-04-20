@@ -66,7 +66,7 @@ export class ExampleSidebar extends ReactWidget {
 
     return (
       <div className="jp-PluginPlayground-sidebarInner">
-        <div className="jp-PluginPlayground-filterRow">
+        <div className="jp-PluginPlayground-filterRow jp-PluginPlayground-exampleFilterRow">
           <input
             className="jp-PluginPlayground-filter"
             type="search"
