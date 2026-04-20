@@ -213,10 +213,6 @@
   opacity: 0.8;
 }
 
-.jp-PluginPlayground-shareDropdownButton[aria-pressed='true'] {
-  box-shadow: none;
-}
-
 .jp-PluginPlayground-argumentBadgeButton {
   position: relative;
 }

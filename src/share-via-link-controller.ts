@@ -58,7 +58,7 @@ export const SHARE_VIA_LINK_ARGS_SCHEMA = {
     useContextTarget: {
       type: 'boolean',
       description:
-        'When true, resolve the share path from the current context-menu target before using browser selection.'
+        'When true, resolve the share path from the current context-menu target.'
     },
     shareVariant: {
       type: 'string',

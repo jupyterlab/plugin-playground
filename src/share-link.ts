@@ -33,14 +33,6 @@ function sanitizeFileName(fileName: string): string {
   if (!ContentUtils.isSafeRelativePath(normalized)) {
     return '';
   }
-  const segments = normalized.split('/');
-  if (
-    segments.some(
-      segment => segment.length === 0 || segment === '.' || segment === '..'
-    )
-  ) {
-    return '';
-  }
   return PathExt.basename(normalized);
 }
 
@@ -71,13 +63,7 @@ function normalizeSharedFolderFiles(files: unknown): Record<string, string> {
     const normalizedPath = ContentUtils.normalizeContentsPath(
       relativePath
     ).replace(/\\/g, '/');
-    const pathSegments = normalizedPath.split('/');
-    if (
-      !normalizedPath ||
-      pathSegments.some(
-        segment => segment.length === 0 || segment === '.' || segment === '..'
-      )
-    ) {
+    if (!ContentUtils.isSafeRelativePath(normalizedPath)) {
       throw new Error('Shared payload file path is invalid.');
     }
     normalizedFiles[normalizedPath] = source;
