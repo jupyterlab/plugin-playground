@@ -752,7 +752,7 @@ test('shows a no-match empty state for extension example filters', async ({
   const exampleItems = section.locator('.jp-PluginPlayground-listItem');
   await expect(exampleItems).toHaveCount(0);
   await expect(
-    section.getByText('No matching extension examples Found.', { exact: true })
+    section.getByText('No matching extension examples found.', { exact: true })
   ).toBeVisible();
   await expect(
     section.locator('text=git submodule update --init --recursive')

@@ -119,12 +119,12 @@ export class ExampleSidebar extends ReactWidget {
               No extension examples are available.
             </p>
             <p className="jp-PluginPlayground-count jp-PluginPlayground-emptyStateLine">
-              If this repository was cloned from source run{' '}
+              If this repository was cloned from source, run{' '}
               <code>git submodule update --init --recursive</code> from the
               project root, then restart JupyterLab.
             </p>
             <p className="jp-PluginPlayground-count jp-PluginPlayground-emptyStateLine">
-              If installed from PyPI ensure the{' '}
+              If installed from PyPI, ensure the{' '}
               <code>jupyterlab_plugin_playground</code> server extension is
               enabled (run <code>jupyter server extension list</code> to check),
               then restart JupyterLab.
