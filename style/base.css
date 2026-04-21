@@ -221,41 +221,14 @@
   position: relative;
 }
 
-.jp-PluginPlayground-argumentSchemaIcon {
-  align-items: center;
-  display: inline-flex;
-  height: 20px;
-  justify-content: center;
-  line-height: 1;
-  position: relative;
-  width: 20px;
-}
-
 .jp-PluginPlayground-actionButton:not(:disabled):hover {
   background: var(--jp-layout-color3);
 }
 
-.jp-PluginPlayground-argumentSchemaBaseIcon {
-  height: 100% !important;
-  width: 100% !important;
-}
-
-.jp-PluginPlayground-argumentSchemaBaseIcon svg {
-  height: 100% !important;
-  width: 100% !important;
-}
-
-.jp-PluginPlayground-argumentSchemaCount {
-  color: var(--jp-inverse-layout-color3);
+.jp-PluginPlayground-argumentCountBadge {
   font-family: var(--jp-code-font-family);
-  font-size: 8px;
-  font-weight: 700;
-  left: 50%;
-  line-height: 1;
-  pointer-events: none;
-  position: absolute;
-  top: 50%;
-  transform: translate(-45%, -45%);
+  font-size: var(--jp-ui-font-size0);
+  font-weight: 600;
 }
 
 .jp-PluginPlayground-argumentBadgeButton:disabled {
@@ -267,7 +240,7 @@
 }
 
 .jp-PluginPlayground-argumentBadgeButton:disabled
-  .jp-PluginPlayground-argumentSchemaCount {
+  .jp-PluginPlayground-argumentCountBadge {
   color: var(--jp-ui-font-color2);
 }
 

@@ -5,7 +5,6 @@ import docsLinkIconSvgstr from '!!raw-loader!../style/icons/docs-link.svg';
 import npmPackageIconSvgstr from '!!raw-loader!../style/icons/npm-package.svg';
 import githubRepositoryIconSvgstr from '!!raw-loader!../style/icons/github-repository.svg';
 import gitRepositoryIconSvgstr from '!!raw-loader!../style/icons/git-repository.svg';
-import schemaNumberIconSvgstr from '!!raw-loader!../style/icons/schema-number.svg';
 import loadOnSaveToggleIconSvgstr from '!!raw-loader!../style/icons/load-on-save.svg';
 import runTileIconSvgstr from '!!raw-loader!../style/icons/run-tile.svg';
 
@@ -32,11 +31,6 @@ export const githubRepositoryIcon = new LabIcon({
 export const gitRepositoryIcon = new LabIcon({
   name: 'plugin-playground:git-repository',
   svgstr: gitRepositoryIconSvgstr
-});
-
-export const schemaNumberIcon = new LabIcon({
-  name: 'plugin-playground:schema-number',
-  svgstr: schemaNumberIconSvgstr
 });
 
 export const loadOnSaveToggleIcon = new LabIcon({
