@@ -110,7 +110,7 @@ export class ExampleSidebar extends ReactWidget {
         ) : null}
         {hasNoMatchingExamples ? (
           <p className="jp-PluginPlayground-count">
-            No matching extension examples Found.
+            No matching extension examples found.
           </p>
         ) : null}
         {isExamplesUnavailable ? (
