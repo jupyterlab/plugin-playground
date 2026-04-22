@@ -6,18 +6,21 @@ import type { IJupyterLabPageFixture } from '@jupyterlab/galata';
 import type { Locator } from '@playwright/test';
 
 const CREATE_FILE_COMMAND = 'plugin-playground:create-new-plugin';
+const LAUNCHER_CREATE_COMMAND = 'launcher:create';
 const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
 const TOKEN_SECTION_ID = 'jp-plugin-token-sidebar';
 const EXAMPLE_SECTION_ID = 'jp-plugin-example-sidebar';
 const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
 const READABLE_DEMO_FILE = 'readme-screenshots.ts';
+const DEMO_PACKAGE_JSON_FILE = 'package.json';
 const RIGHT_SIDEBAR_SCREENSHOT_WIDTH = 300;
 const EXTENSION_POINTS_GALLERY_WIDTH = 290;
 const EXTENSION_EXAMPLES_BOTTOM_PADDING = 24;
 const EXTENSION_EXAMPLES_MIN_HEIGHT = 180;
-const EDITOR_TOOLBAR_SCREENSHOT_HEIGHT = 420;
 const SETTINGS_BOTTOM_PADDING = 120;
 const SETTINGS_MIN_HEIGHT = 320;
+const SETTINGS_TIGHT_BOTTOM_PADDING = 80;
+const SETTINGS_TIGHT_MIN_HEIGHT = 240;
 const SCREENSHOT_OUTPUT_DIR = path.resolve(
   __dirname,
   '../../docs/images/readme'
@@ -96,24 +99,110 @@ async function saveSectionCroppedToAnchor(
   });
 }
 
-async function saveTopCroppedScreenshot(
+function clampClipToViewport(
+  clip: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  },
+  viewport: {
+    width: number;
+    height: number;
+  } | null
+): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} {
+  if (!viewport) {
+    return clip;
+  }
+
+  const clampedX = Math.min(Math.max(0, clip.x), viewport.width - 1);
+  const clampedY = Math.min(Math.max(0, clip.y), viewport.height - 1);
+  const maxWidth = Math.max(1, viewport.width - clampedX);
+  const maxHeight = Math.max(1, viewport.height - clampedY);
+
+  return {
+    x: clampedX,
+    y: clampedY,
+    width: Math.min(maxWidth, clip.width),
+    height: Math.min(maxHeight, clip.height)
+  };
+}
+
+async function saveToolbarDropdownScreenshot(
   page: IJupyterLabPageFixture,
-  section: Locator,
-  filename: string,
-  maxHeight: number
+  button: Locator,
+  menu: Locator,
+  filename: string
 ): Promise<void> {
-  const sectionBox = await section.boundingBox();
-  if (!sectionBox) {
-    await saveScreenshot(section, filename);
+  const buttonBox = await button.boundingBox();
+  const menuBox = await menu.boundingBox();
+  if (!buttonBox || !menuBox) {
+    await saveScreenshot(menu, filename);
     return;
   }
 
-  const clip = {
-    x: Math.max(0, Math.floor(sectionBox.x)),
-    y: Math.max(0, Math.floor(sectionBox.y)),
-    width: Math.max(1, Math.floor(sectionBox.width)),
-    height: Math.max(1, Math.min(Math.floor(sectionBox.height), maxHeight))
-  };
+  const viewport = page.viewportSize();
+  const clip = clampClipToViewport(
+    {
+      x: Math.max(0, Math.floor(menuBox.x - 4)),
+      y: Math.max(0, Math.floor(buttonBox.y - 2)),
+      width: Math.max(1, Math.ceil(menuBox.width + 12)),
+      height: Math.max(
+        1,
+        Math.ceil(menuBox.y + menuBox.height - buttonBox.y + 2)
+      )
+    },
+    viewport
+  );
+
+  await page.screenshot({
+    path: path.join(SCREENSHOT_OUTPUT_DIR, filename),
+    clip
+  });
+}
+
+async function saveLocatorsCroppedScreenshot(
+  page: IJupyterLabPageFixture,
+  locators: Locator[],
+  filename: string,
+  options?: {
+    leftPadding?: number;
+    rightPadding?: number;
+    topPadding?: number;
+    bottomPadding?: number;
+  }
+): Promise<void> {
+  const leftPadding = options?.leftPadding ?? 0;
+  const rightPadding = options?.rightPadding ?? 24;
+  const topPadding = options?.topPadding ?? 0;
+  const bottomPadding = options?.bottomPadding ?? 12;
+  const boxes = (
+    await Promise.all(locators.map(locator => locator.boundingBox()))
+  ).filter((box): box is NonNullable<typeof box> => box !== null);
+  if (!boxes.length) {
+    await saveScreenshot(locators[0], filename);
+    return;
+  }
+
+  const minX = Math.min(...boxes.map(box => box.x));
+  const minY = Math.min(...boxes.map(box => box.y));
+  const maxX = Math.max(...boxes.map(box => box.x + box.width));
+  const maxY = Math.max(...boxes.map(box => box.y + box.height));
+  const viewport = page.viewportSize();
+  const clip = clampClipToViewport(
+    {
+      x: Math.max(0, Math.floor(minX - leftPadding)),
+      y: Math.max(0, Math.floor(minY - topPadding)),
+      width: Math.max(1, Math.ceil(maxX - minX + leftPadding + rightPadding)),
+      height: Math.max(1, Math.ceil(maxY - minY + topPadding + bottomPadding))
+    },
+    viewport
+  );
 
   await page.screenshot({
     path: path.join(SCREENSHOT_OUTPUT_DIR, filename),
@@ -198,6 +287,67 @@ test('generate README screenshots', async ({ page }) => {
     )
   );
 
+  await page.evaluate(async () => {
+    if (window.jupyterapp.commands.hasCommand('application:reset-layout')) {
+      await window.jupyterapp.commands.execute('application:reset-layout');
+    }
+  });
+
+  await page.evaluate(async (commandId: string) => {
+    if (window.jupyterapp.commands.hasCommand(commandId)) {
+      await window.jupyterapp.commands.execute(commandId);
+    }
+  }, LAUNCHER_CREATE_COMMAND);
+  const launcherPanel = page
+    .getByRole('tabpanel', { name: 'Launcher' })
+    .first();
+  await expect(launcherPanel).toBeVisible({
+    timeout: 20_000
+  });
+  const launcherPluginPlaygroundSection = launcherPanel
+    .locator('.jp-Launcher-section')
+    .filter({ hasText: 'Plugin Playground' })
+    .first();
+  if ((await launcherPluginPlaygroundSection.count()) > 0) {
+    await expect(launcherPluginPlaygroundSection).toBeVisible();
+    await launcherPluginPlaygroundSection.evaluate(section => {
+      const launcherSection = section as HTMLElement;
+      launcherSection.scrollTop = launcherSection.scrollHeight;
+      let current: HTMLElement | null = launcherSection;
+      while (current) {
+        if (current.scrollHeight > current.clientHeight) {
+          current.scrollTop = current.scrollHeight;
+        }
+        current = current.parentElement;
+      }
+    });
+    const launcherCards =
+      launcherPluginPlaygroundSection.locator('.jp-LauncherCard');
+    const launcherFirstCard = launcherCards.first();
+    const launcherLastCard = launcherCards.last();
+    const launcherHeader = launcherPluginPlaygroundSection
+      .getByText('Plugin Playground')
+      .first();
+    const launcherLastCardLabel = launcherLastCard.getByText(/Take the Tour/i);
+    await expect(launcherHeader).toBeVisible();
+    await expect(launcherFirstCard).toBeVisible();
+    await expect(launcherLastCard).toBeVisible();
+    await expect(launcherLastCardLabel).toBeVisible();
+    await saveLocatorsCroppedScreenshot(
+      page,
+      [launcherHeader, launcherFirstCard, launcherLastCardLabel],
+      'launcher-plugin-playground-tile.png',
+      {
+        leftPadding: 2,
+        rightPadding: 16,
+        topPadding: 4,
+        bottomPadding: 24
+      }
+    );
+  } else {
+    await saveScreenshot(launcherPanel, 'launcher-plugin-playground-tile.png');
+  }
+
   await page.evaluate(async (filePath: string) => {
     try {
       await window.jupyterapp.serviceManager.contents.delete(filePath);
@@ -239,18 +389,73 @@ test('generate README screenshots', async ({ page }) => {
   if ((await loadOnSaveToggle.getAttribute('aria-pressed')) !== 'true') {
     await loadOnSaveToggle.click();
   }
+  await page.evaluate(async (packagePath: string) => {
+    await window.jupyterapp.serviceManager.contents.save(packagePath, {
+      type: 'file',
+      format: 'text',
+      content: JSON.stringify(
+        {
+          name: 'readme-screenshots-demo',
+          version: '0.1.0'
+        },
+        null,
+        2
+      )
+    });
+  }, DEMO_PACKAGE_JSON_FILE);
 
   const extensionPointsSection = await openSidebarPanel(page, TOKEN_SECTION_ID);
   const sidebarSide =
     (await page.sidebar.getTabPosition(PLAYGROUND_SIDEBAR_ID)) ?? 'right';
   await page.sidebar.setWidth(EXTENSION_POINTS_GALLERY_WIDTH, sidebarSide);
 
-  await saveTopCroppedScreenshot(
+  await saveScreenshot(toolbar, 'editor-toolbar-actions.png');
+
+  const exportFormatButton = page.getByRole('button', {
+    name: 'Choose export format'
+  });
+  await expect(exportFormatButton).toBeVisible();
+  await exportFormatButton.click();
+  await expect(
+    page
+      .locator('.lm-Menu-itemLabel')
+      .filter({
+        hasText: /(zip|archive|Python package|\.whl)/i
+      })
+      .first()
+  ).toBeVisible();
+  const shareTargetButton = page.getByRole('button', {
+    name: 'Choose share target'
+  });
+  await expect(shareTargetButton).toBeVisible();
+  const exportMenu = page.locator('.lm-Menu:visible').last();
+  await expect(exportMenu).toBeVisible();
+  await saveToolbarDropdownScreenshot(
     page,
-    editorPanel,
-    'editor-toolbar-actions.png',
-    EDITOR_TOOLBAR_SCREENSHOT_HEIGHT
+    exportFormatButton,
+    exportMenu,
+    'editor-toolbar-export-dropdown.png'
   );
+  await page.keyboard.press('Escape');
+
+  await shareTargetButton.click();
+  await expect(
+    page
+      .locator('.lm-Menu-itemLabel')
+      .filter({
+        hasText: /Share/i
+      })
+      .first()
+  ).toBeVisible();
+  const shareMenu = page.locator('.lm-Menu:visible').last();
+  await expect(shareMenu).toBeVisible();
+  await saveToolbarDropdownScreenshot(
+    page,
+    shareTargetButton,
+    shareMenu,
+    'editor-toolbar-share-dropdown.png'
+  );
+  await page.keyboard.press('Escape');
 
   await extensionPointsSection.getByRole('tab', { name: 'Tokens' }).click();
   const tokenFilter = extensionPointsSection.getByPlaceholder(
@@ -359,34 +564,69 @@ test('generate README screenshots', async ({ page }) => {
     timeout: 20_000
   });
   const settingsSearchInput = settingsPanel.getByRole('searchbox').first();
-  await settingsSearchInput.fill('Default command insertion mode');
-  await expect(
-    settingsPanel.getByText('Default command insertion mode').first()
-  ).toBeVisible({
-    timeout: 20_000
-  });
-  const defaultInsertModeSetting = settingsPanel
-    .getByText('Default command insertion mode')
-    .first();
-  await saveSectionCroppedToAnchor(
-    page,
-    settingsPanel,
-    defaultInsertModeSetting,
-    'settings-command-insert-default-mode.png',
+  const saveSettingScreenshot = async (
+    searchQuery: string,
+    settingLabel: string,
+    filename: string,
+    options?: {
+      bottomPadding?: number;
+      minHeight?: number;
+    }
+  ): Promise<void> => {
+    await settingsSearchInput.fill(searchQuery);
+    const settingAnchor = settingsPanel.getByText(settingLabel).first();
+    await expect(settingAnchor).toBeVisible({
+      timeout: 20_000
+    });
+    await saveSectionCroppedToAnchor(
+      page,
+      settingsPanel,
+      settingAnchor,
+      filename,
+      {
+        bottomPadding: options?.bottomPadding ?? SETTINGS_BOTTOM_PADDING,
+        minHeight: options?.minHeight ?? SETTINGS_MIN_HEIGHT
+      }
+    );
+  };
+
+  await saveSettingScreenshot(
+    'Default command insertion mode',
+    'Default command insertion mode',
+    'settings-command-insert-default-mode.png'
+  );
+  await saveSettingScreenshot(
+    'Load as extension on save',
+    'Load as extension on save',
+    'settings-run-on-save.png',
     {
-      bottomPadding: SETTINGS_BOTTOM_PADDING,
-      minHeight: SETTINGS_MIN_HEIGHT
+      bottomPadding: SETTINGS_TIGHT_BOTTOM_PADDING,
+      minHeight: SETTINGS_TIGHT_MIN_HEIGHT
+    }
+  );
+  await saveSettingScreenshot(
+    'Show file selection dialog on folder share',
+    'Show file selection dialog on folder share',
+    'settings-share-folder-selection-dialog-mode.png',
+    {
+      bottomPadding: SETTINGS_TIGHT_BOTTOM_PADDING,
+      minHeight: SETTINGS_TIGHT_MIN_HEIGHT
     }
   );
 
-  await page.evaluate(async (filePath: string) => {
-    try {
-      await window.jupyterapp.serviceManager.contents.delete(filePath);
-    } catch (error) {
-      console.warn(
-        `Could not delete screenshot demo file "${filePath}"`,
-        error
-      );
-    }
-  }, READABLE_DEMO_FILE);
+  await page.evaluate(
+    async (filePaths: string[]) => {
+      for (const filePath of filePaths) {
+        try {
+          await window.jupyterapp.serviceManager.contents.delete(filePath);
+        } catch (error) {
+          console.warn(
+            `Could not delete screenshot demo file "${filePath}"`,
+            error
+          );
+        }
+      }
+    },
+    [READABLE_DEMO_FILE, DEMO_PACKAGE_JSON_FILE]
+  );
 });

@@ -916,7 +916,12 @@ class PluginPlayground {
       className: 'jp-PluginPlayground-loadOnSaveIcon'
     });
     toggleButton.append(icon);
+    const labelButton = document.createElement('span');
+    labelButton.className =
+      'jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-loadOnSaveText';
+    labelButton.textContent = LOAD_ON_SAVE_CHECKBOX_LABEL;
     toggleNode.append(toggleButton);
+    toggleNode.append(labelButton);
 
     const toggleWidget = new Widget({ node: toggleNode });
     toggleWidget.addClass('jp-PluginPlayground-loadOnSaveWidget');
@@ -943,6 +948,7 @@ class PluginPlayground {
         ? LOAD_ON_SAVE_ENABLED_DESCRIPTION
         : LOAD_ON_SAVE_DISABLED_DESCRIPTION;
       toggleButton.title = description;
+      labelButton.title = description;
     };
 
     const onToggleClicked = () => {
@@ -981,6 +987,7 @@ class PluginPlayground {
     };
 
     toggleButton.addEventListener('click', onToggleClicked);
+    labelButton.addEventListener('click', onToggleClicked);
     widget.context.pathChanged.connect(onPathChanged);
     this._loadOnSaveToggleRefreshers.add(refresh);
     refresh();
@@ -992,6 +999,7 @@ class PluginPlayground {
       }
       isDisposed = true;
       toggleButton.removeEventListener('click', onToggleClicked);
+      labelButton.removeEventListener('click', onToggleClicked);
       widget.context.pathChanged.disconnect(onPathChanged);
       this._loadOnSaveToggleRefreshers.delete(refresh);
     };

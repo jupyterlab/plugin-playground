@@ -279,6 +279,14 @@ async function findLoadOnSaveToggle(
   return toggle;
 }
 
+async function findLoadOnSaveToggleLabel(
+  page: IJupyterLabPageFixture
+): Promise<Locator> {
+  const label = page.locator('.jp-PluginPlayground-loadOnSaveText');
+  await expect(label).toBeVisible();
+  return label;
+}
+
 async function focusActiveEditor(page: IJupyterLabPageFixture): Promise<void> {
   await page.evaluate(() => {
     const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
@@ -3961,8 +3969,9 @@ test('per-file load-on-save toggle is off by default and enables auto-load', asy
   expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
 
   const loadOnSaveToggle = await findLoadOnSaveToggle(page);
+  const loadOnSaveToggleLabel = await findLoadOnSaveToggleLabel(page);
   await expect(loadOnSaveToggle).toHaveAttribute('aria-pressed', 'false');
-  await loadOnSaveToggle.click();
+  await loadOnSaveToggleLabel.click();
   await expect(loadOnSaveToggle).toHaveAttribute('aria-pressed', 'true');
 
   await focusActiveEditor(page);

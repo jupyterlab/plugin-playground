@@ -197,11 +197,11 @@
 }
 
 .jp-PluginPlayground-commandInsertAIMarkerIcon {
-  top: -5px;
+  top: -7px;
   height: 10px;
   pointer-events: none;
   position: absolute;
-  right: 7px;
+  right: 6px;
   width: 10px;
 }
 
@@ -516,6 +516,8 @@
 .jp-PluginPlayground-loadOnSaveToggle.jp-mod-disabled
   .jp-PluginPlayground-loadOnSaveText {
   color: var(--jp-ui-font-color2);
+  cursor: default;
+  pointer-events: none;
 }
 
 .jp-PluginPlayground-loadOnSaveToggleIconButton {
@@ -550,7 +552,7 @@
 }
 
 .jp-PluginPlayground-loadOnSaveToggleIconButton[aria-pressed='true']:hover {
-  background: var(--jp-layout-color3);
+  background: var(--jp-layout-color2);
 }
 
 .jp-PluginPlayground-loadOnSaveToggleIconButton:disabled {
@@ -578,10 +580,20 @@
 }
 
 .jp-PluginPlayground-loadOnSaveText {
+  align-items: center;
+  color: var(--jp-ui-font-color1);
+  display: inline-flex;
   font-family: var(--jp-ui-font-family);
   font-size: var(--jp-ui-font-size1);
+  height: 24px !important;
+  justify-content: center;
   line-height: 100%;
-  padding-left: 2px;
+  margin: 0;
+  min-height: unset;
+  min-width: unset;
+  padding: 0 6px !important;
+  text-align: center;
+  user-select: none;
   white-space: nowrap;
 }
 

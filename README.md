@@ -27,6 +27,8 @@ pip install jupyterlab-plugin-playground
 Plugin Playground is built to keep the full plugin prototyping workflow inside JupyterLab. In the editor toolbar, you can load the active file as an extension, export the current plugin folder as a starter extension archive, copy a shareable plugin link, and enable per-file `Auto Load on Save` for faster iteration while editing.
 
 ![Plugin Playground editor toolbar actions](docs/images/readme/editor-toolbar-actions.png)
+![Export format dropdown in editor toolbar](docs/images/readme/editor-toolbar-export-dropdown.png)
+![Share target dropdown in editor toolbar](docs/images/readme/editor-toolbar-share-dropdown.png)
 
 The right sidebar includes a single Plugin Playground panel with two collapsible sections. In **Extension Points**, the `Tokens` tab helps you discover available token strings and insert import/dependency updates, the `Commands` tab lets you search command IDs, inspect argument docs, and insert execution snippets (either directly or through AI-assisted prompt mode), and the `Packages` tab surfaces package docs plus npm and repository links for known modules.
 
@@ -41,6 +43,8 @@ The **Extension Examples** section lists discovered examples from `extension-exa
 Command completion is also included for `app.commands.execute(...)` / `commands.execute(...)` in JavaScript and TypeScript editors, and Notebook v7 integrates `Start from File`, `Build with AI`, and `Take the Tour` into New-file flows so you can create starter plugin files from the tree interface.
 
 The Launcher `Plugin Playground` section includes `Start from File`, `Build with AI`, and `Take the Tour` so first-time users can pick a guided flow quickly.
+
+![Plugin Playground launcher tiles](docs/images/readme/launcher-plugin-playground-tile.png)
 
 To regenerate the screenshots used in this README:
 
@@ -279,7 +283,11 @@ Plugin Playground settings are available in `Settings > Settings Editor > Plugin
 
 `commandInsertDefaultMode` sets the default behavior for the `+` action in the Commands tab (`insert` for direct insertion or `ai` for AI-assisted prompt flow).
 
+`shareFolderSelectionDialogMode` controls when folder sharing prompts for file selection (`always`, `auto-excluded-or-limit`, `limit-only`).
+
 ![Plugin Playground settings showing command insert default mode](docs/images/readme/settings-command-insert-default-mode.png)
+![Plugin Playground settings showing load-on-save](docs/images/readme/settings-run-on-save.png)
+![Plugin Playground settings showing folder-share dialog mode](docs/images/readme/settings-share-folder-selection-dialog-mode.png)
 
 For startup automation, there are two complementary settings:
 
