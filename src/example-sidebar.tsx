@@ -60,6 +60,12 @@ export class ExampleSidebar extends ReactWidget {
   render(): JSX.Element {
     const filteredExamples = filterExampleRecords(this._examples, this._query);
     const isExamplesLoaded = !this._isLoading && !this._errorMessage;
+    const isExamplesUnavailable =
+      isExamplesLoaded && this._examples.length === 0;
+    const hasNoMatchingExamples =
+      isExamplesLoaded &&
+      this._examples.length > 0 &&
+      filteredExamples.length === 0;
     const countSummary = isExamplesLoaded
       ? `${filteredExamples.length} of ${this._examples.length} extension examples`
       : 'Loading extension examples';
@@ -102,23 +108,31 @@ export class ExampleSidebar extends ReactWidget {
             Failed to load extension examples: {this._errorMessage}
           </p>
         ) : null}
-        {!this._isLoading &&
-        !this._errorMessage &&
-        filteredExamples.length === 0 ? (
-          <div>
-            <p className="jp-PluginPlayground-count">
-              No extension examples found in <code>extension-examples/</code>.
+        {hasNoMatchingExamples ? (
+          <p className="jp-PluginPlayground-count">
+            No matching extension examples found.
+          </p>
+        ) : null}
+        {isExamplesUnavailable ? (
+          <div className="jp-PluginPlayground-emptyState">
+            <p className="jp-PluginPlayground-count jp-PluginPlayground-emptyStateLine">
+              No extension examples are available.
             </p>
-            <p className="jp-PluginPlayground-count">
+            <p className="jp-PluginPlayground-count jp-PluginPlayground-emptyStateLine">
               If this repository was cloned from source, run{' '}
               <code>git submodule update --init --recursive</code> from the
-              project root.
+              project root, then restart JupyterLab.
             </p>
-            <p className="jp-PluginPlayground-count">
-              If installed from PyPI, clone{' '}
+            <p className="jp-PluginPlayground-count jp-PluginPlayground-emptyStateLine">
+              If installed from PyPI, ensure the{' '}
+              <code>jupyterlab_plugin_playground</code> server extension is
+              enabled (run <code>jupyter server extension list</code> to check),
+              then restart JupyterLab.
+            </p>
+            <p className="jp-PluginPlayground-count jp-PluginPlayground-emptyStateLine">
+              If still unavailable, clone{' '}
               <code>https://github.com/jupyterlab/extension-examples</code> as{' '}
-              <code>extension-examples/</code> in your working directory and
-              refresh JupyterLab.
+              <code>extension-examples/</code> in your working directory.
             </p>
           </div>
         ) : null}

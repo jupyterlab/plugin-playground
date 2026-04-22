@@ -209,16 +209,6 @@
   position: relative;
 }
 
-.jp-PluginPlayground-argumentSchemaIcon {
-  align-items: center;
-  display: inline-flex;
-  height: 20px;
-  justify-content: center;
-  line-height: 1;
-  position: relative;
-  width: 20px;
-}
-
 .jp-PluginPlayground-actionButton:not(:disabled):hover {
   background: var(--jp-layout-color3);
 }
@@ -241,14 +231,8 @@
 .jp-PluginPlayground-argumentSchemaCount {
   color: var(--jp-inverse-layout-color3);
   font-family: var(--jp-code-font-family);
-  font-size: 8px;
-  font-weight: 700;
-  left: 50%;
-  line-height: 1;
-  pointer-events: none;
-  position: absolute;
-  top: 50%;
-  transform: translate(-45%, -45%);
+  font-size: var(--jp-ui-font-size0);
+  font-weight: 600;
 }
 
 .jp-PluginPlayground-argumentBadgeButton:disabled {
@@ -260,7 +244,7 @@
 }
 
 .jp-PluginPlayground-argumentBadgeButton:disabled
-  .jp-PluginPlayground-argumentSchemaCount {
+  .jp-PluginPlayground-argumentCountBadge {
   color: var(--jp-ui-font-color2);
 }
 
@@ -335,6 +319,21 @@
   font-size: var(--jp-ui-font-size0);
   margin: 8px 0 0;
   white-space: normal;
+}
+
+.jp-PluginPlayground-emptyState {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.jp-PluginPlayground-emptyStateLine {
+  line-height: 1.4;
+  margin: 0;
+}
+
+.jp-PluginPlayground-emptyStateLine code {
+  font-size: inherit;
 }
 
 .jp-PluginPlayground-tokenString {
