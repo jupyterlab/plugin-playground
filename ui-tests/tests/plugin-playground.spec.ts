@@ -711,6 +711,54 @@ test('opens a dummy extension example from the sidebar', async ({ page }) => {
   }, expectedReadmePath);
 });
 
+test('shows a no-match empty state for extension example filters', async ({
+  page
+}) => {
+  const integrationExampleName = 'integration-example-filter-no-match';
+  const integrationExampleRoot = `extension-examples/${integrationExampleName}`;
+  const expectedPath = `${integrationExampleRoot}/src/index.ts`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: '@jupyterlab-examples/integration-example-filter-no-match',
+        description: 'Integration test extension example (filter empty state)'
+      },
+      null,
+      2
+    ),
+    'text',
+    `${integrationExampleRoot}/package.json`
+  );
+  await page.contents.uploadContent(
+    "const plugin = { id: 'integration-example-filter-no-match:plugin', autoStart: true, activate: () => undefined }; export default plugin;\n",
+    'text',
+    expectedPath
+  );
+
+  await page.goto();
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LIST_EXAMPLES_COMMAND)
+  );
+
+  const section = await openSidebarPanel(page, EXAMPLE_SECTION_ID);
+  const filterInput = section.getByPlaceholder('Filter extension examples');
+  await expect(filterInput).toBeVisible();
+
+  await filterInput.fill('does-not-match-any-example');
+
+  const exampleItems = section.locator('.jp-PluginPlayground-listItem');
+  await expect(exampleItems).toHaveCount(0);
+  await expect(
+    section.getByText('No matching extension examples found.', { exact: true })
+  ).toBeVisible();
+  await expect(
+    section.locator('text=git submodule update --init --recursive')
+  ).toHaveCount(0);
+});
+
 test('creates a plugin file with an explicit path argument', async ({
   page,
   tmpPath
@@ -1489,6 +1537,9 @@ test('exports active extension folder as a Python package from toolbar dropdown'
     name: /Export plugin folder as/
   });
   await expect(exportButton).toBeVisible();
+  await expect(
+    exportButton.locator('.jp-PluginPlayground-actionLabel')
+  ).toHaveText('Export .whl');
   await exportButton.click();
 
   await page.waitForCondition(() =>
@@ -2726,17 +2777,16 @@ test('shows toolbar share dropdown package option availability', async ({
     '.jp-PluginPlayground-shareDropdownButton'
   );
   await expect(shareToolbarButton).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Share file' })).toBeVisible();
 
   await shareToolbarButton.click();
-  const singleFileMenuItem = page.getByRole('menuitem', {
-    name: 'Share Single File',
-    exact: true
-  });
+  const singleFileMenuItem = page
+    .locator('[role="menuitem"], [role="menuitemcheckbox"]')
+    .filter({ hasText: /^Share (Single )?File$/ });
   await expect(singleFileMenuItem).toBeVisible();
-  const disabledPackageMenuItem = page.getByRole('menuitem', {
-    name: 'Share Package',
-    exact: true
-  });
+  const disabledPackageMenuItem = page
+    .locator('[role="menuitem"], [role="menuitemcheckbox"]')
+    .filter({ hasText: /^Share Package$/ });
   await expect(disabledPackageMenuItem).toBeVisible();
   await expect(disabledPackageMenuItem).toHaveClass(/lm-mod-disabled/);
   await page.keyboard.press('Escape');
@@ -2748,18 +2798,22 @@ test('shows toolbar share dropdown package option availability', async ({
   );
 
   await shareToolbarButton.click();
-  const packageMenuItem = page.getByRole('menuitem', {
-    name: 'Share Package',
-    exact: true
-  });
+  const packageMenuItem = page
+    .locator('[role="menuitem"], [role="menuitemcheckbox"]')
+    .filter({ hasText: /^Share Package$/ });
   await expect(packageMenuItem).toBeVisible();
   await expect(packageMenuItem).not.toHaveClass(/lm-mod-disabled/);
   await packageMenuItem.click();
+  await expect(
+    page.getByRole('button', { name: 'Share package' })
+  ).toBeVisible();
 
   const shareSelectedFilesButton = page.getByRole('button', {
     name: 'Share Selected Files',
     exact: true
   });
+  await expect(shareSelectedFilesButton).toBeHidden();
+  await page.getByRole('button', { name: 'Share package' }).click();
   await expect(shareSelectedFilesButton).toBeVisible();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 });

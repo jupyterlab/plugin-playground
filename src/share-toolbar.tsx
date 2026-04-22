@@ -11,14 +11,21 @@ import type { Message } from '@lumino/messaging';
 import type { Widget } from '@lumino/widgets';
 import * as React from 'react';
 
-import { SplitActionButton } from './split-action';
+import {
+  SplitActionButton,
+  toolbarActionIconState,
+  TOOLBAR_ACTION_ICON_CLASSNAME
+} from './split-action';
 
 export interface ICreateShareToolbarButtonOptions {
   commands: CommandRegistry;
   commandId: string;
-  onPrimaryClick: () => void;
+  getSelectedVariant: () => ShareToolbarVariant;
+  onPrimaryClick: (variant: ShareToolbarVariant) => void;
   onOpenMenu: (anchorButton: HTMLButtonElement) => void;
 }
+
+export type ShareToolbarVariant = 'file' | 'package';
 
 class ShareDropdownToolbarButton extends ReactWidget {
   constructor(private readonly _options: ICreateShareToolbarButtonOptions) {
@@ -40,13 +47,24 @@ class ShareDropdownToolbarButton extends ReactWidget {
   }
 
   render(): JSX.Element {
-    const leadingIcon =
+    const commandIcon =
       (this._options.commands.icon(this._options.commandId, {}) as LabIcon) ??
       shareIcon;
-    const isCopied = leadingIcon === checkIcon;
+    const selectedVariant = this._options.getSelectedVariant();
+    const isCopied = commandIcon === checkIcon;
+    const primaryLabel =
+      selectedVariant === 'package' ? 'Share Package' : 'Share File';
+    const primaryIconState = toolbarActionIconState(isCopied, commandIcon);
     const primaryTitle = isCopied
       ? 'Copied'
+      : selectedVariant === 'package'
+      ? 'Share the current package folder by creating a copyable URL link'
       : 'Share the current file by creating a copyable URL link';
+    const primaryAriaLabel = isCopied
+      ? 'Copied share link'
+      : selectedVariant === 'package'
+      ? 'Share package'
+      : 'Share file';
 
     return (
       <SplitActionButton
@@ -54,19 +72,21 @@ class ShareDropdownToolbarButton extends ReactWidget {
         onPrimaryMouseDown={event => {
           event.preventDefault();
         }}
-        onPrimaryClick={this._options.onPrimaryClick}
-        primaryAriaLabel={
-          isCopied ? 'Copied share link for current file' : 'Share current file'
-        }
+        onPrimaryClick={() => {
+          this._options.onPrimaryClick(selectedVariant);
+        }}
+        primaryAriaLabel={primaryAriaLabel}
         primaryTitle={primaryTitle}
         primaryContent={
           <>
-            {React.createElement(leadingIcon.react, {
+            {React.createElement(primaryIconState.icon.react, {
               tag: 'span',
               elementSize: 'normal',
-              className: 'jp-PluginPlayground-actionIcon'
+              className: primaryIconState.className
             })}
-            <span className="jp-PluginPlayground-actionLabel">Share</span>
+            <span className="jp-PluginPlayground-actionLabel">
+              {primaryLabel}
+            </span>
           </>
         }
         onMenuMouseDown={event => {
@@ -79,8 +99,7 @@ class ShareDropdownToolbarButton extends ReactWidget {
         menuContent={React.createElement(caretDownEmptyIcon.react, {
           tag: 'span',
           elementSize: 'normal',
-          className:
-            'jp-PluginPlayground-actionIcon jp-PluginPlayground-shareDropdownCaretIcon'
+          className: `${TOOLBAR_ACTION_ICON_CLASSNAME} jp-PluginPlayground-shareDropdownCaretIcon`
         })}
       />
     );
