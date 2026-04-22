@@ -3,7 +3,7 @@ import { IDocumentWidget } from '@jupyterlab/docregistry';
 import { FileEditor } from '@jupyterlab/fileeditor';
 import {
   caretDownEmptyIcon,
-  downloadIcon,
+  fileUploadIcon,
   MenuSvg
 } from '@jupyterlab/ui-components';
 
@@ -92,7 +92,7 @@ function createExportArchiveSplitWidget(
       const showSuccessIcon = this._successState === 'success';
       const primaryIconState = toolbarActionIconState(
         showSuccessIcon,
-        downloadIcon
+        fileUploadIcon
       );
       const primaryTitle = showSuccessIcon
         ? `Exported plugin folder as ${formatLabel}`
