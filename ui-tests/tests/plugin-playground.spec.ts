@@ -2769,15 +2769,13 @@ test('shows toolbar share dropdown package option availability', async ({
   await expect(page.getByRole('button', { name: 'Share file' })).toBeVisible();
 
   await shareToolbarButton.click();
-  const singleFileMenuItem = page.getByRole('menuitem', {
-    name: 'Share Single File',
-    exact: true
-  });
+  const singleFileMenuItem = page
+    .locator('[role="menuitem"], [role="menuitemcheckbox"]')
+    .filter({ hasText: /^Share (Single )?File$/ });
   await expect(singleFileMenuItem).toBeVisible();
-  const disabledPackageMenuItem = page.getByRole('menuitem', {
-    name: 'Share Package',
-    exact: true
-  });
+  const disabledPackageMenuItem = page
+    .locator('[role="menuitem"], [role="menuitemcheckbox"]')
+    .filter({ hasText: /^Share Package$/ });
   await expect(disabledPackageMenuItem).toBeVisible();
   await expect(disabledPackageMenuItem).toHaveClass(/lm-mod-disabled/);
   await page.keyboard.press('Escape');
@@ -2789,10 +2787,9 @@ test('shows toolbar share dropdown package option availability', async ({
   );
 
   await shareToolbarButton.click();
-  const packageMenuItem = page.getByRole('menuitem', {
-    name: 'Share Package',
-    exact: true
-  });
+  const packageMenuItem = page
+    .locator('[role="menuitem"], [role="menuitemcheckbox"]')
+    .filter({ hasText: /^Share Package$/ });
   await expect(packageMenuItem).toBeVisible();
   await expect(packageMenuItem).not.toHaveClass(/lm-mod-disabled/);
   await packageMenuItem.click();

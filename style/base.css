@@ -178,12 +178,14 @@
   z-index: 1;
   border: solid var(--jp-border-color2) !important;
   border-width: 1px 1px 1px 1px;
+  height: 30px !important;
 }
 
 .jp-PluginPlayground-splitActionMenuButton {
   z-index: 1;
   border: solid var(--jp-border-color2) !important;
-  border-width: 1px 1px 1px 1px;
+  border-width: 1px 1px 0px 1px;
+  height: 30px !important;
 }
 
 .jp-PluginPlayground-splitActionDropdownButton {
@@ -703,6 +705,7 @@
 }
 
 .jp-Toolbar > .jp-Toolbar-item[data-jp-item-name='share-extension-link'] {
+  margin-left: 5px;
   order: 1002;
 }
 
