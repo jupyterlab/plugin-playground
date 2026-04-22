@@ -9,7 +9,7 @@ import {
 import { ContentUtils } from './contents';
 
 const SHARE_TOKEN_VERSION = '1';
-const MAX_SHARED_TOKEN_PAYLOAD_CHARS = 12000;
+const MAX_SHARED_TOKEN_PAYLOAD_CHARS = 24000;
 const MAX_SHARED_PAYLOAD_BYTES = 512 * 1024;
 const SHARED_PAYLOAD_TOO_LARGE_MESSAGE = 'Shared payload is too large';
 const SHARED_PAYLOAD_TOKEN_TOO_LARGE_MESSAGE =
@@ -76,10 +76,24 @@ function normalizeSharedFolderFiles(files: unknown): Record<string, string> {
   return normalizedFiles;
 }
 
+function parseHashQueryParams(hash: string): URLSearchParams | null {
+  const trimmedHash = hash.startsWith('#') ? hash.slice(1) : hash;
+  if (!trimmedHash) {
+    return new URLSearchParams();
+  }
+  const queryLike = trimmedHash.startsWith('?')
+    ? trimmedHash.slice(1)
+    : trimmedHash;
+  if (!queryLike.includes('=')) {
+    return null;
+  }
+  return new URLSearchParams(queryLike);
+}
+
 export namespace ShareLink {
   export const SHARE_URL_PARAM = 'plugin';
-  export const SHARE_URL_WARN_LENGTH = 1800;
-  export const SHARE_URL_MAX_LENGTH = 4096;
+  export const SHARE_URL_WARN_LENGTH = 6000;
+  export const SHARE_URL_MAX_LENGTH = 12000;
 
   /**
    * Shared payload for a single plugin file.
@@ -361,6 +375,10 @@ export namespace ShareLink {
   export function getSharedPluginTokenFromLocation(): string | null {
     try {
       const url = new URL(window.location.href);
+      const hashToken = parseHashQueryParams(url.hash)?.get(SHARE_URL_PARAM);
+      if (hashToken) {
+        return hashToken;
+      }
       return url.searchParams.get(SHARE_URL_PARAM);
     } catch {
       return null;
@@ -382,20 +400,30 @@ export namespace ShareLink {
     const url = new URL(window.location.href);
     url.pathname = removeTreeRoute(url.pathname);
     url.searchParams.delete(SHARE_URL_PARAM);
-    url.searchParams.set(SHARE_URL_PARAM, token);
-    url.hash = '';
+    const hashParams = parseHashQueryParams(url.hash) ?? new URLSearchParams();
+    hashParams.delete(SHARE_URL_PARAM);
+    hashParams.set(SHARE_URL_PARAM, token);
+    url.hash = hashParams.toString();
     return url.toString();
   }
 
   export function clearSharedPluginTokenFromLocation(): void {
     try {
       const currentUrl = new URL(window.location.href);
-      if (!currentUrl.searchParams.has(SHARE_URL_PARAM)) {
+      const hasQueryToken = currentUrl.searchParams.has(SHARE_URL_PARAM);
+      const hashParams = parseHashQueryParams(currentUrl.hash);
+      const hasHashToken = hashParams?.has(SHARE_URL_PARAM) ?? false;
+      if (!hasQueryToken && !hasHashToken) {
         return;
       }
-      currentUrl.searchParams.delete(SHARE_URL_PARAM);
+      if (hasQueryToken) {
+        currentUrl.searchParams.delete(SHARE_URL_PARAM);
+      }
+      if (hashParams && hasHashToken) {
+        hashParams.delete(SHARE_URL_PARAM);
+        currentUrl.hash = hashParams.toString();
+      }
       currentUrl.pathname = removeTreeRoute(currentUrl.pathname);
-      currentUrl.hash = '';
       const next = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
       window.history.replaceState(window.history.state, '', next);
     } catch {

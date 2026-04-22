@@ -235,6 +235,8 @@ await app.commands.execute('plugin-playground:share-via-link', {
 `plugin-playground:share-via-link` shares a file or folder. If no `path` is
 provided, it shares the active file. The file/folder right-click context-menu
 entries use the selected browser item path automatically.
+Shared payload tokens are encoded in the URL fragment (`#plugin=...`) to avoid
+common query-string/request-line size limits.
 In the editor toolbar, the Share action is a dropdown with `Share Single File`
 and `Share Package`; package sharing is enabled when a
 `package.json` is found in the current file directory or its parent directory.

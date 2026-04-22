@@ -1867,12 +1867,18 @@ export default plugin;
   expect(shareResult.urlLength).toBeGreaterThan(0);
 
   const parsed = new URL(shareResult.link);
-  const payloadToken = parsed.searchParams.get('plugin');
+  expect(parsed.hash).toContain('plugin=');
+  const hashQuery = parsed.hash.startsWith('#')
+    ? parsed.hash.slice(1)
+    : parsed.hash;
+  const payloadToken =
+    parsed.searchParams.get('plugin') ??
+    new URLSearchParams(hashQuery).get('plugin');
   expect(payloadToken).toBeTruthy();
   expect(payloadToken ?? '').toMatch(/^1\.[gr]\.[A-Za-z0-9_-]+$/);
 });
 
-test('loads a shared plugin from URL and clears query param', async ({
+test('loads a shared plugin from URL and clears share token', async ({
   page,
   tmpPath
 }) => {
@@ -2077,8 +2083,12 @@ export default plugin;
     }, restoredPath);
     const browserState = await page.evaluate((toggleCommand: string) => {
       const currentUrl = new URL(window.location.href);
+      const hashQuery = currentUrl.hash.startsWith('#')
+        ? currentUrl.hash.slice(1)
+        : currentUrl.hash;
       return {
         pluginQueryParam: currentUrl.searchParams.get('plugin'),
+        pluginHashParam: new URLSearchParams(hashQuery).get('plugin'),
         hasLoadedToggleCommand:
           window.jupyterapp.commands.hasCommand(toggleCommand)
       };
@@ -2129,6 +2139,7 @@ export default plugin;
     expect(restoredPath.includes(`/${sourceFilename}`)).toBe(true);
     expect(restoredSource?.trim()).toBe(sharedPluginSource.trim());
     expect(browserState.pluginQueryParam).toBeNull();
+    expect(browserState.pluginHashParam).toBeNull();
     expect(browserState.hasLoadedToggleCommand).toBe(true);
     expect(hasUntitledFolderWithSameNamedFile).toBe(false);
   } finally {
@@ -2622,11 +2633,11 @@ test.describe('share folder selection dialog modes', () => {
       const sourcePath = `${folderPath}/index.ts`;
       const helperPath = `${folderPath}/helper.ts`;
       const indexSource = Array.from(
-        { length: 1600 },
+        { length: 4000 },
         (_, index) => `${index.toString(36)}|`
       ).join('');
       const helperSource = Array.from(
-        { length: 1600 },
+        { length: 4000 },
         (_, index) => `${(index + 5000).toString(36)}#`
       ).join('');
 
