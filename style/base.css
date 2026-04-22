@@ -530,7 +530,7 @@
   margin: 0;
   min-height: unset;
   min-width: unset;
-  padding: 0 5px !important;
+  padding: 0 !important;
   text-align: center;
   user-select: none;
   width: auto;
@@ -591,10 +591,15 @@
   margin: 0;
   min-height: unset;
   min-width: unset;
-  padding: 0 6px !important;
+  padding: 0 4px !important;
   text-align: center;
   user-select: none;
   white-space: nowrap;
+}
+
+[data-command='plugin-playground:load-as-extension']
+  .jp-ToolbarButtonComponent-label {
+  padding-left: 4px;
 }
 
 .jp-PluginPlayground-urlLoadedEditorHint
