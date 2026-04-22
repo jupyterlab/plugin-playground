@@ -338,10 +338,10 @@ test('generate README screenshots', async ({ page }) => {
       [launcherHeader, launcherFirstCard, launcherLastCardLabel],
       'launcher-plugin-playground-tile.png',
       {
-        leftPadding: 2,
+        leftPadding: 32,
         rightPadding: 16,
-        topPadding: 4,
-        bottomPadding: 24
+        topPadding: 12,
+        bottomPadding: 4
       }
     );
   } else {
