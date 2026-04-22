@@ -589,6 +589,7 @@
   justify-content: center;
   line-height: 100%;
   margin: 0;
+  margin-left: -2px;
   min-height: unset;
   min-width: unset;
   padding: 0 4px !important;
