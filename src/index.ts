@@ -288,7 +288,7 @@ const CREATE_PLUGIN_FROM_NOTEBOOK_TREE_ARGS_SCHEMA = {
   }
 };
 const LOAD_ON_SAVE_TOGGLE_TOOLBAR_ITEM = 'plugin-playground-load-on-save';
-const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
+const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Run on save';
 const LOAD_ON_SAVE_SETTING = 'loadOnSave';
 const COMMAND_INSERT_DEFAULT_MODE_SETTING = 'commandInsertDefaultMode';
 const LOAD_ON_SAVE_ENABLED_DESCRIPTION =

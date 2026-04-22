@@ -150,7 +150,7 @@ const PLUGIN_PLAYGROUND_TOUR: IPluginPlaygroundTour = {
     },
     {
       target: '.jp-PluginPlayground-loadOnSaveWidget',
-      title: 'Auto Load on Save',
+      title: 'Run on save',
       placement: 'bottom',
       content:
         'Turn this on if you want saves to reload your plugin automatically while you iterate.'

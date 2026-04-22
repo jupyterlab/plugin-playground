@@ -41,7 +41,7 @@ const JUPYTERLITE_AI_CHAT_PANEL_ID = '@jupyterlite/ai:chat-panel';
 const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
 const TOKEN_SECTION_ID = 'jp-plugin-token-sidebar';
 const EXAMPLE_SECTION_ID = 'jp-plugin-example-sidebar';
-const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
+const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Run on save';
 const FOLDER_SHARE_DISABLE_DIALOG_CHECKBOX_LABEL =
   'Do not ask me again if all files can be included';
 

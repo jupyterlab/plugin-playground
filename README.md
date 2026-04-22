@@ -24,7 +24,7 @@ pip install jupyterlab-plugin-playground
 
 ### Feature Highlights
 
-Plugin Playground is built to keep the full plugin prototyping workflow inside JupyterLab. In the editor toolbar, you can load the active file as an extension, export the current plugin folder as a starter extension archive, copy a shareable plugin link, and enable per-file `Auto Load on Save` for faster iteration while editing.
+Plugin Playground is built to keep the full plugin prototyping workflow inside JupyterLab. In the editor toolbar, you can load the active file as an extension, export the current plugin folder as a starter extension archive, copy a shareable plugin link, and enable per-file `Run on save` for faster iteration while editing.
 
 ![Plugin Playground editor toolbar actions](docs/images/readme/editor-toolbar-actions.png)
 ![Export format dropdown in editor toolbar](docs/images/readme/editor-toolbar-export-dropdown.png)
@@ -58,7 +58,7 @@ jlpm docs:screenshots
 2. Create a file with `Start from File` (Command Palette or Notebook v7 New menu).
 3. Paste plugin code into the active editor.
 4. Run `Load Current File As Extension` from the editor toolbar or Command Palette.
-5. Use the `Auto Load on Save` icon button for fast iteration on one file.
+5. Use the `Run on save` icon button for fast iteration on one file.
 6. Use the sidebar to discover tokens, commands, packages, and extension examples.
 
 For extension examples availability:
