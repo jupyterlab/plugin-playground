@@ -157,6 +157,7 @@
   cursor: pointer;
   display: inline-flex;
   flex: 0 0 auto;
+  font-family: var(--jp-ui-font-family);
   font-size: var(--jp-ui-font-size0);
   gap: 4px;
   line-height: 1;
@@ -267,6 +268,27 @@
   display: block;
   height: 14px;
   width: 14px;
+}
+
+.jp-PluginPlayground-actionSuccessIcon svg {
+  animation: jp-PluginPlayground-actionSuccessIconPulse 280ms ease-out;
+}
+
+@keyframes jp-PluginPlayground-actionSuccessIconPulse {
+  0% {
+    opacity: 0.4;
+    transform: scale(0.75);
+  }
+
+  65% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .jp-PluginPlayground-actionLabel {

@@ -12,7 +12,16 @@ import { Widget } from '@lumino/widgets';
 import * as React from 'react';
 
 import { ContentUtils } from './contents';
-import { openMenuAtAnchor, SplitActionButton } from './split-action';
+import {
+  applySplitActionSelection,
+  openMenuAtAnchor,
+  registerSplitActionSelectionCommands,
+  SplitActionButton,
+  toolbarActionIconState,
+  TOOLBAR_ACTION_ICON_CLASSNAME,
+  TOOLBAR_ACTION_TRANSIENT_TIMEOUT_MS,
+  type ISelectableSplitActionOption
+} from './split-action';
 
 export type ExportArchiveFormat = 'zip' | 'wheel';
 export const DEFAULT_EXPORT_ARCHIVE_FORMAT: ExportArchiveFormat = 'zip';
@@ -22,43 +31,34 @@ const EXPORT_ARCHIVE_MENU_SELECT_ZIP =
 const EXPORT_ARCHIVE_MENU_SELECT_WHEEL =
   'plugin-playground:select-export-format-wheel';
 
-const EXPORT_ARCHIVE_MENU_ITEMS = [
-  { command: EXPORT_ARCHIVE_MENU_SELECT_ZIP },
-  { command: EXPORT_ARCHIVE_MENU_SELECT_WHEEL }
+const EXPORT_ARCHIVE_MENU_OPTIONS: ReadonlyArray<
+  ISelectableSplitActionOption<ExportArchiveFormat>
+> = [
+  {
+    command: EXPORT_ARCHIVE_MENU_SELECT_ZIP,
+    label: 'Export as archive (.zip)',
+    value: 'zip'
+  },
+  {
+    command: EXPORT_ARCHIVE_MENU_SELECT_WHEEL,
+    label: 'Export as Python package (.whl)',
+    value: 'wheel'
+  }
 ];
+
+const EXPORT_ARCHIVE_MENU_ITEMS = EXPORT_ARCHIVE_MENU_OPTIONS.map(option => ({
+  command: option.command
+}));
 
 function exportArchiveFormatLabel(format: ExportArchiveFormat): string {
   return format === 'wheel' ? 'Python package (.whl)' : 'archive (.zip)';
-}
-
-function registerExportArchiveMenuCommands(
-  commands: CommandRegistry,
-  getSelectedFormat: () => ExportArchiveFormat,
-  setSelectedFormat: (format: ExportArchiveFormat) => void
-): void {
-  commands.addCommand(EXPORT_ARCHIVE_MENU_SELECT_ZIP, {
-    label: 'Export as archive (.zip)',
-    describedBy: { args: null },
-    isToggled: () => getSelectedFormat() === 'zip',
-    execute: () => {
-      setSelectedFormat('zip');
-    }
-  });
-  commands.addCommand(EXPORT_ARCHIVE_MENU_SELECT_WHEEL, {
-    label: 'Export as Python package (.whl)',
-    describedBy: { args: null },
-    isToggled: () => getSelectedFormat() === 'wheel',
-    execute: () => {
-      setSelectedFormat('wheel');
-    }
-  });
 }
 
 interface ICreateExportArchiveSplitWidgetOptions {
   editorWidget: IDocumentWidget<FileEditor>;
   hasDocumentManager: () => boolean;
   getSelectedFormat: () => ExportArchiveFormat;
-  onExport: (format: ExportArchiveFormat) => void;
+  onExport: (format: ExportArchiveFormat) => Promise<{ ok: boolean } | null>;
   menu: MenuSvg;
 }
 
@@ -71,6 +71,15 @@ function createExportArchiveSplitWidget(
   options: ICreateExportArchiveSplitWidgetOptions
 ): ICreateExportArchiveSplitWidgetResult {
   class ExportArchiveSplitWidget extends ReactWidget {
+    dispose(): void {
+      if (this._successTimer !== null) {
+        clearTimeout(this._successTimer);
+        this._successTimer = null;
+      }
+      this._successState = null;
+      super.dispose();
+    }
+
     render(): React.ReactElement {
       const normalizedPath = ContentUtils.normalizeContentsPath(
         options.editorWidget.context.path
@@ -80,21 +89,29 @@ function createExportArchiveSplitWidget(
       const formatLabel = exportArchiveFormatLabel(selectedFormat);
       const primaryLabel =
         selectedFormat === 'wheel' ? 'Export .whl' : 'Export .zip';
+      const showSuccessIcon = this._successState === 'success';
+      const primaryIconState = toolbarActionIconState(
+        showSuccessIcon,
+        downloadIcon
+      );
+      const primaryTitle = showSuccessIcon
+        ? `Exported plugin folder as ${formatLabel}`
+        : `Export plugin folder as ${formatLabel}`;
 
       return React.createElement(SplitActionButton, {
         disabled: !enabled,
         onPrimaryClick: () => {
-          options.onExport(options.getSelectedFormat());
+          void this._runExport(options.getSelectedFormat());
         },
         primaryAriaLabel: `Export plugin folder as ${formatLabel}`,
-        primaryTitle: `Export plugin folder as ${formatLabel}`,
+        primaryTitle,
         primaryContent: React.createElement(
           React.Fragment,
           null,
-          React.createElement(downloadIcon.react, {
+          React.createElement(primaryIconState.icon.react, {
             tag: 'span',
             elementSize: 'normal',
-            className: 'jp-PluginPlayground-actionIcon'
+            className: primaryIconState.className
           }),
           React.createElement(
             'span',
@@ -119,10 +136,33 @@ function createExportArchiveSplitWidget(
         menuContent: React.createElement(caretDownEmptyIcon.react, {
           tag: 'span',
           elementSize: 'normal',
-          className: 'jp-PluginPlayground-actionIcon'
+          className: TOOLBAR_ACTION_ICON_CLASSNAME
         })
       });
     }
+
+    private async _runExport(format: ExportArchiveFormat): Promise<void> {
+      const result = await options.onExport(format);
+      if (result?.ok === true) {
+        ContentUtils.setTransientStateWithTimeout<'success'>(
+          'success',
+          this._successTimer,
+          timer => {
+            this._successTimer = timer;
+          },
+          state => {
+            this._successState = state;
+          },
+          () => {
+            this.update();
+          },
+          TOOLBAR_ACTION_TRANSIENT_TIMEOUT_MS
+        );
+      }
+    }
+
+    private _successState: 'success' | null = null;
+    private _successTimer: number | null = null;
   }
 
   const splitWidget = new ExportArchiveSplitWidget();
@@ -154,18 +194,30 @@ function createExportArchiveSplitWidget(
 interface IExportToolbarControllerWidgetOptions {
   editorWidget: IDocumentWidget<FileEditor>;
   hasDocumentManager: () => boolean;
-  onExport: (format: ExportArchiveFormat) => void;
+  onExport: (format: ExportArchiveFormat) => Promise<{ ok: boolean } | null>;
 }
 
 export class ExportToolbarController {
   constructor() {
-    registerExportArchiveMenuCommands(
-      this._menuCommands,
-      () => this._selectedFormat,
-      format => {
-        this._setSelectedFormat(format);
+    registerSplitActionSelectionCommands({
+      commands: this._menuCommands,
+      options: EXPORT_ARCHIVE_MENU_OPTIONS,
+      getSelectedValue: () => this._selectedFormat,
+      setSelectedValue: format => {
+        applySplitActionSelection({
+          currentValue: this._selectedFormat,
+          nextValue: format,
+          applySelection: value => {
+            this._selectedFormat = value;
+          },
+          onChanged: () => {
+            for (const refresh of this._refreshers) {
+              refresh();
+            }
+          }
+        });
       }
-    );
+    });
   }
 
   createWidget(options: IExportToolbarControllerWidgetOptions): Widget {
@@ -195,16 +247,6 @@ export class ExportToolbarController {
     options.editorWidget.disposed.connect(dispose);
 
     return splitWidget;
-  }
-
-  private _setSelectedFormat(format: ExportArchiveFormat): void {
-    if (this._selectedFormat === format) {
-      return;
-    }
-    this._selectedFormat = format;
-    for (const refresh of this._refreshers) {
-      refresh();
-    }
   }
 
   private readonly _menuCommands = new CommandRegistry();

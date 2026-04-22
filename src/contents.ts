@@ -324,28 +324,28 @@ export namespace ContentUtils {
     }
   }
 
-  export function setCopiedStateWithTimeout(
-    value: string,
-    copiedTimer: number | null,
-    setCopiedTimer: (timer: number | null) => void,
-    setCopiedValue: (copiedValue: string | null) => void,
+  export function setTransientStateWithTimeout<T>(
+    value: T,
+    stateTimer: number | null,
+    setStateTimer: (timer: number | null) => void,
+    setStateValue: (stateValue: T | null) => void,
     update: () => void,
-    timeoutMs = 1200
+    timeoutMs = 1500
   ): void {
-    setCopiedValue(value);
+    setStateValue(value);
     update();
 
-    if (copiedTimer !== null) {
-      window.clearTimeout(copiedTimer);
+    if (stateTimer !== null) {
+      window.clearTimeout(stateTimer);
     }
 
     const timer = window.setTimeout(() => {
-      setCopiedValue(null);
-      setCopiedTimer(null);
+      setStateValue(null);
+      setStateTimer(null);
       update();
     }, timeoutMs);
 
-    setCopiedTimer(timer);
+    setStateTimer(timer);
   }
 
   export function normalizeExternalUrl(rawUrl: string): string | null {

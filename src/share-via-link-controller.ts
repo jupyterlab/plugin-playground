@@ -8,13 +8,12 @@ import { Contents } from '@jupyterlab/services';
 import { ISettingRegistry } from '@jupyterlab/settingregistry';
 import {
   checkIcon,
-  fileIcon,
-  folderIcon,
   type LabIcon,
   MenuSvg,
   shareIcon
 } from '@jupyterlab/ui-components';
 
+import { CommandRegistry } from '@lumino/commands';
 import type { ReadonlyPartialJSONObject } from '@lumino/coreutils';
 import type { Widget } from '@lumino/widgets';
 
@@ -26,8 +25,17 @@ import {
   selectFolderSharePaths,
   shouldSkipFolderShareEntry
 } from './share-via-link-utils';
-import { openMenuAtAnchor } from './split-action';
-import { createShareToolbarButton } from './share-toolbar';
+import {
+  applySplitActionSelection,
+  openMenuAtAnchor,
+  registerSplitActionSelectionCommands,
+  TOOLBAR_ACTION_TRANSIENT_TIMEOUT_MS,
+  type ISelectableSplitActionOption
+} from './split-action';
+import {
+  createShareToolbarButton,
+  type ShareToolbarVariant
+} from './share-toolbar';
 
 export const SHARE_LINK_TOOLBAR_ITEM = 'share-extension-link';
 export const SHARE_FOLDER_SELECTION_DIALOG_MODE_SETTING =
@@ -59,19 +67,33 @@ export const SHARE_VIA_LINK_ARGS_SCHEMA = {
       type: 'boolean',
       description:
         'When true, resolve the share path from the current context-menu target.'
-    },
-    shareVariant: {
-      type: 'string',
-      enum: ['file', 'package'],
-      description:
-        'Internal UI variant used by the Share toolbar dropdown label.'
     }
   }
 } as const;
 
 const ARCHIVE_FILE_READ_CONCURRENCY = 8;
-const SHARE_LINK_COPY_TIMEOUT_MS = 1400;
 const SHARED_LINKS_ROOT = 'plugin-playground-shared';
+const SHARE_TARGET_MENU_SELECT_FILE =
+  'plugin-playground:select-share-target-file';
+const SHARE_TARGET_MENU_SELECT_PACKAGE =
+  'plugin-playground:select-share-target-package';
+const SHARE_TARGET_MENU_OPTIONS: ReadonlyArray<
+  ISelectableSplitActionOption<ShareToolbarVariant>
+> = [
+  {
+    command: SHARE_TARGET_MENU_SELECT_FILE,
+    label: 'Share Single File',
+    value: 'file'
+  },
+  {
+    command: SHARE_TARGET_MENU_SELECT_PACKAGE,
+    label: 'Share Package',
+    value: 'package'
+  }
+];
+const SHARE_TARGET_MENU_ITEMS = SHARE_TARGET_MENU_OPTIONS.map(option => ({
+  command: option.command
+}));
 
 export interface IPluginShareResult {
   ok: boolean;
@@ -85,7 +107,6 @@ interface IShareCommandArgs {
   path?: unknown;
   useBrowserSelection?: unknown;
   useContextTarget?: unknown;
-  shareVariant?: unknown;
 }
 
 export interface IShareViaLinkControllerOptions {
@@ -111,10 +132,8 @@ export interface IShareViaLinkControllerOptions {
 
 export class ShareViaLinkController {
   constructor(private readonly _options: IShareViaLinkControllerOptions) {
-    this._menu = new MenuSvg({
-      commands: this._options.app.commands
-    });
     this._settings = this._options.settings;
+    this._registerShareTargetMenuCommands();
   }
 
   setSettings(settings: ISettingRegistry.ISettings): void {
@@ -135,56 +154,29 @@ export class ShareViaLinkController {
     return createShareToolbarButton({
       commands: this._options.app.commands,
       commandId: this._options.commandId,
-      onPrimaryClick: this._shareCurrentFileViaLink.bind(this, widget),
+      getSelectedVariant: () => this._selectedToolbarVariant,
+      onPrimaryClick: variant => {
+        void this._shareToolbarTargetViaLink(widget, variant);
+      },
       onOpenMenu: this._openShareLinkDropdown.bind(this, widget)
     });
   }
 
-  commandLabel(args: ReadonlyPartialJSONObject): string {
-    const variant = this._shareVariant(args);
-    if (variant === 'file') {
-      return 'Share Single File';
-    }
-    if (variant === 'package') {
-      return 'Share Package';
-    }
+  commandLabel(_args: ReadonlyPartialJSONObject): string {
     return 'Copy Shareable Plugin Link';
   }
 
-  commandCaption(args: ReadonlyPartialJSONObject): string {
-    const variant = this._shareVariant(args);
-    if (variant === 'file') {
-      return 'Create a URL for the current file and copy it';
-    }
-    if (variant === 'package') {
-      return 'Create a URL for the current package folder and copy it';
-    }
+  commandCaption(_args: ReadonlyPartialJSONObject): string {
     return 'Create a URL for the active plugin file or selected folder, then copy it';
   }
 
-  commandIcon(args: ReadonlyPartialJSONObject): LabIcon {
-    const variant = this._shareVariant(args);
-    if (variant === 'file') {
-      return fileIcon;
-    }
-    if (variant === 'package') {
-      return folderIcon;
-    }
+  commandIcon(_args: ReadonlyPartialJSONObject): LabIcon {
     return this._copiedCommandId === this._options.commandId
       ? checkIcon
       : shareIcon;
   }
 
-  isCommandEnabled(args: ReadonlyPartialJSONObject): boolean {
-    const variant = this._shareVariant(args);
-    if (variant === 'package') {
-      const rawPath = (args as IShareCommandArgs).path;
-      const requestedPath =
-        typeof rawPath === 'string'
-          ? ContentUtils.normalizeContentsPath(rawPath)
-          : '';
-      return requestedPath.length > 0;
-    }
+  isCommandEnabled(_args: ReadonlyPartialJSONObject): boolean {
     return true;
   }
 
@@ -432,14 +424,32 @@ export class ShareViaLinkController {
     }
   }
 
-  private _shareVariant(
-    args: ReadonlyPartialJSONObject
-  ): 'file' | 'package' | null {
-    const rawVariant = (args as IShareCommandArgs).shareVariant;
-    if (rawVariant === 'file' || rawVariant === 'package') {
-      return rawVariant;
-    }
-    return null;
+  private _registerShareTargetMenuCommands(): void {
+    registerSplitActionSelectionCommands({
+      commands: this._menuCommands,
+      options: SHARE_TARGET_MENU_OPTIONS.map(option => ({
+        ...option,
+        isEnabled:
+          option.value === 'package'
+            ? () => this._currentToolbarPackagePath.length > 0
+            : undefined
+      })),
+      getSelectedValue: () => this._selectedToolbarVariant,
+      setSelectedValue: variant => {
+        applySplitActionSelection({
+          currentValue: this._selectedToolbarVariant,
+          nextValue: variant,
+          applySelection: value => {
+            this._selectedToolbarVariant = value;
+          },
+          onChanged: () => {
+            this._options.app.commands.notifyCommandChanged(
+              this._options.commandId
+            );
+          }
+        });
+      }
+    });
   }
 
   private _resolveContextTargetPath(): string {
@@ -489,13 +499,40 @@ export class ShareViaLinkController {
     return selectedItems;
   }
 
-  private async _shareCurrentFileViaLink(
-    widget: IDocumentWidget<FileEditor>
+  private async _shareToolbarTargetViaLink(
+    widget: IDocumentWidget<FileEditor>,
+    variant: ShareToolbarVariant
   ): Promise<void> {
     const filePath = ContentUtils.normalizeContentsPath(widget.context.path);
     if (!filePath) {
       return;
     }
+
+    if (variant === 'package') {
+      const packagePath = await this._resolveSharePackagePath(filePath);
+      if (!packagePath) {
+        Notification.warning(
+          'No package.json found in the current or parent folder. Select "Share Single File" or add a package.json.',
+          { autoClose: 5000 }
+        );
+        applySplitActionSelection({
+          currentValue: this._selectedToolbarVariant,
+          nextValue: 'file',
+          applySelection: value => {
+            this._selectedToolbarVariant = value;
+          },
+          onChanged: () => {
+            this._options.app.commands.notifyCommandChanged(
+              this._options.commandId
+            );
+          }
+        });
+        return;
+      }
+      await this._shareViaLink(packagePath);
+      return;
+    }
+
     await this._shareViaLink(filePath, widget.context.model.toString());
   }
 
@@ -507,7 +544,27 @@ export class ShareViaLinkController {
     if (!filePath) {
       return;
     }
+    const packagePath = await this._resolveSharePackagePath(filePath);
+    this._currentToolbarPackagePath = packagePath;
+    if (this._selectedToolbarVariant === 'package' && !packagePath) {
+      applySplitActionSelection({
+        currentValue: this._selectedToolbarVariant,
+        nextValue: 'file',
+        applySelection: value => {
+          this._selectedToolbarVariant = value;
+        },
+        onChanged: () => {
+          this._options.app.commands.notifyCommandChanged(
+            this._options.commandId
+          );
+        }
+      });
+    }
 
+    openMenuAtAnchor(this._menu, anchor, SHARE_TARGET_MENU_ITEMS);
+  }
+
+  private async _resolveSharePackagePath(filePath: string): Promise<string> {
     const sourceDirectory = ContentUtils.normalizeContentsPath(
       PathExt.dirname(filePath)
     );
@@ -522,7 +579,7 @@ export class ShareViaLinkController {
     ) {
       packageDirectoryCandidates.push(parentDirectory);
     }
-    let packagePath = '';
+
     for (const directoryPath of packageDirectoryCandidates) {
       const packageJsonPath = this._options.joinPath(
         directoryPath,
@@ -533,24 +590,10 @@ export class ShareViaLinkController {
         packageJsonPath
       );
       if (packageJson) {
-        packagePath = directoryPath;
-        break;
+        return directoryPath;
       }
     }
-
-    openMenuAtAnchor(this._menu, anchor, [
-      {
-        command: this._options.commandId,
-        args: { path: filePath, shareVariant: 'file' }
-      },
-      {
-        command: this._options.commandId,
-        args: {
-          path: packagePath,
-          shareVariant: 'package'
-        }
-      }
-    ]);
+    return '';
   }
 
   private async _shareViaLink(
@@ -855,7 +898,7 @@ export class ShareViaLinkController {
   ): Promise<IPluginShareResult> {
     const urlLength = link.length;
     await ContentUtils.copyValueToClipboard(link);
-    ContentUtils.setCopiedStateWithTimeout(
+    ContentUtils.setTransientStateWithTimeout<string>(
       this._options.commandId,
       this._copiedCommandTimer,
       timer => {
@@ -869,7 +912,7 @@ export class ShareViaLinkController {
           this._options.commandId
         );
       },
-      SHARE_LINK_COPY_TIMEOUT_MS
+      TOOLBAR_ACTION_TRANSIENT_TIMEOUT_MS
     );
     const details = `Copied a share link for "${sourcePath}" (${urlLength} characters).`;
 
@@ -917,10 +960,15 @@ export class ShareViaLinkController {
     return restoredPaths[0];
   }
 
-  private readonly _menu: MenuSvg;
+  private readonly _menuCommands = new CommandRegistry();
+  private readonly _menu = new MenuSvg({
+    commands: this._menuCommands
+  });
   private _settings: ISettingRegistry.ISettings;
   private _shareFolderSelectionDialogMode: ShareFolderSelectionDialogMode =
     DEFAULT_SHARE_FOLDER_SELECTION_DIALOG_MODE;
+  private _selectedToolbarVariant: ShareToolbarVariant = 'file';
+  private _currentToolbarPackagePath = '';
   private _copiedCommandId: string | null = null;
   private _copiedCommandTimer: number | null = null;
 }

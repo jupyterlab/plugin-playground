@@ -2766,6 +2766,7 @@ test('shows toolbar share dropdown package option availability', async ({
     '.jp-PluginPlayground-shareDropdownButton'
   );
   await expect(shareToolbarButton).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Share file' })).toBeVisible();
 
   await shareToolbarButton.click();
   const singleFileMenuItem = page.getByRole('menuitem', {
@@ -2795,11 +2796,16 @@ test('shows toolbar share dropdown package option availability', async ({
   await expect(packageMenuItem).toBeVisible();
   await expect(packageMenuItem).not.toHaveClass(/lm-mod-disabled/);
   await packageMenuItem.click();
+  await expect(
+    page.getByRole('button', { name: 'Share package' })
+  ).toBeVisible();
 
   const shareSelectedFilesButton = page.getByRole('button', {
     name: 'Share Selected Files',
     exact: true
   });
+  await expect(shareSelectedFilesButton).toBeHidden();
+  await page.getByRole('button', { name: 'Share package' }).click();
   await expect(shareSelectedFilesButton).toBeVisible();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 });

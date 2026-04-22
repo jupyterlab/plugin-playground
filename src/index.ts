@@ -494,10 +494,13 @@ class PluginPlayground {
         this._exportToolbar.createWidget({
           editorWidget: widget,
           hasDocumentManager: () => this.documentManager !== null,
-          onExport: format => {
-            void this.app.commands.execute(CommandIDs.exportAsExtension, {
-              format
-            });
+          onExport: async format => {
+            return (await this.app.commands.execute(
+              CommandIDs.exportAsExtension,
+              {
+                format
+              }
+            )) as IPluginExportResult;
           }
         })
     );
