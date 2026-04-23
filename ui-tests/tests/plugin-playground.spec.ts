@@ -531,110 +531,121 @@ test('registers plugin playground commands', async ({ page }) => {
   ).resolves.toBe(true);
 });
 
-test('take tour command launches tour when tour commands are available', async ({
-  page
-}) => {
-  await page.goto();
+test.describe('take tour command', () => {
+  test.use({
+    kernels: null,
+    sessions: null,
+    terminals: null
+  });
 
-  await page.waitForCondition(() =>
-    page.evaluate((id: string) => {
-      return window.jupyterapp.commands.hasCommand(id);
-    }, TAKE_TOUR_COMMAND)
-  );
+  test('take tour command launches tour when tour commands are available', async ({
+    page
+  }) => {
+    await page.goto();
 
-  const result = await page.evaluate(
-    async ({ takeTourCommand, addCommand, launchCommand }) => {
-      const commands = window.jupyterapp.commands as any;
-      const originalHasCommand = commands.hasCommand.bind(commands);
-      const originalExecute = commands.execute.bind(commands);
-      let addedTourId = '';
-      let launchedTourId = '';
+    await page.waitForCondition(() =>
+      page.evaluate((id: string) => {
+        return window.jupyterapp.commands.hasCommand(id);
+      }, TAKE_TOUR_COMMAND)
+    );
 
-      commands.hasCommand = (id: string) => {
-        if (id === addCommand || id === launchCommand) {
-          return true;
-        }
-        return originalHasCommand(id);
-      };
-      commands.execute = async (id: string, args?: any) => {
-        if (id === addCommand) {
-          addedTourId = args?.tour?.id ?? '';
-          return { id: addedTourId };
-        }
-        if (id === launchCommand) {
-          launchedTourId = args?.id ?? '';
-          return undefined;
-        }
-        return originalExecute(id, args);
-      };
+    const result = await page.evaluate(
+      async ({ takeTourCommand, addCommand, launchCommand }) => {
+        const commands = window.jupyterapp.commands as any;
+        const originalHasCommand = commands.hasCommand.bind(commands);
+        const originalExecute = commands.execute.bind(commands);
+        let addedTourId = '';
+        let launchedTourId = '';
 
-      try {
-        const commandResult = (await originalExecute(takeTourCommand, {})) as {
-          ok?: boolean;
-          message?: string;
+        commands.hasCommand = (id: string) => {
+          if (id === addCommand || id === launchCommand) {
+            return true;
+          }
+          return originalHasCommand(id);
         };
-        return {
-          commandResult,
-          addedTourId,
-          launchedTourId
+        commands.execute = async (id: string, args?: any) => {
+          if (id === addCommand) {
+            addedTourId = args?.tour?.id ?? '';
+            return { id: addedTourId };
+          }
+          if (id === launchCommand) {
+            launchedTourId = args?.id ?? '';
+            return undefined;
+          }
+          return originalExecute(id, args);
         };
-      } finally {
-        commands.hasCommand = originalHasCommand;
-        commands.execute = originalExecute;
+
+        try {
+          const commandResult = (await originalExecute(
+            takeTourCommand,
+            {}
+          )) as {
+            ok?: boolean;
+            message?: string;
+          };
+          return {
+            commandResult,
+            addedTourId,
+            launchedTourId
+          };
+        } finally {
+          commands.hasCommand = originalHasCommand;
+          commands.execute = originalExecute;
+        }
+      },
+      {
+        takeTourCommand: TAKE_TOUR_COMMAND,
+        addCommand: 'jupyterlab-tour:add',
+        launchCommand: 'jupyterlab-tour:launch'
       }
-    },
-    {
-      takeTourCommand: TAKE_TOUR_COMMAND,
-      addCommand: 'jupyterlab-tour:add',
-      launchCommand: 'jupyterlab-tour:launch'
-    }
-  );
+    );
 
-  expect(result.commandResult.ok).toBe(true);
-  expect(result.addedTourId).toBe(TOUR_ID);
-  expect(result.launchedTourId).toBe(TOUR_ID);
-});
+    expect(result.commandResult.ok).toBe(true);
+    expect(result.addedTourId).toBe(TOUR_ID);
+    expect(result.launchedTourId).toBe(TOUR_ID);
+  });
 
-test('take tour command returns a deterministic missing-tour message when tour commands are unavailable', async ({
-  page
-}) => {
-  await page.goto();
+  test('take tour command returns a deterministic missing-tour message when tour commands are unavailable', async ({
+    page
+  }) => {
+    await page.goto();
 
-  await page.waitForCondition(() =>
-    page.evaluate((id: string) => {
-      return window.jupyterapp.commands.hasCommand(id);
-    }, TAKE_TOUR_COMMAND)
-  );
+    await page.waitForCondition(() =>
+      page.evaluate((id: string) => {
+        return window.jupyterapp.commands.hasCommand(id);
+      }, TAKE_TOUR_COMMAND)
+    );
 
-  const result = await page.evaluate(
-    async ({ takeTourCommand, addCommand, launchCommand }) => {
-      const commands = window.jupyterapp.commands as any;
-      const originalHasCommand = commands.hasCommand.bind(commands);
-      commands.hasCommand = (id: string) => {
-        if (id === addCommand || id === launchCommand) {
-          return false;
-        }
-        return originalHasCommand(id);
-      };
-
-      try {
-        return (await commands.execute(takeTourCommand, {})) as {
-          ok?: boolean;
-          message?: string;
+    const result = await page.evaluate(
+      async ({ takeTourCommand, addCommand, launchCommand }) => {
+        const commands = window.jupyterapp.commands as any;
+        const originalHasCommand = commands.hasCommand.bind(commands);
+        commands.hasCommand = (id: string) => {
+          if (id === addCommand || id === launchCommand) {
+            return false;
+          }
+          return originalHasCommand(id);
         };
-      } finally {
-        commands.hasCommand = originalHasCommand;
-      }
-    },
-    {
-      takeTourCommand: TAKE_TOUR_COMMAND,
-      addCommand: 'jupyterlab-tour:add',
-      launchCommand: 'jupyterlab-tour:launch'
-    }
-  );
 
-  expect(result.ok).toBe(false);
-  expect(result.message).toBe(TOUR_MISSING_HINT);
+        try {
+          return (await commands.execute(takeTourCommand, {})) as {
+            ok?: boolean;
+            message?: string;
+          };
+        } finally {
+          commands.hasCommand = originalHasCommand;
+        }
+      },
+      {
+        takeTourCommand: TAKE_TOUR_COMMAND,
+        addCommand: 'jupyterlab-tour:add',
+        launchCommand: 'jupyterlab-tour:launch'
+      }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe(TOUR_MISSING_HINT);
+  });
 });
 
 test('opens a dummy extension example from the sidebar', async ({ page }) => {
