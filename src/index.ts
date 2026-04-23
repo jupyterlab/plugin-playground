@@ -1112,53 +1112,31 @@ class PluginPlayground {
       return;
     }
 
-    if (this.app.hasPlugin(NOTEBOOK_SHELL_PLUGIN_ID)) {
-      const notebookShell = this.app.shell as unknown as {
-        leftCollapsed: boolean;
-        rightCollapsed: boolean;
-        collapseLeft: () => void;
-        collapseRight: () => void;
-        collapseTop: () => void;
-      };
-      if (!notebookShell.leftCollapsed) {
-        notebookShell.collapseLeft();
+    const runCommand = async (command: string, args?: any): Promise<void> => {
+      if (!this.app.commands.hasCommand(command)) {
+        return;
       }
-      if (!notebookShell.rightCollapsed) {
-        notebookShell.collapseRight();
+      if (args) {
+        await this.app.commands.execute(command, args);
+      } else {
+        await this.app.commands.execute(command);
       }
-      notebookShell.collapseTop();
-      return;
-    }
-
-    const labShell = this.app.shell as unknown as {
-      mode: 'single-document' | 'multiple-document';
-      leftCollapsed: boolean;
-      rightCollapsed: boolean;
-      collapseLeft: () => void;
-      collapseRight: () => void;
-      isTopInSimpleModeVisible: () => boolean;
-      toggleTopInSimpleModeVisibility: () => void;
     };
 
-    if (labShell.mode !== 'single-document') {
-      labShell.mode = 'single-document';
-    }
-    if (!labShell.leftCollapsed) {
-      labShell.collapseLeft();
-    }
-    if (!labShell.rightCollapsed) {
-      labShell.collapseRight();
-    }
-    if (labShell.isTopInSimpleModeVisible()) {
-      labShell.toggleTopInSimpleModeVisibility();
-    }
+    const hideArea = async (command: string): Promise<void> => {
+      if (!this.app.commands.hasCommand(command)) {
+        return;
+      }
+      if (this.app.commands.isToggled(command)) {
+        await this.app.commands.execute(command);
+      }
+    };
 
-    if (
-      this.app.commands.hasCommand('statusbar:toggle') &&
-      this.app.commands.isToggled('statusbar:toggle')
-    ) {
-      await this.app.commands.execute('statusbar:toggle');
-    }
+    await runCommand('application:set-mode', { mode: 'single-document' });
+    await hideArea('application:toggle-left-area');
+    await hideArea('application:toggle-right-area');
+    await hideArea('application:toggle-header');
+    await hideArea('statusbar:toggle');
   }
 
   private _isHideAllQueryEnabled(url: string): boolean {
