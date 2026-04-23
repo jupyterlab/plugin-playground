@@ -12,6 +12,22 @@
 
 A JupyterLab extension to write and load simple JupyterLab plugins inside JupyterLab.
 
+### Open commit-pinned files in JupyterLite
+
+The playground deployments include
+[`jupyterlab-open-url-parameter`](https://github.com/jupyterlab-contrib/jupyterlab-open-url-parameter),
+so you can open files directly from URL query parameters with `fromURL`.
+
+Use raw GitHub links pinned to a commit SHA (not `github.com/.../blob/...` links), for example:
+
+```text
+https://jupyterlab-plugin-playground.readthedocs.io/en/latest/lite/lab/index.html?fromURL=https://raw.githubusercontent.com/<org>/<repo>/<commit-sha>/<path-to-file>
+```
+
+Replace `<commit-sha>` with the exact commit you want to lock to.
+
+You can repeat `fromURL` to open multiple files in one launch.
+
 ## Install
 
 This extension requires JupyterLab 4. Install this extension with pip:

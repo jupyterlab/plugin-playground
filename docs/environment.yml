@@ -21,3 +21,4 @@ dependencies:
   - nodejs=18
   - pip:
       - build
+      - jupyterlab-open-url-parameter>=0.3,<1
