@@ -25,3 +25,4 @@ dependencies:
   # use the same AI package in Binder and JupyterLite deployments
   - pip:
       - jupyterlite-ai>=0.15,<1
+      - jupyterlab-open-url-parameter>=0.3,<1
