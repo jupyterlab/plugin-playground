@@ -390,12 +390,27 @@ class PluginPlayground {
         'Load the active editor file as an extension for plugin development',
       describedBy: { args: null },
       icon: runTileIcon,
-      isEnabled: () =>
-        editorTracker.currentWidget !== null &&
-        editorTracker.currentWidget === app.shell.currentWidget,
+      isEnabled: () => {
+        const currentWidget = editorTracker.currentWidget;
+        if (!currentWidget || currentWidget !== app.shell.currentWidget) {
+          return false;
+        }
+        return this._isSupportedLoadOnSaveFile(
+          ContentUtils.normalizeContentsPath(currentWidget.context.path)
+        );
+      },
+      isVisible: () => {
+        const currentWidget = editorTracker.currentWidget;
+        if (!currentWidget || currentWidget !== app.shell.currentWidget) {
+          return false;
+        }
+        return this._isSupportedLoadOnSaveFile(
+          ContentUtils.normalizeContentsPath(currentWidget.context.path)
+        );
+      },
       execute: async () => {
         const currentWidget = editorTracker.currentWidget;
-        if (currentWidget) {
+        if (currentWidget && currentWidget === app.shell.currentWidget) {
           if (this._sharedFileCueWidgetId === currentWidget.id) {
             this._dismissSharedFileCue?.();
           }
@@ -521,9 +536,18 @@ class PluginPlayground {
             });
           }
         };
+        const onPathChanged = () => {
+          if (app.commands.hasCommand(CommandIDs.loadCurrentAsExtension)) {
+            app.commands.notifyCommandChanged(
+              CommandIDs.loadCurrentAsExtension
+            );
+          }
+        };
         widget.context.saveState.connect(onSaveState);
+        widget.context.pathChanged.connect(onPathChanged);
         widget.disposed.connect(() => {
           widget.context.saveState.disconnect(onSaveState);
+          widget.context.pathChanged.disconnect(onPathChanged);
         });
       }
     );
@@ -831,9 +855,15 @@ class PluginPlayground {
 
       app.shell.currentChanged?.connect(() => {
         tokenSidebar.update();
+        if (app.commands.hasCommand(CommandIDs.loadCurrentAsExtension)) {
+          app.commands.notifyCommandChanged(CommandIDs.loadCurrentAsExtension);
+        }
       });
       editorTracker.currentChanged.connect(() => {
         tokenSidebar.update();
+        if (app.commands.hasCommand(CommandIDs.loadCurrentAsExtension)) {
+          app.commands.notifyCommandChanged(CommandIDs.loadCurrentAsExtension);
+        }
       });
       app.commands.commandChanged.connect((_, args) => {
         if (args.type === 'added' || args.type === 'removed') {
@@ -887,7 +917,7 @@ class PluginPlayground {
   }
 
   private _isSupportedLoadOnSaveFile(path: string): boolean {
-    return /\.(?:[cm]?js|jsx|ts|tsx)$/i.test(path);
+    return /\.(?:js|ts|tsx)$/i.test(path);
   }
 
   private _shouldLoadOnSave(normalizedPath: string): boolean {
@@ -928,27 +958,29 @@ class PluginPlayground {
 
     let currentPath = ContentUtils.normalizeContentsPath(widget.context.path);
     const refresh = () => {
-      if (this._isGlobalLoadOnSaveEnabled()) {
+      currentPath = ContentUtils.normalizeContentsPath(widget.context.path);
+      const isSupported = this._isSupportedLoadOnSaveFile(currentPath);
+      if (this._isGlobalLoadOnSaveEnabled() || !isSupported) {
+        const description = isSupported
+          ? LOAD_ON_SAVE_ENABLED_DESCRIPTION
+          : LOAD_ON_SAVE_DISABLED_DESCRIPTION;
         toggleButton.disabled = true;
         toggleButton.setAttribute('aria-pressed', 'false');
         toggleButton.setAttribute('aria-disabled', 'true');
         toggleNode.classList.add('jp-mod-disabled');
+        toggleButton.title = description;
+        labelButton.title = description;
         toggleWidget.hide();
         return;
       }
       toggleWidget.show();
-      currentPath = ContentUtils.normalizeContentsPath(widget.context.path);
-      const enabled = this._isSupportedLoadOnSaveFile(currentPath);
-      const isPressed = enabled && this._shouldLoadOnSave(currentPath);
-      toggleButton.disabled = !enabled;
+      const isPressed = this._shouldLoadOnSave(currentPath);
+      toggleButton.disabled = false;
       toggleButton.setAttribute('aria-pressed', String(isPressed));
-      toggleButton.setAttribute('aria-disabled', String(!enabled));
-      toggleNode.classList.toggle('jp-mod-disabled', !enabled);
-      const description = enabled
-        ? LOAD_ON_SAVE_ENABLED_DESCRIPTION
-        : LOAD_ON_SAVE_DISABLED_DESCRIPTION;
-      toggleButton.title = description;
-      labelButton.title = description;
+      toggleButton.setAttribute('aria-disabled', 'false');
+      toggleNode.classList.remove('jp-mod-disabled');
+      toggleButton.title = LOAD_ON_SAVE_ENABLED_DESCRIPTION;
+      labelButton.title = LOAD_ON_SAVE_ENABLED_DESCRIPTION;
     };
 
     const onToggleClicked = () => {
