@@ -395,7 +395,7 @@ class PluginPlayground {
         if (!currentWidget || currentWidget !== app.shell.currentWidget) {
           return false;
         }
-        return this._isSupportedLoadOnSaveFile(
+        return this._isSupportedPluginSourceFile(
           ContentUtils.normalizeContentsPath(currentWidget.context.path)
         );
       },
@@ -404,7 +404,7 @@ class PluginPlayground {
         if (!currentWidget || currentWidget !== app.shell.currentWidget) {
           return false;
         }
-        return this._isSupportedLoadOnSaveFile(
+        return this._isSupportedPluginSourceFile(
           ContentUtils.normalizeContentsPath(currentWidget.context.path)
         );
       },
@@ -916,12 +916,12 @@ class PluginPlayground {
     return this.settings.get(LOAD_ON_SAVE_SETTING).composite === true;
   }
 
-  private _isSupportedLoadOnSaveFile(path: string): boolean {
+  private _isSupportedPluginSourceFile(path: string): boolean {
     return /\.(?:js|jsx|ts|tsx)$/i.test(path);
   }
 
   private _shouldLoadOnSave(normalizedPath: string): boolean {
-    if (!this._isSupportedLoadOnSaveFile(normalizedPath)) {
+    if (!this._isSupportedPluginSourceFile(normalizedPath)) {
       return false;
     }
     if (this._isGlobalLoadOnSaveEnabled()) {
@@ -959,7 +959,7 @@ class PluginPlayground {
     let currentPath = ContentUtils.normalizeContentsPath(widget.context.path);
     const refresh = () => {
       currentPath = ContentUtils.normalizeContentsPath(widget.context.path);
-      const isSupported = this._isSupportedLoadOnSaveFile(currentPath);
+      const isSupported = this._isSupportedPluginSourceFile(currentPath);
       if (this._isGlobalLoadOnSaveEnabled() || !isSupported) {
         const description = isSupported
           ? LOAD_ON_SAVE_ENABLED_DESCRIPTION
@@ -987,7 +987,7 @@ class PluginPlayground {
       if (this._isGlobalLoadOnSaveEnabled()) {
         return;
       }
-      if (!this._isSupportedLoadOnSaveFile(currentPath)) {
+      if (!this._isSupportedPluginSourceFile(currentPath)) {
         return;
       }
       if (this._loadOnSaveByFile.has(currentPath)) {
