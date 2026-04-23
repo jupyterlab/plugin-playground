@@ -530,7 +530,7 @@
   margin: 0;
   min-height: unset;
   min-width: unset;
-  padding: 0 !important;
+  padding: 0 5px !important;
   text-align: center;
   user-select: none;
   width: auto;
@@ -589,7 +589,7 @@
   justify-content: center;
   line-height: 100%;
   margin: 0;
-  margin-left: -2px;
+  margin-left: -6px;
   min-height: unset;
   min-width: unset;
   padding: 0 4px !important;
