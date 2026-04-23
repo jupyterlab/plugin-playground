@@ -917,7 +917,7 @@ class PluginPlayground {
   }
 
   private _isSupportedLoadOnSaveFile(path: string): boolean {
-    return /\.(?:js|ts|tsx)$/i.test(path);
+    return /\.(?:js|jsx|ts|tsx)$/i.test(path);
   }
 
   private _shouldLoadOnSave(normalizedPath: string): boolean {
