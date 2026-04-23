@@ -1,6 +1,9 @@
 # JupyterLab Plugin Playground
 
 [![Github Actions Status](https://github.com/jupyterlab/plugin-playground/workflows/Build/badge.svg)](https://github.com/jupyterlab/plugin-playground/actions/workflows/build.yml)
+[![version on npm](https://img.shields.io/npm/v/@jupyterlab/plugin-playground.svg)](https://www.npmjs.com/package/@jupyterlab/plugin-playground)
+[![version on PyPI](https://img.shields.io/pypi/v/jupyterlab-plugin-playground.svg)](https://pypi.org/project/jupyterlab-plugin-playground/)
+[![version on conda-forge](https://img.shields.io/conda/vn/conda-forge/jupyterlab-plugin-playground.svg)](https://anaconda.org/conda-forge/jupyterlab-plugin-playground)
 
 | Preview     | Lab                                                                                                                                                       | Notebook v7                                                                                                                                                            |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -37,9 +40,11 @@ pip install jupyterlab-plugin-playground
 
 ### Feature Highlights
 
-Plugin Playground is built to keep the full plugin prototyping workflow inside JupyterLab. In the editor toolbar, you can load the active file as an extension, export the current plugin folder as a starter extension archive, copy a shareable plugin link, and enable per-file `Auto Load on Save` for faster iteration while editing.
+Plugin Playground is built to keep the full plugin prototyping workflow inside JupyterLab. In the editor toolbar, you can load the active file as an extension, export the current plugin folder as a starter extension archive, copy a shareable plugin link, and enable per-file `Run on save` for faster iteration while editing.
 
 ![Plugin Playground editor toolbar actions](docs/images/readme/editor-toolbar-actions.png)
+![Export format dropdown in editor toolbar](docs/images/readme/editor-toolbar-export-dropdown.png)
+![Share target dropdown in editor toolbar](docs/images/readme/editor-toolbar-share-dropdown.png)
 
 The right sidebar includes a single Plugin Playground panel with two collapsible sections. In **Extension Points**, the `Tokens` tab helps you discover available token strings and insert import/dependency updates, the `Commands` tab lets you search command IDs, inspect argument docs, and insert execution snippets (either directly or through AI-assisted prompt mode), and the `Packages` tab surfaces package docs plus npm and repository links for known modules.
 
@@ -51,7 +56,11 @@ The **Extension Examples** section lists discovered examples from `extension-exa
 
 ![Extension Examples section with code and README actions](docs/images/readme/extension-examples.png)
 
-Command completion is also included for `app.commands.execute(...)` / `commands.execute(...)` in JavaScript and TypeScript editors, and Notebook v7 integrates `Plugin (Playground)` into New-file flows so you can create starter plugin files from the tree interface.
+Command completion is also included for `app.commands.execute(...)` / `commands.execute(...)` in JavaScript and TypeScript editors, and Notebook v7 integrates `Start from File`, `Build with AI`, and `Take the Tour` into New-file flows so you can create starter plugin files from the tree interface.
+
+The Launcher `Plugin Playground` section includes `Start from File`, `Build with AI`, and `Take the Tour` so first-time users can pick a guided flow quickly.
+
+![Plugin Playground launcher tiles](docs/images/readme/launcher-plugin-playground-tile.png)
 
 To regenerate the screenshots used in this README:
 
@@ -61,11 +70,12 @@ jlpm docs:screenshots
 
 ### Quick Start
 
-1. Create a file with `TypeScript File (Playground)` (Command Palette) or `Plugin (Playground)` (Notebook v7 New menu).
-2. Paste plugin code into the active editor.
-3. Run `Load Current File As Extension` from the editor toolbar or Command Palette.
-4. Use `Auto Load on Save` for fast iteration on one file.
-5. Use the sidebar to discover tokens, commands, packages, and extension examples.
+1. Optional first-time walkthrough: run `Take the Tour` from the Launcher or Command Palette.
+2. Create a file with `Start from File` (Command Palette or Notebook v7 New menu).
+3. Paste plugin code into the active editor.
+4. Run `Load Current File As Extension` from the editor toolbar or Command Palette.
+5. Use the `Run on save` icon button for fast iteration on one file.
+6. Use the sidebar to discover tokens, commands, packages, and extension examples.
 
 For extension examples availability:
 
@@ -141,7 +151,7 @@ There are a few differences in how to write plugins in Plugin Playground compare
 - You can load a plugin with a given `id` more than once during iteration. Plugin Playground attempts to deactivate and deregister the previous version before registering the new one. Defining `deactivate()` in your plugin is still recommended for predictable cleanup between reloads.
 - To load code from an external package, RequireJS is used (hidden behind ES module-compatible import syntax), so import statements may need explicit version or file paths.
   - In addition to JupyterLab and Lumino packages, only AMD modules can be imported; ES modules and modules compiled for Webpack/Node are not supported directly and can fail with `Uncaught SyntaxError: Unexpected token 'export'`.
-- While the playground can import relative files (`.ts`), load SVG as strings, and load `plugin.json` schema for rapid prototyping, these capabilities are still evolving; other resources such as CSS files are not currently supported.
+- The playground can import relative files (`.ts`, `.tsx`, `.js`, and `.css`), load SVG as strings, and load settings schema from `package.json` (`jupyterlab.schemaDir`) with `plugin.json` fallback for single-plugin prototyping.
 
 ### Migrating from version 0.3.0
 
@@ -167,7 +177,7 @@ Plugin Playground supports AI-assisted extension prototyping in both JupyterLite
 
 ### Quick Start
 
-1. Launch Plugin Playground in Lite or Binder.
+1. Launch Plugin Playground in Lite or Binder (or start with the `Take the Tour` tile).
 2. Open the AI settings panel.
 3. Add a provider and choose a model.
 4. Enter your provider API key and save.
@@ -207,13 +217,14 @@ The sidebar remembers your last-used command insert mode in:
 Plugin Playground exposes command APIs for scripting, agents, and automation:
 
 - `plugin-playground:create-new-plugin` (supports optional `{ cwd?: string, path?: string }`)
+- `plugin-playground:take-tour` (supports optional `{ cwd?: string, path?: string }`)
 - `plugin-playground:load-as-extension`
 - `plugin-playground:open-js-explorer`
 - `plugin-playground:list-tokens` (supports optional `{ query?: string }`)
 - `plugin-playground:list-commands` (supports optional `{ query?: string }`)
 - `plugin-playground:list-extension-examples` (supports optional `{ query?: string }`)
-- `plugin-playground:export-as-extension` (supports optional `{ path?: string }`)
-- `plugin-playground:share-via-link` (supports optional `{ path?: string }`)
+- `plugin-playground:export-as-extension` (supports optional `{ path?: string, format?: 'zip' | 'wheel' }`)
+- `plugin-playground:share-via-link` (supports optional `{ path?: string, useBrowserSelection?: boolean, useContextTarget?: boolean }`)
 
 Example:
 
@@ -231,19 +242,38 @@ await app.commands.execute('plugin-playground:export-as-extension', {
   path: 'my-extension/src/index.ts'
 });
 
+await app.commands.execute('plugin-playground:export-as-extension', {
+  path: 'my-extension/src/index.ts',
+  format: 'wheel'
+});
+
 await app.commands.execute('plugin-playground:share-via-link', {
-  path: 'my-extension/src/index.ts'
+  path: 'my-extension'
 });
 ```
 
-`plugin-playground:share-via-link` shares a single file. If no `path` is
-provided, it shares the active file.
+`plugin-playground:share-via-link` shares a file or folder. If no `path` is
+provided, it shares the active file. The file/folder right-click context-menu
+entries use the selected browser item path automatically.
+Shared payload tokens are encoded in the URL fragment (`#plugin=...`) to avoid
+common query-string/request-line size limits.
+In the editor toolbar, the Share action is a dropdown with `Share Single File`
+and `Share Package`; package sharing is enabled when a
+`package.json` is found in the current file directory or its parent directory.
+Folder sharing excludes common non-exportable files by default (for example
+media assets, README/docs files, and test/spec files), but you can include them
+manually from the selection dialog.
+By default, folder sharing always opens a file-selection dialog so you can
+exclude files before creating the link. You can control this with
+`shareFolderSelectionDialogMode` (`always`, `auto-excluded-or-limit`, or
+`limit-only`). If the generated URL is too long, you can pick a smaller subset
+of files in the same dialog.
 The same action is also available from the `IPluginPlayground` API via
 `shareViaLink(path?)`.
 
-When opening a shared URL, Plugin Playground restores and opens the shared
-file but does not execute it automatically. Run `Load Current File As
-Extension` when you are ready.
+When opening a shared URL, Plugin Playground restores the shared file(s) and
+opens one restored file, but does not execute it automatically. Run `Load
+Current File As Extension` when you are ready.
 
 List commands (`list-tokens`, `list-commands`, `list-extension-examples`)
 return a JSON object with:
@@ -253,6 +283,7 @@ return a JSON object with:
 - `count`: number of records returned after filtering
 - `items`: matching records
 
+`export-as-extension` defaults to ZIP and also supports Python wheel (`format: 'wheel'`).
 `export-as-extension` and `share-via-link` return operation-specific metadata
 (for example, success status, paths, counts, URL length, and optional message).
 
@@ -268,7 +299,11 @@ Plugin Playground settings are available in `Settings > Settings Editor > Plugin
 
 `commandInsertDefaultMode` sets the default behavior for the `+` action in the Commands tab (`insert` for direct insertion or `ai` for AI-assisted prompt flow).
 
+`shareFolderSelectionDialogMode` controls when folder sharing prompts for file selection (`always`, `auto-excluded-or-limit`, `limit-only`).
+
 ![Plugin Playground settings showing command insert default mode](docs/images/readme/settings-command-insert-default-mode.png)
+![Plugin Playground settings showing load-on-save](docs/images/readme/settings-run-on-save.png)
+![Plugin Playground settings showing folder-share dialog mode](docs/images/readme/settings-share-folder-selection-dialog-mode.png)
 
 For startup automation, there are two complementary settings:
 

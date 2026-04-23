@@ -3,7 +3,6 @@ import { Dialog, ReactWidget, showDialog } from '@jupyterlab/apputils';
 import {
   addIcon,
   caretDownEmptyIcon,
-  checkIcon,
   copyIcon,
   jsonIcon,
   MenuSvg,
@@ -20,6 +19,14 @@ import {
   type ICommandRecord
 } from './command-completion';
 import { ContentUtils } from './contents';
+import {
+  openMenuAtAnchor,
+  registerSplitActionSelectionCommands,
+  SplitActionButton,
+  toolbarActionIconState,
+  TOOLBAR_ACTION_TRANSIENT_TIMEOUT_MS,
+  type ISelectableSplitActionOption
+} from './split-action';
 import {
   docsLinkIcon,
   gitRepositoryIcon,
@@ -75,6 +82,37 @@ const EXTENSION_POINT_PANEL_ID = 'jp-PluginPlayground-extensionPointPanel';
 const COMMAND_INSERT_MENU_INSERT_ID =
   'plugin-playground:command-insert-selection';
 const COMMAND_INSERT_MENU_AI_ID = 'plugin-playground:command-insert-ai';
+const COMMAND_INSERT_MENU_OPTIONS: ReadonlyArray<
+  ISelectableSplitActionOption<CommandInsertMode>
+> = [
+  {
+    command: COMMAND_INSERT_MENU_INSERT_ID,
+    label: 'Insert in selection',
+    value: 'insert'
+  },
+  {
+    command: COMMAND_INSERT_MENU_AI_ID,
+    label: 'Prompt AI to insert',
+    value: 'ai'
+  }
+];
+const COMMAND_INSERT_MENU_ITEMS = COMMAND_INSERT_MENU_OPTIONS.map(option => ({
+  command: option.command
+}));
+const TOUR_FIRST_TOKEN_ACTIONS_ID = 'jp-PluginPlayground-tour-token-actions';
+const TOUR_FIRST_TOKEN_INSERT_BUTTON_ID =
+  'jp-PluginPlayground-tour-token-insert';
+const TOUR_FIRST_TOKEN_COPY_BUTTON_ID = 'jp-PluginPlayground-tour-token-copy';
+const TOUR_FIRST_COMMAND_INSERT_GROUP_ID =
+  'jp-PluginPlayground-tour-command-insert-group';
+const TOUR_FIRST_COMMAND_SCHEMA_COPY_ACTIONS_ID =
+  'jp-PluginPlayground-tour-command-schema-copy-actions';
+const TOUR_FIRST_COMMAND_SCHEMA_BUTTON_ID =
+  'jp-PluginPlayground-tour-command-schema';
+const TOUR_FIRST_COMMAND_COPY_BUTTON_ID =
+  'jp-PluginPlayground-tour-command-copy';
+const TOUR_FIRST_PACKAGE_ACTIONS_ID =
+  'jp-PluginPlayground-tour-package-actions';
 
 export function filterTokenRecords(
   tokens: ReadonlyArray<TokenSidebar.ITokenRecord>,
@@ -169,26 +207,26 @@ export class TokenSidebar extends ReactWidget {
     this._getCommandInsertMode = options.getCommandInsertMode;
     this._isCommandInsertEnabled = options.isCommandInsertEnabled;
     this.addClass('jp-PluginPlayground-sidebar');
-    this._commandInsertMenuCommands.addCommand(COMMAND_INSERT_MENU_INSERT_ID, {
-      label: 'Insert in selection',
-      describedBy: { args: null },
-      isToggled: () => this._getCommandInsertMode() === 'insert',
-      execute: () => {
-        void this._setCommandInsertMode('insert');
-      }
-    });
-    this._commandInsertMenuCommands.addCommand(COMMAND_INSERT_MENU_AI_ID, {
-      label: 'Prompt AI to insert',
-      describedBy: { args: null },
-      isToggled: () => this._getCommandInsertMode() === 'ai',
-      execute: () => {
-        void this._setCommandInsertMode('ai');
+    registerSplitActionSelectionCommands({
+      commands: this._commandInsertMenuCommands,
+      options: COMMAND_INSERT_MENU_OPTIONS,
+      getSelectedValue: () => this._getCommandInsertMode(),
+      setSelectedValue: mode => {
+        void this._setCommandInsertMode(mode);
       }
     });
   }
 
   public showPackagesView(): void {
     this._setActiveView('packages');
+  }
+
+  public showTokensView(): void {
+    this._setActiveView('tokens');
+  }
+
+  public showCommandsView(): void {
+    this._setActiveView('commands');
   }
 
   dispose(): void {
@@ -208,6 +246,7 @@ export class TokenSidebar extends ReactWidget {
     const isAICommandInsertMode = commandInsertMode === 'ai';
     const canInsertCommand = this._isCommandInsertEnabled();
     const activeTabId = `jp-PluginPlayground-extensionPointTab-${this._activeView}`;
+    const filterCountSummaryId = `${activeTabId}-filter-count-summary`;
     let tokens: ReadonlyArray<TokenSidebar.ITokenRecord> = [];
     let commands: ReadonlyArray<ICommandRecord> = [];
     let knownModules: ReadonlyArray<IKnownModule> = [];
@@ -250,6 +289,22 @@ export class TokenSidebar extends ReactWidget {
       : isCommandView
       ? 'commands'
       : 'packages';
+    const countSummary = `${itemCount} of ${totalCount} ${itemType}`;
+    const viewDescription = isTokenView
+      ? 'Dependencies your plugin needs from other plugins.'
+      : isCommandView
+      ? 'Actions that JupyterLab can do that your plugin can trigger.'
+      : 'External code libraries your plugin can import.';
+    const filterPlaceholder = isTokenView
+      ? 'Filter token strings'
+      : isCommandView
+      ? 'Filter command ids'
+      : 'Filter package names';
+    const filterAriaLabel = isTokenView
+      ? 'Filter token strings'
+      : isCommandView
+      ? 'Filter command ids'
+      : 'Filter packages';
 
     return (
       <div className="jp-PluginPlayground-sidebarInner">
@@ -269,28 +324,32 @@ export class TokenSidebar extends ReactWidget {
           role="tabpanel"
           aria-labelledby={activeTabId}
         >
-          <input
-            className="jp-PluginPlayground-filter"
-            type="search"
-            placeholder={
-              isTokenView
-                ? 'Filter token strings'
-                : isCommandView
-                ? 'Filter command ids'
-                : 'Filter package names'
-            }
-            aria-label={
-              isTokenView
-                ? 'Filter token strings'
-                : isCommandView
-                ? 'Filter command ids'
-                : 'Filter packages'
-            }
-            value={this._query}
-            onChange={this._onQueryChange}
-          />
-          <p className="jp-PluginPlayground-count">
-            {itemCount} of {totalCount} {itemType}
+          <div className="jp-PluginPlayground-filterRow">
+            <input
+              className="jp-PluginPlayground-filter"
+              type="search"
+              placeholder={filterPlaceholder}
+              aria-label={filterAriaLabel}
+              aria-describedby={filterCountSummaryId}
+              title={countSummary}
+              value={this._query}
+              onChange={this._onQueryChange}
+            />
+            <span
+              id={filterCountSummaryId}
+              className="jp-PluginPlayground-visuallyHidden"
+            >
+              {countSummary}
+            </span>
+            <span
+              className="jp-PluginPlayground-filterCount"
+              aria-hidden="true"
+            >
+              {itemCount}/{totalCount}
+            </span>
+          </div>
+          <p className="jp-PluginPlayground-viewDescription">
+            {viewDescription}
           </p>
           {isPackagesView && this._isDiscoveringKnownModules ? (
             <p className="jp-PluginPlayground-count">
@@ -312,70 +371,83 @@ export class TokenSidebar extends ReactWidget {
             </p>
           ) : isTokenView ? (
             <ul className="jp-PluginPlayground-list">
-              {filteredTokens.map(token => (
-                <li key={token.name} className="jp-PluginPlayground-listItem">
-                  <div className="jp-PluginPlayground-row">
-                    <code className="jp-PluginPlayground-entryLabel jp-PluginPlayground-tokenString">
-                      {token.name}
-                    </code>
-                    <div className="jp-PluginPlayground-tokenActions">
-                      <button
-                        className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-importButton"
-                        type="button"
-                        onClick={() => {
-                          void this._insertImport(token.name);
-                        }}
-                        disabled={!this._isImportEnabled(token.name)}
-                        aria-label={`Insert import statement for ${token.name}`}
-                        title="Insert import statement"
-                      >
-                        {React.createElement(addIcon.react, {
-                          tag: 'span',
-                          elementSize: 'normal',
-                          className: 'jp-PluginPlayground-actionIcon'
-                        })}
-                      </button>
-                      <button
-                        className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-copyButton"
-                        type="button"
-                        onClick={() => {
-                          void this._copyValue(token.name, 'token string');
-                        }}
-                        aria-label={
-                          this._copiedValue === token.name
-                            ? `Copied token string ${token.name}`
-                            : `Copy token string ${token.name}`
-                        }
-                        title={
-                          this._copiedValue === token.name
-                            ? 'Copied'
-                            : 'Copy token string'
+              {filteredTokens.map((token, index) => {
+                const isCopied = this._copiedValue === token.name;
+                const copyIconState = toolbarActionIconState(
+                  isCopied,
+                  copyIcon
+                );
+                return (
+                  <li key={token.name} className="jp-PluginPlayground-listItem">
+                    <div className="jp-PluginPlayground-row">
+                      <code className="jp-PluginPlayground-entryLabel jp-PluginPlayground-tokenString">
+                        {token.name}
+                      </code>
+                      <div
+                        className="jp-PluginPlayground-tokenActions"
+                        id={
+                          index === 0 ? TOUR_FIRST_TOKEN_ACTIONS_ID : undefined
                         }
                       >
-                        {React.createElement(
-                          this._copiedValue === token.name
-                            ? checkIcon.react
-                            : copyIcon.react,
-                          {
+                        <button
+                          className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-importButton"
+                          type="button"
+                          id={
+                            index === 0
+                              ? TOUR_FIRST_TOKEN_INSERT_BUTTON_ID
+                              : undefined
+                          }
+                          onClick={() => {
+                            void this._insertImport(token.name);
+                          }}
+                          disabled={!this._isImportEnabled(token.name)}
+                          aria-label={`Insert import statement for ${token.name}`}
+                          title="Insert import statement"
+                        >
+                          {React.createElement(addIcon.react, {
                             tag: 'span',
                             elementSize: 'normal',
                             className: 'jp-PluginPlayground-actionIcon'
+                          })}
+                        </button>
+                        <button
+                          className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-copyButton"
+                          type="button"
+                          id={
+                            index === 0
+                              ? TOUR_FIRST_TOKEN_COPY_BUTTON_ID
+                              : undefined
                           }
-                        )}
-                      </button>
+                          onClick={() => {
+                            void this._copyValue(token.name, 'token string');
+                          }}
+                          aria-label={
+                            isCopied
+                              ? `Copied token string ${token.name}`
+                              : `Copy token string ${token.name}`
+                          }
+                          title={isCopied ? 'Copied' : 'Copy token string'}
+                        >
+                          {React.createElement(copyIconState.icon.react, {
+                            tag: 'span',
+                            elementSize: 'normal',
+                            className: copyIconState.className
+                          })}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                  {token.description ? (
-                    <p className="jp-PluginPlayground-description">
-                      {token.description}
-                    </p>
-                  ) : null}
-                </li>
-              ))}
+                    {token.description ? (
+                      <p className="jp-PluginPlayground-description">
+                        {token.description}
+                      </p>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           ) : isCommandView ? (
             <ul className="jp-PluginPlayground-list">
-              {filteredCommands.map(command => {
+              {filteredCommands.map((command, index) => {
                 this._ensureCommandArgumentCount(command.id);
                 const description = formatCommandDescription(command);
                 const isExpanded = this._expandedCommandIds.has(command.id);
@@ -396,6 +468,11 @@ export class TokenSidebar extends ReactWidget {
                 const commandArgumentsPanelId = this._commandArgumentsPanelId(
                   command.id
                 );
+                const isCopied = this._copiedValue === command.id;
+                const copyIconState = toolbarActionIconState(
+                  isCopied,
+                  copyIcon
+                );
 
                 return (
                   <li key={command.id} className="jp-PluginPlayground-listItem">
@@ -404,129 +481,141 @@ export class TokenSidebar extends ReactWidget {
                         {command.id}
                       </code>
                       <div className="jp-PluginPlayground-tokenActions">
-                        <div className="jp-PluginPlayground-commandInsertSplit">
-                          <button
-                            className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-commandInsertButton"
-                            type="button"
-                            onMouseDown={event => {
+                        <div
+                          id={
+                            index === 0
+                              ? TOUR_FIRST_COMMAND_INSERT_GROUP_ID
+                              : undefined
+                          }
+                        >
+                          <SplitActionButton
+                            containerClassName="jp-PluginPlayground-commandInsertSplit"
+                            primaryClassName="jp-PluginPlayground-commandInsertButton"
+                            menuClassName="jp-PluginPlayground-commandInsertMenuButton jp-PluginPlayground-commandInsertDropdownButton"
+                            disabled={!canInsertCommand}
+                            onPrimaryMouseDown={event => {
                               event.preventDefault();
                             }}
-                            onClick={() => {
+                            onPrimaryClick={() => {
                               void this._insertCommand(
                                 command.id,
                                 commandInsertMode
                               );
                             }}
-                            disabled={!canInsertCommand}
-                            aria-label={
+                            primaryAriaLabel={
                               isAICommandInsertMode
                                 ? `Prompt AI to insert command execution for ${command.id} (default)`
                                 : `Insert command execution for ${command.id} (default)`
                             }
-                            title={
+                            primaryTitle={
                               isAICommandInsertMode
                                 ? 'Prompt AI to insert command execution (default)'
                                 : 'Insert command execution (default)'
                             }
-                          >
-                            {React.createElement(addIcon.react, {
-                              tag: 'span',
-                              elementSize: 'normal',
-                              className: 'jp-PluginPlayground-actionIcon'
-                            })}
-                            {isAICommandInsertMode
-                              ? React.createElement(offlineBoltIcon.react, {
+                            primaryContent={
+                              <>
+                                {React.createElement(addIcon.react, {
                                   tag: 'span',
-                                  elementSize: 'small',
-                                  className:
-                                    'jp-PluginPlayground-commandInsertAIMarkerIcon'
-                                })
-                              : null}
-                          </button>
-                          <button
-                            className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-commandInsertMenuButton jp-PluginPlayground-commandInsertDropdownButton"
-                            type="button"
-                            onMouseDown={event => {
+                                  elementSize: 'normal',
+                                  className: 'jp-PluginPlayground-actionIcon'
+                                })}
+                                {isAICommandInsertMode
+                                  ? React.createElement(offlineBoltIcon.react, {
+                                      tag: 'span',
+                                      elementSize: 'small',
+                                      className:
+                                        'jp-PluginPlayground-commandInsertAIMarkerIcon'
+                                    })
+                                  : null}
+                              </>
+                            }
+                            onMenuMouseDown={event => {
                               event.preventDefault();
                             }}
-                            onClick={event => {
-                              this._openCommandInsertMenu(event.currentTarget);
+                            onMenuClick={anchorButton => {
+                              this._openCommandInsertMenu(anchorButton);
                             }}
-                            disabled={!canInsertCommand}
-                            aria-haspopup="menu"
-                            aria-label={`Choose command insertion mode for ${command.id}`}
-                            title="Choose command insertion mode"
+                            menuAriaLabel={`Choose command insertion mode for ${command.id}`}
+                            menuTitle="Choose command insertion mode"
+                            menuContent={React.createElement(
+                              caretDownEmptyIcon.react,
+                              {
+                                tag: 'span',
+                                elementSize: 'normal',
+                                className: 'jp-PluginPlayground-actionIcon'
+                              }
+                            )}
+                          />
+                        </div>
+                        <div
+                          className="jp-PluginPlayground-commandSchemaCopyActions"
+                          id={
+                            index === 0
+                              ? TOUR_FIRST_COMMAND_SCHEMA_COPY_ACTIONS_ID
+                              : undefined
+                          }
+                        >
+                          <button
+                            className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-argumentBadgeButton"
+                            type="button"
+                            id={
+                              index === 0
+                                ? TOUR_FIRST_COMMAND_SCHEMA_BUTTON_ID
+                                : undefined
+                            }
+                            onClick={() => {
+                              void this._toggleCommandArguments(command.id);
+                            }}
+                            disabled={isArgumentsButtonDisabled}
+                            aria-expanded={isExpanded}
+                            aria-controls={commandArgumentsPanelId}
+                            aria-label={
+                              isArgumentsButtonDisabled
+                                ? `Argument documentation unavailable for ${command.id}`
+                                : isExpanded
+                                ? `Hide argument documentation for ${command.id}`
+                                : `Show argument documentation for ${command.id}`
+                            }
+                            title={
+                              isArgumentsButtonDisabled
+                                ? 'Argument documentation unavailable'
+                                : isExpanded
+                                ? 'Hide argument documentation'
+                                : 'Show argument documentation'
+                            }
                           >
-                            {React.createElement(caretDownEmptyIcon.react, {
+                            <span
+                              className="jp-PluginPlayground-argumentCountBadge"
+                              aria-hidden="true"
+                            >
+                              {`{${argumentCountBadge}}`}
+                            </span>
+                          </button>
+                          <button
+                            className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-copyButton"
+                            type="button"
+                            id={
+                              index === 0
+                                ? TOUR_FIRST_COMMAND_COPY_BUTTON_ID
+                                : undefined
+                            }
+                            onClick={() => {
+                              void this._copyValue(command.id, 'command id');
+                            }}
+                            aria-label={
+                              isCopied
+                                ? `Copied command id ${command.id}`
+                                : `Copy command id ${command.id}`
+                            }
+                            title={isCopied ? 'Copied' : 'Copy command id'}
+                          >
+                            {React.createElement(copyIconState.icon.react, {
                               tag: 'span',
                               elementSize: 'normal',
-                              className: 'jp-PluginPlayground-actionIcon'
+                              className: copyIconState.className
                             })}
                           </button>
                         </div>
-                        <button
-                          className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-argumentBadgeButton"
-                          type="button"
-                          onClick={() => {
-                            void this._toggleCommandArguments(command.id);
-                          }}
-                          disabled={isArgumentsButtonDisabled}
-                          aria-expanded={isExpanded}
-                          aria-controls={commandArgumentsPanelId}
-                          aria-label={
-                            isArgumentsButtonDisabled
-                              ? `Argument documentation unavailable for ${command.id}`
-                              : isExpanded
-                              ? `Hide argument documentation for ${command.id}`
-                              : `Show argument documentation for ${command.id}`
-                          }
-                          title={
-                            isArgumentsButtonDisabled
-                              ? 'Argument documentation unavailable'
-                              : isExpanded
-                              ? 'Hide argument documentation'
-                              : 'Show argument documentation'
-                          }
-                        >
-                          <span
-                            className="jp-PluginPlayground-argumentFunctionLabel"
-                            aria-hidden="true"
-                          >
-                            <span>f(</span>
-                            <span className="jp-PluginPlayground-argumentCountBadge">
-                              {argumentCountBadge}
-                            </span>
-                            <span>)</span>
-                          </span>
-                        </button>
-                        <button
-                          className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-copyButton"
-                          type="button"
-                          onClick={() => {
-                            void this._copyValue(command.id, 'command id');
-                          }}
-                          aria-label={
-                            this._copiedValue === command.id
-                              ? `Copied command id ${command.id}`
-                              : `Copy command id ${command.id}`
-                          }
-                          title={
-                            this._copiedValue === command.id
-                              ? 'Copied'
-                              : 'Copy command id'
-                          }
-                        >
-                          {React.createElement(
-                            this._copiedValue === command.id
-                              ? checkIcon.react
-                              : copyIcon.react,
-                            {
-                              tag: 'span',
-                              elementSize: 'normal',
-                              className: 'jp-PluginPlayground-actionIcon'
-                            }
-                          )}
-                        </button>
                       </div>
                     </div>
                     {description ? (
@@ -558,9 +647,14 @@ export class TokenSidebar extends ReactWidget {
             </ul>
           ) : (
             <ul className="jp-PluginPlayground-list">
-              {filteredKnownModules.map(known => {
+              {filteredKnownModules.map((known, index) => {
                 const links = this._knownModuleLinks(known);
                 const description = this._knownModuleDescription(known);
+                const isCopied = this._copiedValue === known.name;
+                const copyIconState = toolbarActionIconState(
+                  isCopied,
+                  copyIcon
+                );
                 return (
                   <li key={known.name} className="jp-PluginPlayground-listItem">
                     <div className="jp-PluginPlayground-row">
@@ -576,7 +670,14 @@ export class TokenSidebar extends ReactWidget {
                           </React.Fragment>
                         ))}
                       </code>
-                      <div className="jp-PluginPlayground-tokenActions jp-PluginPlayground-packageActions">
+                      <div
+                        className="jp-PluginPlayground-tokenActions jp-PluginPlayground-packageActions"
+                        id={
+                          index === 0
+                            ? TOUR_FIRST_PACKAGE_ACTIONS_ID
+                            : undefined
+                        }
+                      >
                         {links.map(link => (
                           <button
                             key={`${known.name}:${link.label}`}
@@ -613,26 +714,17 @@ export class TokenSidebar extends ReactWidget {
                             void this._copyValue(known.name, 'package name');
                           }}
                           aria-label={
-                            this._copiedValue === known.name
+                            isCopied
                               ? `Copied package name ${known.name}`
                               : `Copy package name ${known.name}`
                           }
-                          title={
-                            this._copiedValue === known.name
-                              ? 'Copied'
-                              : 'Copy package name'
-                          }
+                          title={isCopied ? 'Copied' : 'Copy package name'}
                         >
-                          {React.createElement(
-                            this._copiedValue === known.name
-                              ? checkIcon.react
-                              : copyIcon.react,
-                            {
-                              tag: 'span',
-                              elementSize: 'normal',
-                              className: 'jp-PluginPlayground-actionIcon'
-                            }
-                          )}
+                          {React.createElement(copyIconState.icon.react, {
+                            tag: 'span',
+                            elementSize: 'normal',
+                            className: copyIconState.className
+                          })}
                         </button>
                       </div>
                     </div>
@@ -883,18 +975,10 @@ export class TokenSidebar extends ReactWidget {
   }
 
   private _openCommandInsertMenu(anchorButton: HTMLButtonElement): void {
-    this._commandInsertMenu.clearItems();
-    this._commandInsertMenu.addItem({
-      command: COMMAND_INSERT_MENU_INSERT_ID
-    });
-    this._commandInsertMenu.addItem({
-      command: COMMAND_INSERT_MENU_AI_ID
-    });
-    const anchorRect = anchorButton.getBoundingClientRect();
-    const splitRect = anchorButton.parentElement?.getBoundingClientRect();
-    this._commandInsertMenu.open(
-      splitRect?.left ?? anchorRect.left,
-      anchorRect.bottom
+    openMenuAtAnchor(
+      this._commandInsertMenu,
+      anchorButton,
+      COMMAND_INSERT_MENU_ITEMS
     );
   }
 
@@ -938,7 +1022,7 @@ export class TokenSidebar extends ReactWidget {
   private async _copyValue(value: string, valueKind: string): Promise<void> {
     try {
       await ContentUtils.copyValueToClipboard(value);
-      ContentUtils.setCopiedStateWithTimeout(
+      ContentUtils.setTransientStateWithTimeout<string>(
         value,
         this._copiedTimer,
         timer => {
@@ -949,7 +1033,8 @@ export class TokenSidebar extends ReactWidget {
         },
         () => {
           this.update();
-        }
+        },
+        TOOLBAR_ACTION_TRANSIENT_TIMEOUT_MS
       );
     } catch (error) {
       const message =

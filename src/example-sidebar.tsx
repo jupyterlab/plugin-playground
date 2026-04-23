@@ -7,6 +7,11 @@ import * as React from 'react';
 import { Message } from '@lumino/messaging';
 import { ContentUtils } from './contents';
 
+const TOUR_FIRST_EXAMPLE_ACTIONS_ID =
+  'jp-PluginPlayground-tour-example-actions';
+const FILTER_COUNT_SUMMARY_ID =
+  'jp-PluginPlayground-extensionExamples-filter-count-summary';
+
 export namespace ExampleSidebar {
   export interface IExampleRecord {
     name: string;
@@ -54,21 +59,45 @@ export class ExampleSidebar extends ReactWidget {
 
   render(): JSX.Element {
     const filteredExamples = filterExampleRecords(this._examples, this._query);
+    const isExamplesLoaded = !this._isLoading && !this._errorMessage;
+    const isExamplesUnavailable =
+      isExamplesLoaded && this._examples.length === 0;
+    const hasNoMatchingExamples =
+      isExamplesLoaded &&
+      this._examples.length > 0 &&
+      filteredExamples.length === 0;
+    const countSummary = isExamplesLoaded
+      ? `${filteredExamples.length} of ${this._examples.length} extension examples`
+      : 'Loading extension examples';
 
     return (
       <div className="jp-PluginPlayground-sidebarInner">
-        <input
-          className="jp-PluginPlayground-filter"
-          type="search"
-          placeholder="Filter extension examples"
-          aria-label="Filter extension examples"
-          value={this._query}
-          onChange={this._onQueryChange}
-        />
-        <p className="jp-PluginPlayground-count">
-          {filteredExamples.length} of {this._examples.length} extension
-          examples
-        </p>
+        <div className="jp-PluginPlayground-filterRow jp-PluginPlayground-exampleFilterRow">
+          <input
+            className="jp-PluginPlayground-filter"
+            type="search"
+            placeholder="Filter extension examples"
+            aria-label="Filter extension examples"
+            aria-describedby={FILTER_COUNT_SUMMARY_ID}
+            title={countSummary}
+            value={this._query}
+            onChange={this._onQueryChange}
+          />
+          <span
+            id={FILTER_COUNT_SUMMARY_ID}
+            className="jp-PluginPlayground-visuallyHidden"
+          >
+            {countSummary}
+          </span>
+          {isExamplesLoaded ? (
+            <span
+              className="jp-PluginPlayground-filterCount"
+              aria-hidden="true"
+            >
+              {filteredExamples.length}/{this._examples.length}
+            </span>
+          ) : null}
+        </div>
         {this._isLoading ? (
           <p className="jp-PluginPlayground-count">
             Loading extension examples…
@@ -79,35 +108,46 @@ export class ExampleSidebar extends ReactWidget {
             Failed to load extension examples: {this._errorMessage}
           </p>
         ) : null}
-        {!this._isLoading &&
-        !this._errorMessage &&
-        filteredExamples.length === 0 ? (
-          <div>
-            <p className="jp-PluginPlayground-count">
-              No extension examples found in <code>extension-examples/</code>.
+        {hasNoMatchingExamples ? (
+          <p className="jp-PluginPlayground-count">
+            No matching extension examples found.
+          </p>
+        ) : null}
+        {isExamplesUnavailable ? (
+          <div className="jp-PluginPlayground-emptyState">
+            <p className="jp-PluginPlayground-count jp-PluginPlayground-emptyStateLine">
+              No extension examples are available.
             </p>
-            <p className="jp-PluginPlayground-count">
+            <p className="jp-PluginPlayground-count jp-PluginPlayground-emptyStateLine">
               If this repository was cloned from source, run{' '}
               <code>git submodule update --init --recursive</code> from the
-              project root.
+              project root, then restart JupyterLab.
             </p>
-            <p className="jp-PluginPlayground-count">
-              If installed from PyPI, clone{' '}
+            <p className="jp-PluginPlayground-count jp-PluginPlayground-emptyStateLine">
+              If installed from PyPI, ensure the{' '}
+              <code>jupyterlab_plugin_playground</code> server extension is
+              enabled (run <code>jupyter server extension list</code> to check),
+              then restart JupyterLab.
+            </p>
+            <p className="jp-PluginPlayground-count jp-PluginPlayground-emptyStateLine">
+              If still unavailable, clone{' '}
               <code>https://github.com/jupyterlab/extension-examples</code> as{' '}
-              <code>extension-examples/</code> in your working directory and
-              refresh JupyterLab.
+              <code>extension-examples/</code> in your working directory.
             </p>
           </div>
         ) : null}
         {filteredExamples.length > 0 ? (
           <ul className="jp-PluginPlayground-list">
-            {filteredExamples.map(example => (
+            {filteredExamples.map((example, index) => (
               <li key={example.path} className="jp-PluginPlayground-listItem">
                 <div className="jp-PluginPlayground-row">
                   <span className="jp-PluginPlayground-entryLabel">
                     {example.name}
                   </span>
-                  <div className="jp-PluginPlayground-tokenActions">
+                  <div
+                    className="jp-PluginPlayground-tokenActions"
+                    id={index === 0 ? TOUR_FIRST_EXAMPLE_ACTIONS_ID : undefined}
+                  >
                     <button
                       className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-exampleOpenButton"
                       type="button"
@@ -227,6 +267,6 @@ export class ExampleSidebar extends ReactWidget {
   private readonly _onOpenReadme: (readmePath: string) => Promise<void> | void;
   private _query = '';
   private _examples: ReadonlyArray<ExampleSidebar.IExampleRecord> = [];
-  private _isLoading = false;
+  private _isLoading = true;
   private _errorMessage = '';
 }

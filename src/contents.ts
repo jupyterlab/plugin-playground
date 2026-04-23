@@ -73,6 +73,21 @@ export namespace ContentUtils {
     return (path ?? '').replace(/^\/+/g, '');
   }
 
+  export function isSafeRelativePath(path: string): boolean {
+    const normalized = normalizeContentsPath(path).replace(/\\/g, '/');
+    if (!normalized) {
+      return false;
+    }
+    const segments = normalized.split('/');
+    return segments.every(
+      segment =>
+        segment.length > 0 &&
+        segment !== '.' &&
+        segment !== '..' &&
+        !segment.includes('\0')
+    );
+  }
+
   export function normalizeQuery(query: string): string {
     return query.trim().toLowerCase();
   }
@@ -254,6 +269,33 @@ export namespace ContentUtils {
     return text === null ? null : new TextEncoder().encode(text);
   }
 
+  export function parseJsonObject(
+    raw: string | null | undefined
+  ): Record<string, unknown> | null {
+    if (typeof raw !== 'string') {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (
+        parsed !== null &&
+        typeof parsed === 'object' &&
+        !Array.isArray(parsed)
+      ) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
+
+  export function fileModelToJsonObject(
+    fileModel: IFileModel | null
+  ): Record<string, unknown> | null {
+    return parseJsonObject(fileModelToText(fileModel));
+  }
+
   export async function readContentsFileAsText(
     serviceManager: ServiceManager.IManager,
     path: string
@@ -282,28 +324,28 @@ export namespace ContentUtils {
     }
   }
 
-  export function setCopiedStateWithTimeout(
-    value: string,
-    copiedTimer: number | null,
-    setCopiedTimer: (timer: number | null) => void,
-    setCopiedValue: (copiedValue: string | null) => void,
+  export function setTransientStateWithTimeout<T>(
+    value: T,
+    stateTimer: number | null,
+    setStateTimer: (timer: number | null) => void,
+    setStateValue: (stateValue: T | null) => void,
     update: () => void,
-    timeoutMs = 1200
+    timeoutMs = 1500
   ): void {
-    setCopiedValue(value);
+    setStateValue(value);
     update();
 
-    if (copiedTimer !== null) {
-      window.clearTimeout(copiedTimer);
+    if (stateTimer !== null) {
+      window.clearTimeout(stateTimer);
     }
 
     const timer = window.setTimeout(() => {
-      setCopiedValue(null);
-      setCopiedTimer(null);
+      setStateValue(null);
+      setStateTimer(null);
       update();
     }, timeoutMs);
 
-    setCopiedTimer(timer);
+    setStateTimer(timer);
   }
 
   export function normalizeExternalUrl(rawUrl: string): string | null {

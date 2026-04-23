@@ -24,17 +24,17 @@ import { Signal } from '@lumino/signaling';
 import { DocumentRegistry, IDocumentWidget } from '@jupyterlab/docregistry';
 
 import { FileEditor, IEditorTracker } from '@jupyterlab/fileeditor';
+import { IFileBrowserFactory } from '@jupyterlab/filebrowser';
 
 import { ILauncher } from '@jupyterlab/launcher';
 import { IMainMenu } from '@jupyterlab/mainmenu';
 import { IChatTracker } from '@jupyter/chat';
 
 import {
-  checkIcon,
-  downloadIcon,
-  extensionIcon,
   IFrame,
-  shareIcon,
+  fileUploadIcon,
+  infoIcon,
+  offlineBoltIcon,
   SidePanel
 } from '@jupyterlab/ui-components';
 
@@ -72,8 +72,9 @@ import {
 } from './token-sidebar';
 
 import { ExampleSidebar, filterExampleRecords } from './example-sidebar';
+import { createFloatingUrlLoadHint } from './components/url-load-hint';
 
-import { tokenSidebarIcon } from './icons';
+import { loadOnSaveToggleIcon, runTileIcon, tokenSidebarIcon } from './icons';
 
 import {
   CommandCompletionProvider,
@@ -94,18 +95,44 @@ import {
 
 import { downloadArchive, IArchiveEntry } from './archive';
 import { createTemplateArchive } from './export-template';
-import { ShareLink } from './share-link';
+import {
+  hasPluginPlaygroundTourSupport,
+  launchPluginPlaygroundTour,
+  PLUGIN_PLAYGROUND_TOUR_MISSING_HINT
+} from './tour';
+import {
+  DEFAULT_EXPORT_ARCHIVE_FORMAT,
+  EXPORT_EXTENSION_TOOLBAR_ITEM,
+  ExportToolbarController,
+  type ExportArchiveFormat
+} from './export-toolbar';
+import {
+  SHARE_LINK_TOOLBAR_ITEM,
+  SHARE_VIA_LINK_ARGS_SCHEMA,
+  ShareViaLinkController,
+  type IPluginShareResult
+} from './share-via-link-controller';
+import { createPythonWheelArchive } from './wheel';
 
-import { Token } from '@lumino/coreutils';
+import { ReadonlyPartialJSONObject, Token } from '@lumino/coreutils';
 
 import { AccordionPanel, MenuBar, Widget } from '@lumino/widgets';
 
 import { IPlugin } from '@lumino/application';
 
+export type { IPluginShareResult } from './share-via-link-controller';
+
 namespace CommandIDs {
   export const createNewFile = 'plugin-playground:create-new-plugin';
+  export const createNewFileWithAI =
+    'plugin-playground:create-new-plugin-with-ai';
+  export const takeTour = 'plugin-playground:take-tour';
   export const createNewFileFromNotebookTree =
     'plugin-playground:create-new-plugin-from-notebook-tree';
+  export const createNewFileWithAIFromNotebookTree =
+    'plugin-playground:create-new-plugin-with-ai-from-notebook-tree';
+  export const takeTourFromNotebookTree =
+    'plugin-playground:take-tour-from-notebook-tree';
   export const loadCurrentAsExtension = 'plugin-playground:load-as-extension';
   export const exportAsExtension = 'plugin-playground:export-as-extension';
   export const shareViaLink = 'plugin-playground:share-via-link';
@@ -132,6 +159,10 @@ interface IPluginLoadResult {
   skippedAutoStartPluginIds?: string[];
 }
 
+interface IPluginLoadQueueOptions {
+  notifyResult?: boolean;
+}
+
 /**
  * Result metadata returned by export command executions.
  */
@@ -151,17 +182,6 @@ interface IResolvedExportContext {
   rootPath: string;
   archiveEntries: IArchiveEntry[];
   usedTemplate: boolean;
-}
-
-/**
- * Result metadata returned by share-link command executions.
- */
-export interface IPluginShareResult {
-  ok: boolean;
-  link: string | null;
-  sourcePath: string | null;
-  urlLength: number;
-  message?: string;
 }
 
 const PLUGIN_TEMPLATE = `import {
@@ -229,18 +249,12 @@ const EXPORT_AS_EXTENSION_ARGS_SCHEMA = {
       type: 'string',
       description:
         'Optional contents path of the file to export. When omitted, the active editor file is used.'
-    }
-  }
-};
-
-const SHARE_VIA_LINK_ARGS_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    path: {
+    },
+    format: {
       type: 'string',
+      enum: ['zip', 'wheel'],
       description:
-        'Optional contents path of the file to share. When omitted, the active editor file is used.'
+        'Optional archive format (default: "zip"). Use "zip" for folder export or "wheel" for a Python package (.whl).'
     }
   }
 };
@@ -274,7 +288,7 @@ const CREATE_PLUGIN_FROM_NOTEBOOK_TREE_ARGS_SCHEMA = {
   }
 };
 const LOAD_ON_SAVE_TOGGLE_TOOLBAR_ITEM = 'plugin-playground-load-on-save';
-const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
+const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Run on save';
 const LOAD_ON_SAVE_SETTING = 'loadOnSave';
 const COMMAND_INSERT_DEFAULT_MODE_SETTING = 'commandInsertDefaultMode';
 const LOAD_ON_SAVE_ENABLED_DESCRIPTION =
@@ -282,11 +296,25 @@ const LOAD_ON_SAVE_ENABLED_DESCRIPTION =
 const LOAD_ON_SAVE_DISABLED_DESCRIPTION =
   'Auto load on save is available for JavaScript and TypeScript files';
 const JUPYTERLITE_AI_OPEN_CHAT_COMMAND = '@jupyterlite/ai:open-chat';
+const JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND = '@jupyterlite/ai:open-settings';
 const JUPYTERLITE_AI_CHAT_PANEL_ID = '@jupyterlite/ai:chat-panel';
 const JUPYTERLITE_AI_INSTALL_HINT =
-  'JupyterLite AI is unavailable. Install the "jupyterlite-ai" extension and reload.';
-const JUPYTERLITE_AI_PROVIDER_SETUP_HINT =
-  'JupyterLite AI provider is not configured. Configure a provider and try again.';
+  'JupyterLite AI is unavailable. Install the jupyterlite-ai extension and reload the application.';
+const JUPYTERLITE_AI_PROVIDER_SETUP_HINT = 'No AI provider configured.';
+type JupyterLiteAIErrorCode = 'install-unavailable' | 'provider-setup-required';
+type JupyterLiteAIChatOpenStatus =
+  | 'opened'
+  | 'provider-setup-required'
+  | 'install-unavailable'
+  | 'failed';
+
+class JupyterLiteAIError extends Error {
+  constructor(readonly code: JupyterLiteAIErrorCode, message: string) {
+    super(message);
+    this.name = 'JupyterLiteAIError';
+  }
+}
+
 const DEFAULT_COMMAND_INSERT_MODE: CommandInsertMode = 'insert';
 const ARCHIVE_EXCLUDED_DIRECTORIES = new Set([
   '.git',
@@ -295,13 +323,17 @@ const ARCHIVE_EXCLUDED_DIRECTORIES = new Set([
   'node_modules'
 ]);
 const ARCHIVE_FILE_READ_CONCURRENCY = 8;
-const SHARE_URL_WARN_LENGTH = 1800;
-const SHARE_URL_MAX_LENGTH = 8000;
-const SHARED_LINKS_ROOT = 'plugin-playground-shared';
+const URL_LOADED_EDITOR_HINT_CLASS = 'jp-PluginPlayground-urlLoadedEditorHint';
+const URL_LOADED_EDITOR_HINT_TITLE = 'Load as Extension';
+const URL_LOADED_EDITOR_HINT_MESSAGE =
+  'Run this shared file in the playground.';
+const URL_LOADED_EDITOR_HINT_DISMISS_LABEL = 'Close load as extension hint';
 const NOTEBOOK_FILE_BROWSER_FACTORY = 'FileBrowser';
 const NOTEBOOK_NEW_DROPDOWN_TOOLBAR_ITEM = 'new-dropdown';
 const NOTEBOOK_TREE_OPEN_SIDEBAR_KEY =
   'plugin-playground:open-sidebar-from-tree';
+const NOTEBOOK_TREE_OPEN_AI_CHAT_KEY =
+  'plugin-playground:open-ai-chat-from-tree';
 const NOTEBOOK_SHELL_PLUGIN_ID =
   '@jupyter-notebook/application-extension:shell';
 const NOTEBOOK_TREE_WIDGET_PLUGIN_ID =
@@ -322,6 +354,7 @@ class PluginPlayground {
     protected settingRegistry: ISettingRegistry,
     commandPalette: ICommandPalette,
     protected editorTracker: IEditorTracker,
+    protected fileBrowserFactory: IFileBrowserFactory | null,
     launcher: ILauncher | null,
     protected documentManager: IDocumentManager | null,
     protected chatTracker: IChatTracker | null,
@@ -331,6 +364,20 @@ class PluginPlayground {
     protected logConsoleTracker: ILogConsoleTracker | null
   ) {
     registerCoreKnownModules();
+
+    this._shareViaLinkController = new ShareViaLinkController({
+      app: this.app,
+      editorTracker: this.editorTracker,
+      fileBrowserFactory: this.fileBrowserFactory,
+      settings: this.settings,
+      commandId: CommandIDs.shareViaLink,
+      readSourceFileForExport: this._readSourceFileForExport.bind(this),
+      collectArchiveFilePaths: this._collectArchiveFilePaths.bind(this),
+      mapWithConcurrency: this._mapWithConcurrency.bind(this),
+      relativePath: this._relativePath.bind(this),
+      joinPath: this._joinPath.bind(this),
+      onShowSharedFileToolbarCue: this._showSharedFileToolbarCue.bind(this)
+    });
 
     loadKnownModule('@jupyter-widgets/base').then((module: any) => {
       // Define the widgets base module for RequireJS (left for compatibility only)
@@ -342,13 +389,16 @@ class PluginPlayground {
       caption:
         'Load the active editor file as an extension for plugin development',
       describedBy: { args: null },
-      icon: extensionIcon,
+      icon: runTileIcon,
       isEnabled: () =>
         editorTracker.currentWidget !== null &&
         editorTracker.currentWidget === app.shell.currentWidget,
       execute: async () => {
         const currentWidget = editorTracker.currentWidget;
         if (currentWidget) {
+          if (this._sharedFileCueWidgetId === currentWidget.id) {
+            this._dismissSharedFileCue?.();
+          }
           const currentText = currentWidget.context.model.toString();
           return this._queuePluginLoad(currentText, currentWidget.context.path);
         }
@@ -365,17 +415,24 @@ class PluginPlayground {
 
     app.commands.addCommand(CommandIDs.exportAsExtension, {
       label: 'Export Plugin Folder As Extension',
-      caption: 'Download the active plugin folder as an extension zip archive',
+      caption:
+        'Download the active plugin folder as an extension archive (.zip or .whl)',
       describedBy: { args: EXPORT_AS_EXTENSION_ARGS_SCHEMA },
-      icon: downloadIcon,
+      icon: fileUploadIcon,
       isEnabled: () => this.documentManager !== null,
       execute: async args => {
+        const exportFormat: ExportArchiveFormat =
+          args.format === 'wheel' ? 'wheel' : DEFAULT_EXPORT_ARCHIVE_FORMAT;
         const requestedPath =
           typeof args.path === 'string'
             ? ContentUtils.normalizeContentsPath(args.path)
             : '';
         if (requestedPath) {
-          return this._exportAsExtension(requestedPath);
+          return this._exportAsExtension(
+            requestedPath,
+            undefined,
+            exportFormat
+          );
         }
 
         const currentWidget = editorTracker.currentWidget;
@@ -392,30 +449,60 @@ class PluginPlayground {
 
         return this._exportAsExtension(
           ContentUtils.normalizeContentsPath(currentWidget.context.path),
-          currentWidget.context.model.toString()
+          currentWidget.context.model.toString(),
+          exportFormat
         );
       }
     });
 
     app.commands.addCommand(CommandIDs.shareViaLink, {
-      label: 'Copy Shareable Plugin Link',
-      caption: 'Create a URL for the active plugin file, then copy it',
+      label: this._shareViaLinkController.commandLabel.bind(
+        this._shareViaLinkController
+      ),
+      caption: this._shareViaLinkController.commandCaption.bind(
+        this._shareViaLinkController
+      ),
       describedBy: { args: SHARE_VIA_LINK_ARGS_SCHEMA },
-      icon: () =>
-        this._copiedCommandId === CommandIDs.shareViaLink
-          ? checkIcon
-          : shareIcon,
-      execute: async args => {
-        const requestedPath =
-          typeof args.path === 'string' ? args.path : undefined;
-        return this.shareViaLink(requestedPath);
-      }
+      icon: this._shareViaLinkController.commandIcon.bind(
+        this._shareViaLinkController
+      ),
+      isEnabled: this._shareViaLinkController.isCommandEnabled.bind(
+        this._shareViaLinkController
+      ),
+      execute: this._shareViaLinkController.executeCommand.bind(
+        this._shareViaLinkController
+      )
     });
+
+    toolbarWidgetRegistry.addFactory<IDocumentWidget<FileEditor>>(
+      'Editor',
+      SHARE_LINK_TOOLBAR_ITEM,
+      this._shareViaLinkController.createToolbarWidget.bind(
+        this._shareViaLinkController
+      )
+    );
 
     toolbarWidgetRegistry.addFactory<IDocumentWidget<FileEditor>>(
       'Editor',
       LOAD_ON_SAVE_TOGGLE_TOOLBAR_ITEM,
       widget => this._createLoadOnSaveToggleWidget(widget)
+    );
+    toolbarWidgetRegistry.addFactory<IDocumentWidget<FileEditor>>(
+      'Editor',
+      EXPORT_EXTENSION_TOOLBAR_ITEM,
+      widget =>
+        this._exportToolbar.createWidget({
+          editorWidget: widget,
+          hasDocumentManager: () => this.documentManager !== null,
+          onExport: async format => {
+            return (await this.app.commands.execute(
+              CommandIDs.exportAsExtension,
+              {
+                format
+              }
+            )) as IPluginExportResult;
+          }
+        })
     );
 
     editorTracker.widgetAdded.connect(
@@ -429,7 +516,9 @@ class PluginPlayground {
           );
           if (state === 'completed' && this._shouldLoadOnSave(normalizedPath)) {
             const currentText = widget.context.model.toString();
-            void this._queuePluginLoad(currentText, widget.context.path);
+            void this._queuePluginLoad(currentText, widget.context.path, {
+              notifyResult: false
+            });
           }
         };
         widget.context.saveState.connect(onSaveState);
@@ -474,10 +563,11 @@ class PluginPlayground {
     });
 
     app.commands.addCommand(CommandIDs.createNewFile, {
-      label: 'TypeScript File (Playground)',
-      caption: 'Create a new TypeScript file',
+      label: 'Start from File',
+      caption:
+        'Create a new TypeScript plugin file and open the playground sidebar',
       describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
-      icon: extensionIcon,
+      icon: tokenSidebarIcon,
       execute: async args => {
         const rawPathArg =
           typeof args.path === 'string' ? args.path.trim() : '';
@@ -542,8 +632,87 @@ class PluginPlayground {
             activeWidget.content.model.sharedModel.setSource(PLUGIN_TEMPLATE);
           });
         }
+        this._openPlaygroundSidebar();
         return activeWidget;
       }
+    });
+
+    commandPalette.addItem({
+      command: CommandIDs.createNewFile,
+      category: 'Plugin Playground',
+      args: {}
+    });
+
+    app.commands.addCommand(CommandIDs.createNewFileWithAI, {
+      label: 'Build with AI',
+      caption:
+        'Create a new TypeScript plugin file and open AI chat setup for guided building',
+      describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
+      icon: offlineBoltIcon,
+      execute: async args => {
+        const chatStatus = await this._openJupyterLiteAIChatWithSetupFallback();
+        if (chatStatus === 'provider-setup-required') {
+          return null;
+        }
+        const activeWidget = (await app.commands.execute(
+          CommandIDs.createNewFile,
+          args
+        )) as IDocumentWidget<FileEditor> | null;
+        if (chatStatus === 'opened') {
+          await this._openJupyterLiteAIChatWithSetupFallback();
+        }
+        return activeWidget;
+      }
+    });
+
+    commandPalette.addItem({
+      command: CommandIDs.createNewFileWithAI,
+      category: 'Plugin Playground',
+      args: {}
+    });
+
+    app.commands.addCommand(CommandIDs.takeTour, {
+      label: 'Take the Tour',
+      caption:
+        'Open a guided walkthrough of Plugin Playground, extension examples, and AI setup',
+      describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
+      icon: infoIcon,
+      execute: async args => {
+        if (!hasPluginPlaygroundTourSupport(app)) {
+          Notification.warning(
+            `${PLUGIN_PLAYGROUND_TOUR_MISSING_HINT} Install "jupyterlab-tour" and reload JupyterLab.`,
+            {
+              autoClose: 7000
+            }
+          );
+          return {
+            ok: false,
+            message: PLUGIN_PLAYGROUND_TOUR_MISSING_HINT
+          };
+        }
+
+        try {
+          await this._preparePluginPlaygroundTourContext(args);
+          await launchPluginPlaygroundTour(app);
+          return { ok: true };
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          Notification.warning(`Could not start the tour: ${message}`, {
+            autoClose: 7000
+          });
+          return {
+            ok: false,
+            message
+          };
+        }
+      }
+    });
+
+    commandPalette.addItem({
+      command: CommandIDs.takeTour,
+      category: 'Plugin Playground',
+      args: {}
     });
 
     app.commands.addCommand(CommandIDs.listTokens, {
@@ -640,19 +809,23 @@ class PluginPlayground {
       playgroundSidebar.title.icon = tokenSidebarIcon;
       playgroundSidebar.addWidget(tokenSidebar);
       playgroundSidebar.addWidget(exampleSidebar);
-      (playgroundSidebar.content as AccordionPanel).expand(0);
-      (playgroundSidebar.content as AccordionPanel).expand(1);
       this.app.shell.add(playgroundSidebar, 'right', { rank: 650 });
       this._playgroundSidebar = playgroundSidebar;
+      this._expandPlaygroundSidebarSections();
       if (typeof window !== 'undefined') {
         const shouldOpenFromTree = window.sessionStorage.getItem(
           NOTEBOOK_TREE_OPEN_SIDEBAR_KEY
         );
         if (shouldOpenFromTree === '1') {
           window.sessionStorage.removeItem(NOTEBOOK_TREE_OPEN_SIDEBAR_KEY);
-          if (!playgroundSidebar.isVisible) {
-            this.app.shell.activateById(playgroundSidebar.id);
-          }
+          this._openPlaygroundSidebar();
+        }
+        const shouldOpenAIChatFromTree = window.sessionStorage.getItem(
+          NOTEBOOK_TREE_OPEN_AI_CHAT_KEY
+        );
+        if (shouldOpenAIChatFromTree === '1') {
+          window.sessionStorage.removeItem(NOTEBOOK_TREE_OPEN_AI_CHAT_KEY);
+          void this._openJupyterLiteAIChatWithSetupFallback();
         }
       }
 
@@ -671,8 +844,18 @@ class PluginPlayground {
       if (launcher && (settings.composite.showIconInLauncher as boolean)) {
         launcher.add({
           command: CommandIDs.createNewFile,
-          category: 'Other',
+          category: 'Plugin Playground',
           rank: 1
+        });
+        launcher.add({
+          command: CommandIDs.createNewFileWithAI,
+          category: 'Plugin Playground',
+          rank: 2
+        });
+        launcher.add({
+          command: CommandIDs.takeTour,
+          category: 'Plugin Playground',
+          rank: 3
         });
       }
 
@@ -684,7 +867,7 @@ class PluginPlayground {
       for (const t of plugins) {
         await this._loadPlugin(t, null);
       }
-      await this._loadSharedPluginFromUrl();
+      await this._shareViaLinkController.loadSharedPluginFromUrl();
 
       settings.changed.connect(updatedSettings => {
         this.settings = updatedSettings;
@@ -720,18 +903,25 @@ class PluginPlayground {
   private _createLoadOnSaveToggleWidget(
     widget: IDocumentWidget<FileEditor>
   ): Widget {
-    const toggleNode = document.createElement('label');
+    const toggleNode = document.createElement('span');
     toggleNode.className = 'jp-PluginPlayground-loadOnSaveToggle';
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.className = 'jp-PluginPlayground-loadOnSaveCheckbox';
-    checkbox.setAttribute('aria-label', LOAD_ON_SAVE_CHECKBOX_LABEL);
-    const label = document.createElement('span');
-    label.className = 'jp-PluginPlayground-loadOnSaveText';
-    label.id = `${widget.id}-load-on-save-label`;
-    checkbox.setAttribute('aria-describedby', label.id);
-    label.textContent = LOAD_ON_SAVE_CHECKBOX_LABEL;
-    toggleNode.append(checkbox, label);
+    const toggleButton = document.createElement('button');
+    toggleButton.type = 'button';
+    toggleButton.className =
+      'jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-loadOnSaveToggleIconButton';
+    toggleButton.setAttribute('aria-label', LOAD_ON_SAVE_CHECKBOX_LABEL);
+    toggleButton.setAttribute('aria-pressed', 'false');
+    const icon = loadOnSaveToggleIcon.element({
+      tag: 'span',
+      className: 'jp-PluginPlayground-loadOnSaveIcon'
+    });
+    toggleButton.append(icon);
+    const labelButton = document.createElement('span');
+    labelButton.className =
+      'jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-loadOnSaveText';
+    labelButton.textContent = LOAD_ON_SAVE_CHECKBOX_LABEL;
+    toggleNode.append(toggleButton);
+    toggleNode.append(labelButton);
 
     const toggleWidget = new Widget({ node: toggleNode });
     toggleWidget.addClass('jp-PluginPlayground-loadOnSaveWidget');
@@ -739,34 +929,39 @@ class PluginPlayground {
     let currentPath = ContentUtils.normalizeContentsPath(widget.context.path);
     const refresh = () => {
       if (this._isGlobalLoadOnSaveEnabled()) {
-        checkbox.disabled = true;
-        checkbox.setAttribute('aria-hidden', 'true');
-        checkbox.setAttribute('aria-disabled', 'true');
+        toggleButton.disabled = true;
+        toggleButton.setAttribute('aria-pressed', 'false');
+        toggleButton.setAttribute('aria-disabled', 'true');
+        toggleNode.classList.add('jp-mod-disabled');
         toggleWidget.hide();
         return;
       }
       toggleWidget.show();
-      checkbox.removeAttribute('aria-hidden');
       currentPath = ContentUtils.normalizeContentsPath(widget.context.path);
       const enabled = this._isSupportedLoadOnSaveFile(currentPath);
-      checkbox.disabled = !enabled;
-      checkbox.setAttribute('aria-disabled', String(!enabled));
-      checkbox.checked = enabled && this._shouldLoadOnSave(currentPath);
+      const isPressed = enabled && this._shouldLoadOnSave(currentPath);
+      toggleButton.disabled = !enabled;
+      toggleButton.setAttribute('aria-pressed', String(isPressed));
+      toggleButton.setAttribute('aria-disabled', String(!enabled));
+      toggleNode.classList.toggle('jp-mod-disabled', !enabled);
       const description = enabled
         ? LOAD_ON_SAVE_ENABLED_DESCRIPTION
         : LOAD_ON_SAVE_DISABLED_DESCRIPTION;
-      toggleNode.title = description;
+      toggleButton.title = description;
+      labelButton.title = description;
     };
 
-    const onCheckboxChanged = () => {
-      if (
-        this._isSupportedLoadOnSaveFile(currentPath) &&
-        !this._isGlobalLoadOnSaveEnabled() &&
-        checkbox.checked
-      ) {
-        this._loadOnSaveByFile.add(currentPath);
-      } else {
+    const onToggleClicked = () => {
+      if (this._isGlobalLoadOnSaveEnabled()) {
+        return;
+      }
+      if (!this._isSupportedLoadOnSaveFile(currentPath)) {
+        return;
+      }
+      if (this._loadOnSaveByFile.has(currentPath)) {
         this._loadOnSaveByFile.delete(currentPath);
+      } else {
+        this._loadOnSaveByFile.add(currentPath);
       }
       for (const refreshState of this._loadOnSaveToggleRefreshers) {
         refreshState();
@@ -791,7 +986,8 @@ class PluginPlayground {
       refresh();
     };
 
-    checkbox.addEventListener('change', onCheckboxChanged);
+    toggleButton.addEventListener('click', onToggleClicked);
+    labelButton.addEventListener('click', onToggleClicked);
     widget.context.pathChanged.connect(onPathChanged);
     this._loadOnSaveToggleRefreshers.add(refresh);
     refresh();
@@ -802,7 +998,8 @@ class PluginPlayground {
         return;
       }
       isDisposed = true;
-      checkbox.removeEventListener('change', onCheckboxChanged);
+      toggleButton.removeEventListener('click', onToggleClicked);
+      labelButton.removeEventListener('click', onToggleClicked);
       widget.context.pathChanged.disconnect(onPathChanged);
       this._loadOnSaveToggleRefreshers.delete(refresh);
     };
@@ -813,10 +1010,104 @@ class PluginPlayground {
     return toggleWidget;
   }
 
+  private _showSharedFileToolbarCue(
+    widget: IDocumentWidget<FileEditor>,
+    sourcePath: string
+  ): void {
+    this._dismissSharedFileCue?.();
+
+    let isDisposed = false;
+    let rafId: number | null = null;
+    let hasShownFloatingHint = false;
+    let remainingPositionRetries = 10;
+    const normalizedSourcePath = ContentUtils.normalizeContentsPath(sourcePath);
+    const loadToolbarItemSelector =
+      '.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name="load-as-extension"]';
+
+    const queueHintPositionRefresh = () => {
+      if (rafId !== null || isDisposed) {
+        return;
+      }
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        if (isDisposed) {
+          return;
+        }
+        const loadItemNode = widget.node.querySelector(
+          loadToolbarItemSelector
+        ) as HTMLElement | null;
+        if (!loadItemNode) {
+          if (!hasShownFloatingHint && remainingPositionRetries > 0) {
+            remainingPositionRetries--;
+            queueHintPositionRefresh();
+          }
+          return;
+        }
+        floatingHint.setPosition(
+          loadItemNode.offsetLeft,
+          loadItemNode.offsetTop + loadItemNode.offsetHeight + 3
+        );
+        if (!hasShownFloatingHint) {
+          hasShownFloatingHint = true;
+          floatingHint.show();
+        }
+      });
+    };
+
+    const disposeCue = () => {
+      if (isDisposed) {
+        return;
+      }
+      isDisposed = true;
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      widget.removeClass(URL_LOADED_EDITOR_HINT_CLASS);
+      window.removeEventListener('resize', queueHintPositionRefresh);
+      widget.context.pathChanged.disconnect(onPathChanged);
+      widget.disposed.disconnect(disposeCue);
+      if (this._sharedFileCueWidgetId === widget.id) {
+        this._sharedFileCueWidgetId = null;
+        this._dismissSharedFileCue = null;
+      }
+      floatingHint.dispose();
+    };
+
+    const floatingHint = createFloatingUrlLoadHint({
+      parent: widget.node,
+      title: URL_LOADED_EDITOR_HINT_TITLE,
+      description: URL_LOADED_EDITOR_HINT_MESSAGE,
+      closeAriaLabel: URL_LOADED_EDITOR_HINT_DISMISS_LABEL,
+      onClose: disposeCue
+    });
+
+    widget.addClass(URL_LOADED_EDITOR_HINT_CLASS);
+    queueHintPositionRefresh();
+    window.addEventListener('resize', queueHintPositionRefresh);
+
+    this._sharedFileCueWidgetId = widget.id;
+    this._dismissSharedFileCue = disposeCue;
+    const onPathChanged = (
+      _context: DocumentRegistry.Context,
+      newPath: string
+    ) => {
+      if (
+        ContentUtils.normalizeContentsPath(newPath) !== normalizedSourcePath
+      ) {
+        disposeCue();
+      }
+    };
+    widget.context.pathChanged.connect(onPathChanged);
+    widget.disposed.connect(disposeCue);
+  }
+
   private _queuePluginLoad(
     pluginSource: string,
-    path: string
+    path: string,
+    options: IPluginLoadQueueOptions = {}
   ): Promise<IPluginLoadResult> {
+    const shouldNotify = options.notifyResult ?? true;
     const normalizedPath = ContentUtils.normalizeContentsPath(path);
     const previous = this._inFlightLoads.get(normalizedPath);
     const next = previous
@@ -826,8 +1117,14 @@ class PluginPlayground {
           })
           .then(() => this._loadPlugin(pluginSource, path))
       : this._loadPlugin(pluginSource, path);
+    const notifiedNext = next.then(result => {
+      if (shouldNotify) {
+        this._notifyPluginLoadResult(result, normalizedPath);
+      }
+      return result;
+    });
 
-    const guardedNext = next.finally(() => {
+    const guardedNext = notifiedNext.finally(() => {
       if (this._inFlightLoads.get(normalizedPath) === guardedNext) {
         this._inFlightLoads.delete(normalizedPath);
       }
@@ -837,9 +1134,42 @@ class PluginPlayground {
     return guardedNext;
   }
 
+  private _notifyPluginLoadResult(
+    result: IPluginLoadResult,
+    normalizedPath: string
+  ): void {
+    if (!result.ok || result.status !== 'loaded' || !normalizedPath) {
+      return;
+    }
+    const pluginCount = result.pluginIds.length;
+    const pluginLabel = pluginCount === 1 ? 'plugin' : 'plugins';
+    if (
+      result.skippedAutoStartPluginIds &&
+      result.skippedAutoStartPluginIds.length > 0
+    ) {
+      Notification.warning(
+        `Loaded ${pluginCount} ${pluginLabel} from "${normalizedPath}", but skipped auto-start for ${result.skippedAutoStartPluginIds.join(
+          ', '
+        )}.`,
+        {
+          autoClose: 7000
+        }
+      );
+      return;
+    }
+
+    Notification.success(
+      `Loaded ${pluginCount} ${pluginLabel} from "${normalizedPath}".`,
+      {
+        autoClose: 3500
+      }
+    );
+  }
+
   private async _exportAsExtension(
     activePath: string,
-    activeSource?: string
+    activeSource?: string,
+    format: ExportArchiveFormat = DEFAULT_EXPORT_ARCHIVE_FORMAT
   ): Promise<IPluginExportResult> {
     const normalizedActivePath = ContentUtils.normalizeContentsPath(activePath);
     if (!normalizedActivePath) {
@@ -873,16 +1203,26 @@ class PluginPlayground {
           message
         };
       }
-
-      downloadArchive(exportContext.archiveEntries, exportContext.archiveName);
+      let archiveName = exportContext.archiveName;
+      let archiveEntries = exportContext.archiveEntries;
+      if (format === 'wheel') {
+        const wheelArchive = await createPythonWheelArchive(
+          exportContext.archiveEntries,
+          exportContext.rootPath
+        );
+        archiveName = wheelArchive.filename;
+        archiveEntries = wheelArchive.entries;
+      }
+      downloadArchive(archiveEntries, archiveName);
+      const exportedFileCount = archiveEntries.length;
       const templateMessage = exportContext.usedTemplate
         ? ' A minimal extension-template scaffold was generated from the active file.'
         : '';
 
       Notification.success(
-        `Downloaded "${exportContext.archiveName}" with ` +
-          `${exportContext.archiveEntries.length} file` +
-          `${exportContext.archiveEntries.length === 1 ? '' : 's'} from ` +
+        `Downloaded "${archiveName}" with ` +
+          `${exportedFileCount} file` +
+          `${exportedFileCount === 1 ? '' : 's'} from ` +
           `"${exportContext.rootPath}".${templateMessage}`,
         {
           autoClose: 5000
@@ -891,9 +1231,9 @@ class PluginPlayground {
 
       return {
         ok: true,
-        archiveName: exportContext.archiveName,
+        archiveName,
         rootPath: exportContext.rootPath,
-        fileCount: exportContext.archiveEntries.length
+        fileCount: exportedFileCount
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -910,282 +1250,15 @@ class PluginPlayground {
     }
   }
 
-  /**
-   * Build a share URL for a single file and copy it to clipboard.
-   */
-  public async shareViaLink(path?: string): Promise<IPluginShareResult> {
-    const requestedPath =
-      typeof path === 'string' ? ContentUtils.normalizeContentsPath(path) : '';
-    const currentWidget = this.editorTracker.currentWidget;
-    const currentPath = currentWidget
-      ? ContentUtils.normalizeContentsPath(currentWidget.context.path)
-      : '';
-    const activeSource =
-      currentWidget && currentPath && currentPath === requestedPath
-        ? currentWidget.context.model.toString()
-        : undefined;
-
-    if (requestedPath) {
-      return this._shareViaLink(requestedPath, activeSource);
-    }
-
-    if (!currentWidget || currentWidget !== this.app.shell.currentWidget) {
-      return {
-        ok: false,
-        link: null,
-        sourcePath: null,
-        urlLength: 0,
-        message:
-          'No active editor is available. Pass a path argument to share a specific file.'
-      };
-    }
-
-    return this._shareViaLink(
-      ContentUtils.normalizeContentsPath(currentWidget.context.path),
-      currentWidget.context.model.toString()
-    );
-  }
-
-  /**
-   * Build a share URL for a single file and copy it to clipboard.
-   */
-  private async _shareViaLink(
-    sourcePath: string,
-    activeSource?: string
-  ): Promise<IPluginShareResult> {
-    const normalizedSourcePath = ContentUtils.normalizeContentsPath(sourcePath);
-    if (!normalizedSourcePath) {
-      return {
-        ok: false,
-        link: null,
-        sourcePath: null,
-        urlLength: 0,
-        message: 'Share path is empty.'
-      };
-    }
-
-    try {
-      const directory = await ContentUtils.getDirectoryModel(
-        this.app.serviceManager,
-        normalizedSourcePath
-      );
-      if (directory) {
-        throw new Error(
-          'Folder sharing is temporarily disabled. Pass a file path instead.'
-        );
-      }
-      const source =
-        activeSource ??
-        (await this._readSourceFileForExport(normalizedSourcePath));
-      const fileName = this._basename(normalizedSourcePath) || 'plugin.ts';
-
-      const payload: ShareLink.ISharedPluginPayload = {
-        version: 1,
-        fileName,
-        source
-      };
-      const encodedPayload = await ShareLink.encodeSharedPluginPayload(payload);
-      const link = ShareLink.createSharedPluginUrl(encodedPayload);
-      const urlLength = link.length;
-
-      if (urlLength > SHARE_URL_MAX_LENGTH) {
-        const message =
-          `The generated link is ${urlLength} characters long, which exceeds the configured limit ` +
-          `(${SHARE_URL_MAX_LENGTH}). Share a smaller file or use "Export Plugin Folder As Extension".`;
-        Notification.error(message, {
-          autoClose: false
-        });
-        return {
-          ok: false,
-          link: null,
-          sourcePath: normalizedSourcePath,
-          urlLength,
-          message
-        };
-      }
-
-      await ContentUtils.copyValueToClipboard(link);
-      ContentUtils.setCopiedStateWithTimeout(
-        CommandIDs.shareViaLink,
-        this._copiedCommandTimer,
-        timer => {
-          this._copiedCommandTimer = timer;
-        },
-        copiedCommandId => {
-          this._copiedCommandId = copiedCommandId;
-        },
-        () => {
-          this.app.commands.notifyCommandChanged(CommandIDs.shareViaLink);
-        },
-        1400
-      );
-      const details =
-        `Copied a share link for file "${normalizedSourcePath}" ` +
-        `(${urlLength} characters).`;
-
-      if (urlLength > SHARE_URL_WARN_LENGTH) {
-        Notification.warning(
-          `${details} Some browsers may reject very long URLs.`,
-          {
-            autoClose: 7000
-          }
-        );
-      } else {
-        Notification.success(details, {
-          autoClose: 5000
-        });
-      }
-
-      return {
-        ok: true,
-        link,
-        sourcePath: normalizedSourcePath,
-        urlLength
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      Notification.error(`Plugin share link creation failed: ${message}`, {
-        autoClose: false
-      });
-      return {
-        ok: false,
-        link: null,
-        sourcePath: normalizedSourcePath,
-        urlLength: 0,
-        message
-      };
-    }
-  }
-
-  /**
-   * Restore a shared file from URL token into a workspace folder and open it.
-   * The file is not executed automatically.
-   */
-  private async _loadSharedPluginFromUrl(): Promise<void> {
-    const sharedToken = ShareLink.getSharedPluginTokenFromLocation();
-    if (!sharedToken) {
-      return;
-    }
-    // Remove the token immediately so a refresh/back navigation does not
-    // repeatedly re-import the same shared payload.
-    ShareLink.clearSharedPluginTokenFromLocation();
-
-    try {
-      const payload = await ShareLink.decodeSharedPluginPayload(sharedToken);
-      const fileName = this._basename(payload.fileName) || 'plugin.ts';
-      const extension = PathExt.extname(fileName);
-      const rootName = extension
-        ? fileName.slice(0, -extension.length)
-        : fileName;
-      const rootFolder = ShareLink.sharedPluginFolderName(
-        rootName,
-        sharedToken
-      );
-      const rootPath = ContentUtils.normalizeContentsPath(
-        this._joinPath(SHARED_LINKS_ROOT, rootFolder)
-      );
-      await ContentUtils.ensureContentsDirectory(
-        this.app.serviceManager,
-        rootPath
-      );
-
-      const baseName = extension
-        ? fileName.slice(0, -extension.length)
-        : fileName;
-      let entryPath = '';
-      let shouldWrite = false;
-      const maxVariants = 1000;
-
-      for (let variant = 1; variant <= maxVariants; variant++) {
-        const candidateName =
-          variant === 1 ? fileName : `${baseName}-${variant}${extension}`;
-        const candidatePath = ContentUtils.normalizeContentsPath(
-          this._joinPath(rootPath, candidateName)
-        );
-        const existingFile = await ContentUtils.getFileModel(
-          this.app.serviceManager,
-          candidatePath
-        );
-
-        if (!existingFile) {
-          entryPath = candidatePath;
-          shouldWrite = true;
-          break;
-        }
-
-        const existingSource = ContentUtils.fileModelToText(existingFile);
-        if (existingSource === payload.source) {
-          entryPath = candidatePath;
-          shouldWrite = false;
-          break;
-        }
-      }
-
-      if (!entryPath) {
-        throw new Error(
-          `Could not find a writable location for shared file "${fileName}" in "${rootPath}".`
-        );
-      }
-      let restoredPath = entryPath;
-      if (shouldWrite) {
-        const saved = await this.app.serviceManager.contents.save(entryPath, {
-          type: 'file',
-          format: 'text',
-          content: payload.source
-        });
-        if (!saved || saved.type !== 'file') {
-          throw new Error(
-            `Failed to save shared file "${fileName}" at "${entryPath}".`
-          );
-        }
-        const normalizedSavedPath = ContentUtils.normalizeContentsPath(
-          saved.path
-        );
-        if (normalizedSavedPath !== entryPath) {
-          throw new Error(
-            `Shared file was saved to unexpected path "${normalizedSavedPath}" instead of "${entryPath}".`
-          );
-        }
-      }
-      let restoredFile = await ContentUtils.getFileModel(
-        this.app.serviceManager,
-        entryPath
-      );
-      for (let attempt = 0; !restoredFile && attempt < 8; attempt++) {
-        await new Promise<void>(resolve => {
-          window.setTimeout(resolve, 75);
-        });
-        restoredFile = await ContentUtils.getFileModel(
-          this.app.serviceManager,
-          entryPath
-        );
-      }
-      if (!restoredFile) {
-        throw new Error(
-          `Shared file "${entryPath}" could not be found after restore.`
-        );
-      }
-      restoredPath = ContentUtils.normalizeContentsPath(restoredFile.path);
-
-      await this.app.commands.execute('docmanager:open', {
-        path: restoredPath,
-        factory: 'Editor'
-      });
-      Notification.success(
-        `Opened shared plugin from URL at "${restoredPath}" (1 file). `,
-        {
-          autoClose: 6000
-        }
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      Notification.error(`Failed to load shared plugin from URL: ${message}`, {
-        autoClose: false
-      });
-    }
-  }
-
   private async _readSourceFileForExport(path: string): Promise<string> {
+    const source = await ContentUtils.readContentsFileAsText(
+      this.app.serviceManager,
+      path
+    );
+    if (source !== null) {
+      return source;
+    }
+
     const fileModel = await ContentUtils.getFileModel(
       this.app.serviceManager,
       path
@@ -1193,13 +1266,10 @@ class PluginPlayground {
     if (!fileModel) {
       throw new Error(`Could not read file "${path}".`);
     }
-    const source = ContentUtils.fileModelToText(fileModel);
-    if (source === null) {
-      throw new Error(
-        `Could not export file "${path}" because it is not readable as text.`
-      );
-    }
-    return source;
+
+    throw new Error(
+      `Could not export file "${path}" because it is not readable as text.`
+    );
   }
 
   private async _resolveExportContext(
@@ -1219,7 +1289,7 @@ class PluginPlayground {
         overrides
       );
       return {
-        archiveName: `${this._basename(rootPath) || 'plugin-extension'}.zip`,
+        archiveName: `${PathExt.basename(rootPath) || 'plugin-extension'}.zip`,
         rootPath,
         archiveEntries,
         usedTemplate: false
@@ -1248,7 +1318,9 @@ class PluginPlayground {
       }
     }
 
-    const sourceDirectory = this._dirname(normalizedPath);
+    const sourceDirectory = ContentUtils.normalizeContentsPath(
+      PathExt.dirname(normalizedPath)
+    ).replace(/^\.$/, '');
     if (!sourceDirectory) {
       return null;
     }
@@ -1307,6 +1379,55 @@ class PluginPlayground {
     archiveEntries: IArchiveEntry[],
     overrides: ReadonlyMap<string, Uint8Array>
   ): Promise<void> {
+    const { nestedDirectories, filePaths } =
+      await this._collectArchiveDirectoryPaths(directoryPath);
+
+    for (const nestedDirectory of nestedDirectories) {
+      await this._collectArchiveEntriesInDirectory(
+        rootPath,
+        nestedDirectory,
+        archiveEntries,
+        overrides
+      );
+    }
+
+    const fileEntries = await this._mapWithConcurrency(
+      filePaths,
+      ARCHIVE_FILE_READ_CONCURRENCY,
+      async filePath =>
+        this._createArchiveEntryForFile(rootPath, filePath, overrides)
+    );
+    for (const entry of fileEntries) {
+      if (entry) {
+        archiveEntries.push(entry);
+      }
+    }
+  }
+
+  private async _collectArchiveFilePaths(rootPath: string): Promise<string[]> {
+    const normalizedRootPath = ContentUtils.normalizeContentsPath(rootPath);
+    const filePaths: string[] = [];
+    const pendingDirectories = [normalizedRootPath];
+
+    while (pendingDirectories.length > 0) {
+      const directoryPath = pendingDirectories.pop();
+      if (!directoryPath) {
+        continue;
+      }
+
+      const { nestedDirectories, filePaths: directFilePaths } =
+        await this._collectArchiveDirectoryPaths(directoryPath);
+      filePaths.push(...directFilePaths);
+      pendingDirectories.push(...nestedDirectories);
+    }
+
+    return filePaths;
+  }
+
+  private async _collectArchiveDirectoryPaths(directoryPath: string): Promise<{
+    nestedDirectories: string[];
+    filePaths: string[];
+  }> {
     const directory = await ContentUtils.getDirectoryModel(
       this.app.serviceManager,
       directoryPath
@@ -1341,26 +1462,7 @@ class PluginPlayground {
       }
     }
 
-    for (const nestedDirectory of nestedDirectories) {
-      await this._collectArchiveEntriesInDirectory(
-        rootPath,
-        nestedDirectory,
-        archiveEntries,
-        overrides
-      );
-    }
-
-    const fileEntries = await this._mapWithConcurrency(
-      filePaths,
-      ARCHIVE_FILE_READ_CONCURRENCY,
-      async filePath =>
-        this._createArchiveEntryForFile(rootPath, filePath, overrides)
-    );
-    for (const entry of fileEntries) {
-      if (entry) {
-        archiveEntries.push(entry);
-      }
-    }
+    return { nestedDirectories, filePaths };
   }
 
   private async _createArchiveEntryForFile(
@@ -1406,37 +1508,17 @@ class PluginPlayground {
     if (!normalizedRootPath) {
       return normalizedPath;
     }
-    if (normalizedPath.startsWith(`${normalizedRootPath}/`)) {
-      return normalizedPath.slice(normalizedRootPath.length + 1);
-    }
-    return normalizedPath;
-  }
 
-  private _dirname(path: string): string {
-    const normalizedPath = ContentUtils.normalizeContentsPath(path).replace(
-      /\/+$/g,
-      ''
+    const normalizedRelativePath = ContentUtils.normalizeContentsPath(
+      PathExt.relative(normalizedRootPath, normalizedPath)
     );
-    const index = normalizedPath.lastIndexOf('/');
-    if (index <= 0) {
-      return '';
-    }
-    return normalizedPath.slice(0, index);
-  }
-
-  private _basename(path: string): string {
-    const normalizedPath = ContentUtils.normalizeContentsPath(path).replace(
-      /\/+$/g,
-      ''
-    );
-    if (!normalizedPath) {
-      return '';
-    }
-    const index = normalizedPath.lastIndexOf('/');
-    if (index === -1) {
+    if (
+      normalizedRelativePath === '..' ||
+      normalizedRelativePath.startsWith('../')
+    ) {
       return normalizedPath;
     }
-    return normalizedPath.slice(index + 1);
+    return normalizedRelativePath;
   }
 
   private async _findExtensionRoot(
@@ -1447,9 +1529,7 @@ class PluginPlayground {
       ''
     );
     while (true) {
-      const packageJsonPath = current
-        ? `${current}/package.json`
-        : 'package.json';
+      const packageJsonPath = this._joinPath(current, 'package.json');
       const packageJson = await ContentUtils.getFileModel(
         this.app.serviceManager,
         packageJsonPath
@@ -1460,7 +1540,9 @@ class PluginPlayground {
       if (!current) {
         return null;
       }
-      const parent = this._dirname(current);
+      const parent = ContentUtils.normalizeContentsPath(
+        PathExt.dirname(current)
+      ).replace(/^\.$/, '');
       if (parent === current) {
         return null;
       }
@@ -1512,6 +1594,8 @@ class PluginPlayground {
     );
     this._commandInsertMode =
       rawCommandInsertMode === 'ai' ? 'ai' : DEFAULT_COMMAND_INSERT_MODE;
+    this._shareViaLinkController.setSettings(settings);
+    this._shareViaLinkController.updateSettingsComposite(composite);
   }
 
   private _getTokenRecords(): ReadonlyArray<TokenSidebar.ITokenRecord> {
@@ -1560,7 +1644,8 @@ class PluginPlayground {
       transpiler: new PluginTranspiler({
         compilerOptions: {
           target: ts.ScriptTarget.ES2017,
-          jsx: ts.JsxEmit.React
+          jsx: ts.JsxEmit.React,
+          esModuleInterop: true
         }
       }),
       importFunction: importResolver.resolve.bind(importResolver),
@@ -1574,6 +1659,7 @@ class PluginPlayground {
     try {
       result = await pluginLoader.load(code, path);
     } catch (error) {
+      importResolver.rollbackLocalStyleMutations();
       if (error instanceof PluginLoadingError) {
         const internalError = error.error;
         showDialog({
@@ -1607,36 +1693,88 @@ class PluginPlayground {
     );
     const pluginIds = plugins.map(plugin => plugin.id);
     const skippedAutoStartPluginIds: string[] = [];
+    const loadedLocalStylePaths = importResolver.loadedLocalStylePaths;
+    const newlyRegisteredPluginIds: string[] = [];
 
-    for (const plugin of plugins) {
-      const schema = result.schemas[plugin.id];
-      if (!schema) {
-        continue;
+    try {
+      for (const declaredStylePath of result.declaredStylePaths) {
+        if (!path) {
+          continue;
+        }
+        const normalizedImportPath = ContentUtils.normalizeContentsPath(path);
+        const normalizedDeclaredStylePath =
+          ContentUtils.normalizeContentsPath(declaredStylePath);
+        const importBaseDirectory = PathExt.dirname(normalizedImportPath);
+        const relativeStylePath = PathExt.relative(
+          importBaseDirectory,
+          normalizedDeclaredStylePath
+        );
+        const styleModule = relativeStylePath.startsWith('.')
+          ? relativeStylePath
+          : `./${relativeStylePath}`;
+        await importResolver.resolve(styleModule);
       }
-      // TODO: this is mostly fine to get the menus and toolbars, but:
-      // - transforms are not applied
-      // - any refresh from the server might overwrite the data
-      // - it is not a good long term solution in general
-      this.settingRegistry.plugins[plugin.id] = {
-        id: plugin.id,
-        schema: JSON.parse(schema),
-        raw: schema,
-        data: {
-          composite: {},
-          user: {}
-        },
-        version: '0.0.0'
+
+      for (const plugin of plugins) {
+        const schema = result.schemas[plugin.id];
+        if (!schema) {
+          continue;
+        }
+        // TODO: this is mostly fine to get the menus and toolbars, but:
+        // - transforms are not applied
+        // - any refresh from the server might overwrite the data
+        // - it is not a good long term solution in general
+        this.settingRegistry.plugins[plugin.id] = {
+          id: plugin.id,
+          schema: JSON.parse(schema),
+          raw: schema,
+          data: {
+            composite: {},
+            user: {}
+          },
+          version: '0.0.0'
+        };
+        (
+          this.settingRegistry.pluginChanged as Signal<ISettingRegistry, string>
+        ).emit(plugin.id);
+      }
+
+      for (const plugin of plugins) {
+        await this._deactivateAndDeregisterPlugin(plugin.id);
+        this.app.registerPlugin(plugin);
+        newlyRegisteredPluginIds.push(plugin.id);
+      }
+      this._refreshExtensionPoints();
+    } catch (error) {
+      importResolver.rollbackLocalStyleMutations();
+      for (let i = newlyRegisteredPluginIds.length - 1; i >= 0; i--) {
+        try {
+          await this._deactivateAndDeregisterPlugin(
+            newlyRegisteredPluginIds[i]
+          );
+        } catch (cleanupError) {
+          console.warn(
+            `Failed to clean up partially registered plugin "${newlyRegisteredPluginIds[i]}"`,
+            cleanupError
+          );
+        }
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      showErrorMessage('Plugin loading failed', message);
+      return {
+        status: 'loading-failed',
+        ok: false,
+        path,
+        pluginIds: [],
+        transpiled: null,
+        message
       };
-      (
-        this.settingRegistry.pluginChanged as Signal<ISettingRegistry, string>
-      ).emit(plugin.id);
     }
 
+    importResolver.commitLocalStyleMutations();
     for (const plugin of plugins) {
-      await this._deactivateAndDeregisterPlugin(plugin.id);
-      this.app.registerPlugin(plugin);
+      this._syncPluginLocalStyles(plugin.id, loadedLocalStylePaths);
     }
-    this._refreshExtensionPoints();
 
     for (const plugin of plugins) {
       if (!plugin.autoStart) {
@@ -1706,9 +1844,86 @@ class PluginPlayground {
     this._tokenSidebar?.update();
   }
 
+  private _syncPluginLocalStyles(
+    pluginId: string,
+    nextPaths: ReadonlySet<string>
+  ): void {
+    const previousPaths = this._pluginLocalStylePaths.get(pluginId);
+    if (previousPaths) {
+      for (const previousPath of previousPaths) {
+        if (nextPaths.has(previousPath)) {
+          continue;
+        }
+        if (this._isStylePathUsedByOtherPlugins(previousPath, pluginId)) {
+          continue;
+        }
+        ImportResolver.removeLocalStyles([previousPath]);
+      }
+    }
+
+    if (nextPaths.size === 0) {
+      this._pluginLocalStylePaths.delete(pluginId);
+      return;
+    }
+    this._pluginLocalStylePaths.set(pluginId, new Set(nextPaths));
+  }
+
+  private _isStylePathUsedByOtherPlugins(
+    stylePath: string,
+    excludedPluginId: string
+  ): boolean {
+    for (const [pluginId, paths] of this._pluginLocalStylePaths) {
+      if (pluginId === excludedPluginId) {
+        continue;
+      }
+      if (paths.has(stylePath)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   public async registerKnownModule(known: IKnownModule): Promise<void> {
     registerKnownModule(known);
     this._tokenSidebar?.update();
+  }
+
+  private _openPlaygroundSidebar(): void {
+    if (!this._playgroundSidebar) {
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.setItem(NOTEBOOK_TREE_OPEN_SIDEBAR_KEY, '1');
+      }
+      return;
+    }
+
+    this.app.shell.activateById(this._playgroundSidebar.id);
+    (this._playgroundSidebar.content as AccordionPanel).expand(0);
+  }
+
+  private _expandPlaygroundSidebarSections(): void {
+    if (!this._playgroundSidebar) {
+      return;
+    }
+    const content = this._playgroundSidebar.content;
+    if (content instanceof AccordionPanel) {
+      content.expand(0);
+      content.expand(1);
+    }
+  }
+
+  private async _preparePluginPlaygroundTourContext(
+    args: ReadonlyPartialJSONObject
+  ): Promise<void> {
+    const hasActiveEditor =
+      this.editorTracker.currentWidget !== null &&
+      this.editorTracker.currentWidget === this.app.shell.currentWidget;
+
+    if (!hasActiveEditor) {
+      await this.app.commands.execute(CommandIDs.createNewFile, args);
+    }
+
+    this._openPlaygroundSidebar();
+    this._expandPlaygroundSidebarSections();
   }
 
   private _openPackagesReference(): void {
@@ -1717,12 +1932,7 @@ class PluginPlayground {
     }
 
     this._tokenSidebar.showPackagesView();
-    this.app.shell.activateById(
-      this._playgroundSidebar?.id ?? this._tokenSidebar.id
-    );
-    if (this._playgroundSidebar) {
-      (this._playgroundSidebar.content as AccordionPanel).expand(0);
-    }
+    this._openPlaygroundSidebar();
   }
 
   private _openDocumentationLink(
@@ -1976,7 +2186,7 @@ class PluginPlayground {
     if (!packageJson) {
       return this._fallbackExampleDescription;
     }
-    const packageData = this._parseJsonObject(packageJson);
+    const packageData = ContentUtils.fileModelToJsonObject(packageJson);
 
     if (packageData) {
       const description = this._stringValue(packageData.description);
@@ -1989,35 +2199,12 @@ class PluginPlayground {
   }
 
   private _joinPath(base: string, child: string): string {
-    const normalizedBase = base.replace(/\/+$/g, '');
+    const normalizedBase = ContentUtils.normalizeContentsPath(base).replace(
+      /\/+$/g,
+      ''
+    );
     const normalizedChild = ContentUtils.normalizeContentsPath(child);
-    if (!normalizedBase) {
-      return normalizedChild;
-    }
-    return `${normalizedBase}/${normalizedChild}`;
-  }
-
-  private _parseJsonObject(
-    fileModel: ContentUtils.IFileModel
-  ): { description?: unknown } | null {
-    const raw = ContentUtils.fileModelToText(fileModel);
-    if (raw === null) {
-      return null;
-    }
-
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (
-        parsed !== null &&
-        typeof parsed === 'object' &&
-        !Array.isArray(parsed)
-      ) {
-        return parsed as { description?: unknown };
-      }
-    } catch {
-      return null;
-    }
-    return null;
+    return PathExt.join(normalizedBase, normalizedChild);
   }
 
   private _populateTokenMap(): void {
@@ -2214,9 +2401,11 @@ class PluginPlayground {
         'Failed to prefill JupyterLite AI prompt for insertion.',
         error
       );
+      const aiErrorCode =
+        error instanceof JupyterLiteAIError ? error.code : null;
       const warningMessage =
-        message === JUPYTERLITE_AI_PROVIDER_SETUP_HINT ||
-        message.startsWith(JUPYTERLITE_AI_INSTALL_HINT)
+        aiErrorCode === 'provider-setup-required' ||
+        aiErrorCode === 'install-unavailable'
           ? message
           : `Could not prefill AI insertion prompt for "${commandId}": ${message}`;
       Notification.warning(warningMessage, {
@@ -2342,16 +2531,7 @@ class PluginPlayground {
       commandArguments
     });
 
-    if (!this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_CHAT_COMMAND)) {
-      throw new Error(
-        `${JUPYTERLITE_AI_INSTALL_HINT} Missing command: "${JUPYTERLITE_AI_OPEN_CHAT_COMMAND}".`
-      );
-    }
-
-    await this.app.commands.execute(JUPYTERLITE_AI_OPEN_CHAT_COMMAND, {
-      area: 'side'
-    });
-    this.app.shell.activateById(JUPYTERLITE_AI_CHAT_PANEL_ID);
+    await this._openJupyterLiteAIChatPanel();
 
     const inputModel = await this._requireJupyterLiteAIChatInputModel();
     inputModel.value = prompt;
@@ -2369,6 +2549,96 @@ class PluginPlayground {
     });
   }
 
+  private async _openJupyterLiteAIChatPanel(): Promise<void> {
+    if (!this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_CHAT_COMMAND)) {
+      throw new JupyterLiteAIError(
+        'install-unavailable',
+        JUPYTERLITE_AI_INSTALL_HINT
+      );
+    }
+
+    const openResult = await this.app.commands.execute(
+      JUPYTERLITE_AI_OPEN_CHAT_COMMAND,
+      {
+        area: 'side'
+      }
+    );
+    if (openResult === false) {
+      throw new JupyterLiteAIError(
+        'provider-setup-required',
+        JUPYTERLITE_AI_PROVIDER_SETUP_HINT
+      );
+    }
+    this.app.shell.activateById(JUPYTERLITE_AI_CHAT_PANEL_ID);
+  }
+
+  private async _openJupyterLiteAIChatWithSetupFallback(): Promise<JupyterLiteAIChatOpenStatus> {
+    try {
+      await this._openJupyterLiteAIChatPanel();
+      const inputModel = await this._requireJupyterLiteAIChatInputModel();
+      inputModel.focus();
+      return 'opened';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const aiErrorCode =
+        error instanceof JupyterLiteAIError ? error.code : null;
+
+      if (aiErrorCode === 'provider-setup-required') {
+        Notification.warning(
+          'No AI provider configured. Configure a provider in AI Settings to continue.',
+          {
+            autoClose: false,
+            actions: [
+              {
+                label: 'Configure Provider',
+                displayType: 'accent',
+                callback: () => {
+                  void this._openAISettingsInMainArea().then(
+                    didOpenSettings => {
+                      if (!didOpenSettings) {
+                        Notification.warning(
+                          'Could not open AI Settings. Open AI Settings to continue.',
+                          {
+                            autoClose: 5000
+                          }
+                        );
+                      }
+                    }
+                  );
+                }
+              }
+            ]
+          }
+        );
+        return 'provider-setup-required';
+      }
+
+      if (aiErrorCode === 'install-unavailable') {
+        Notification.warning(JUPYTERLITE_AI_INSTALL_HINT, {
+          autoClose: 4500
+        });
+        return 'install-unavailable';
+      }
+
+      Notification.warning(`Could not open AI chat: ${message}`, {
+        autoClose: 5000
+      });
+      return 'failed';
+    }
+  }
+
+  private async _openAISettingsInMainArea(): Promise<boolean> {
+    if (!this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND)) {
+      return false;
+    }
+    try {
+      await this.app.commands.execute(JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private async _requireJupyterLiteAIChatInputModel(): Promise<{
     value: string;
     focus: () => void;
@@ -2376,30 +2646,44 @@ class PluginPlayground {
     const chatTracker =
       this.chatTracker ?? (await this.app.resolveOptionalService(IChatTracker));
     if (!chatTracker) {
-      throw new Error(
-        `${JUPYTERLITE_AI_INSTALL_HINT} Missing service: "@jupyter/chat:IChatTracker".`
+      throw new JupyterLiteAIError(
+        'install-unavailable',
+        JUPYTERLITE_AI_INSTALL_HINT
       );
     }
 
-    const chatWidget =
-      chatTracker.currentWidget ?? chatTracker.find(() => true);
-    if (!chatWidget) {
-      throw new Error(
-        `${JUPYTERLITE_AI_INSTALL_HINT} Chat tracker has no active widgets.`
-      );
-    }
-
-    const inputModel = (
-      chatWidget as {
-        model?: {
-          input?: unknown;
-        };
+    const maxAnimationFrameRetries = 3;
+    for (let attempt = 0; attempt <= maxAnimationFrameRetries; attempt++) {
+      const chatWidget =
+        chatTracker.currentWidget ?? chatTracker.find(() => true);
+      const inputModel = (
+        chatWidget as {
+          model?: {
+            input?: unknown;
+          };
+        } | null
+      )?.model?.input;
+      if (this._isJupyterLiteAIChatInputModel(inputModel)) {
+        return inputModel;
       }
-    ).model?.input;
-    if (this._isJupyterLiteAIChatInputModel(inputModel)) {
-      return inputModel;
+
+      if (
+        typeof window === 'undefined' ||
+        attempt === maxAnimationFrameRetries
+      ) {
+        break;
+      }
+      await new Promise<void>(resolve => {
+        window.requestAnimationFrame(() => {
+          resolve();
+        });
+      });
     }
-    throw new Error(JUPYTERLITE_AI_PROVIDER_SETUP_HINT);
+
+    throw new JupyterLiteAIError(
+      'provider-setup-required',
+      JUPYTERLITE_AI_PROVIDER_SETUP_HINT
+    );
   }
 
   private _isJupyterLiteAIChatInputModel(candidate: unknown): candidate is {
@@ -2762,17 +3046,20 @@ class PluginPlayground {
     string,
     Promise<IPluginLoadResult>
   >();
+  private readonly _exportToolbar = new ExportToolbarController();
+  private readonly _shareViaLinkController: ShareViaLinkController;
   private readonly _loadOnSaveByFile = new Set<string>();
   private readonly _loadOnSaveToggleRefreshers = new Set<() => void>();
+  private _sharedFileCueWidgetId: string | null = null;
+  private _dismissSharedFileCue: (() => void) | null = null;
   private readonly _tokenMap = new Map<string, Token<string>>();
   private readonly _tokenDescriptionMap = new Map<string, string>();
   private readonly _documentationWidgets = new Map<
     string,
     MainAreaWidget<IFrame>
   >();
+  private readonly _pluginLocalStylePaths = new Map<string, Set<string>>();
   private _commandInsertMode: CommandInsertMode = DEFAULT_COMMAND_INSERT_MODE;
-  private _copiedCommandId: string | null = null;
-  private _copiedCommandTimer: number | null = null;
   private _playgroundSidebar: SidePanel | null = null;
   private _tokenSidebar: TokenSidebar | null = null;
   private _documentationWidgetId = 0;
@@ -2795,6 +3082,7 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
   ],
   optional: [
     ICompletionProviderManager,
+    IFileBrowserFactory,
     ILauncher,
     IDocumentManager,
     ILogConsoleTracker,
@@ -2807,6 +3095,7 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
     editorTracker: IEditorTracker,
     toolbarWidgetRegistry: IToolbarWidgetRegistry,
     completionManager: ICompletionProviderManager | null,
+    fileBrowserFactory: IFileBrowserFactory | null,
     launcher: ILauncher | null,
     documentManager: IDocumentManager | null,
     logConsoleTracker: ILogConsoleTracker | null,
@@ -2831,6 +3120,7 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
         settingRegistry,
         commandPalette,
         editorTracker,
+        fileBrowserFactory,
         launcher,
         documentManager,
         chatTracker,
@@ -2868,7 +3158,10 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
         if (!playground) {
           throw new Error('Plugin Playground is not ready yet. Try again.');
         }
-        return playground.shareViaLink(path);
+        return (await app.commands.execute(
+          CommandIDs.shareViaLink,
+          path ? { path } : {}
+        )) as IPluginShareResult;
       }
     };
 
@@ -2899,11 +3192,11 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
 
     if (!app.commands.hasCommand(CommandIDs.createNewFileFromNotebookTree)) {
       app.commands.addCommand(CommandIDs.createNewFileFromNotebookTree, {
-        label: 'Plugin (Playground)',
+        label: 'Start from File',
         caption:
           'Create a new TypeScript plugin file and open the playground sidebar',
         describedBy: { args: CREATE_PLUGIN_FROM_NOTEBOOK_TREE_ARGS_SCHEMA },
-        icon: extensionIcon,
+        icon: tokenSidebarIcon,
         execute: async args => {
           const rawCwdArg = typeof args.cwd === 'string' ? args.cwd.trim() : '';
           const normalizedCwdArg =
@@ -2932,15 +3225,75 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
       });
     }
 
+    if (
+      !app.commands.hasCommand(CommandIDs.createNewFileWithAIFromNotebookTree)
+    ) {
+      app.commands.addCommand(CommandIDs.createNewFileWithAIFromNotebookTree, {
+        label: 'Build with AI',
+        caption:
+          'Create a new TypeScript plugin file and open AI chat setup for guided building',
+        describedBy: { args: CREATE_PLUGIN_FROM_NOTEBOOK_TREE_ARGS_SCHEMA },
+        icon: offlineBoltIcon,
+        execute: async args => {
+          if (typeof window !== 'undefined') {
+            window.sessionStorage.setItem(NOTEBOOK_TREE_OPEN_AI_CHAT_KEY, '1');
+          }
+          return app.commands.execute(
+            CommandIDs.createNewFileFromNotebookTree,
+            args
+          );
+        }
+      });
+    }
+
+    if (!app.commands.hasCommand(CommandIDs.takeTourFromNotebookTree)) {
+      app.commands.addCommand(CommandIDs.takeTourFromNotebookTree, {
+        label: 'Take the Tour',
+        caption:
+          'Open a first-time-friendly tour of Plugin Playground and AI setup',
+        describedBy: { args: CREATE_PLUGIN_FROM_NOTEBOOK_TREE_ARGS_SCHEMA },
+        icon: infoIcon,
+        execute: async args => {
+          const rawCwdArg = typeof args.cwd === 'string' ? args.cwd.trim() : '';
+          const normalizedCwdArg =
+            ContentUtils.normalizeContentsPath(rawCwdArg);
+          return app.commands.execute(
+            CommandIDs.takeTour,
+            normalizedCwdArg ? { cwd: normalizedCwdArg } : {}
+          );
+        }
+      });
+    }
+
     if (mainMenu) {
-      const hasPluginEntryInFileNewMenu = mainMenu.fileMenu.newMenu.items.some(
+      const hasStartFromFileEntry = mainMenu.fileMenu.newMenu.items.some(
         item =>
           item.type === 'command' &&
           item.command === CommandIDs.createNewFileFromNotebookTree
       );
-      if (!hasPluginEntryInFileNewMenu) {
+      if (!hasStartFromFileEntry) {
         mainMenu.fileMenu.newMenu.addItem({
           command: CommandIDs.createNewFileFromNotebookTree
+        });
+      }
+      const hasBuiltWithAIEntry = mainMenu.fileMenu.newMenu.items.some(
+        item =>
+          item.type === 'command' &&
+          item.command === CommandIDs.createNewFileWithAIFromNotebookTree
+      );
+      if (!hasBuiltWithAIEntry) {
+        mainMenu.fileMenu.newMenu.addItem({
+          command: CommandIDs.createNewFileWithAIFromNotebookTree
+        });
+      }
+      const hasTakeTourEntry = mainMenu.fileMenu.newMenu.items.some(
+        item =>
+          item.type === 'command' &&
+          item.command === CommandIDs.takeTourFromNotebookTree
+      );
+      if (!hasTakeTourEntry) {
+        mainMenu.fileMenu.newMenu.addItem({
+          command: CommandIDs.takeTourFromNotebookTree
         });
       }
     }
@@ -2960,14 +3313,34 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
         return widget;
       }
       const newMenu = widget.menus[0];
-      const hasPluginEntry = newMenu.items.some(
+      const hasStartFromFileEntry = newMenu.items.some(
         item =>
           item.type === 'command' &&
           item.command === CommandIDs.createNewFileFromNotebookTree
       );
-      if (!hasPluginEntry) {
+      if (!hasStartFromFileEntry) {
         newMenu.addItem({
           command: CommandIDs.createNewFileFromNotebookTree
+        });
+      }
+      const hasBuiltWithAIEntry = newMenu.items.some(
+        item =>
+          item.type === 'command' &&
+          item.command === CommandIDs.createNewFileWithAIFromNotebookTree
+      );
+      if (!hasBuiltWithAIEntry) {
+        newMenu.addItem({
+          command: CommandIDs.createNewFileWithAIFromNotebookTree
+        });
+      }
+      const hasTakeTourEntry = newMenu.items.some(
+        item =>
+          item.type === 'command' &&
+          item.command === CommandIDs.takeTourFromNotebookTree
+      );
+      if (!hasTakeTourEntry) {
+        newMenu.addItem({
+          command: CommandIDs.takeTourFromNotebookTree
         });
       }
       return widget;

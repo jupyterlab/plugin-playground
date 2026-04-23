@@ -1,4 +1,5 @@
 import { expect, galata, test } from '@jupyterlab/galata';
+import { KNOWN_MODULE_NAMES } from '../../src/modules';
 import type { FileEditorWidget } from '@jupyterlab/fileeditor';
 import type { IJupyterLabPageFixture } from '@jupyterlab/galata';
 import type { Contents } from '@jupyterlab/services';
@@ -10,14 +11,29 @@ const SHARE_COMMAND = 'plugin-playground:share-via-link';
 const OPEN_PACKAGES_REFERENCE_COMMAND = 'plugin-playground:open-js-explorer';
 const INTERNAL_CONTEXT_INFO_COMMAND = '__internal:context-menu-info';
 const CREATE_FILE_COMMAND = 'plugin-playground:create-new-plugin';
+const CREATE_FILE_WITH_AI_COMMAND =
+  'plugin-playground:create-new-plugin-with-ai';
+const TAKE_TOUR_COMMAND = 'plugin-playground:take-tour';
+const TOUR_ID = '@jupyterlab/plugin-playground:tour';
 const PLAYGROUND_PLUGIN_ID = '@jupyterlab/plugin-playground:plugin';
 const LIST_TOKENS_COMMAND = 'plugin-playground:list-tokens';
 const LIST_COMMANDS_COMMAND = 'plugin-playground:list-commands';
 const LIST_EXAMPLES_COMMAND = 'plugin-playground:list-extension-examples';
+const TOUR_MISSING_HINT =
+  'Guided tours are unavailable because "jupyterlab-tour" is not installed in this environment.';
 const TEST_PLUGIN_ID = 'playground-integration-test:plugin';
 const TEST_TOGGLE_COMMAND = 'playground-integration-test:toggle';
 const TEST_ARGS_COMMAND = 'playground-integration-test:with-args';
 const TEST_FILE = 'playground-integration-test.ts';
+const FEDERATED_RUNTIME_PACKAGE = '@jupyterlab/plugin-playground';
+const FEDERATED_RUNTIME_CONSUMER_PLUGIN_ID = 'runtime-consumer-test:plugin';
+const FEDERATED_RUNTIME_CONSUMER_COMMAND = 'runtime-consumer-test:check';
+const FEDERATED_RUNTIME_CONSUMER_FILE = 'runtime-consumer-test.ts';
+const CSS_IMPORT_TEST_PLUGIN_ID = 'playground-css-import-test:plugin';
+const CSS_IMPORT_TEST_MARKER_ID = 'playground-css-import-test-marker';
+const CSS_IMPORT_TEST_COLOR = 'rgb(17, 34, 51)';
+const CSS_IMPORT_TEST_UPDATED_COLOR = 'rgb(34, 68, 102)';
+const CSS_IMPORT_TEST_BROKEN_MODULE_ERROR = 'css import rollback test failure';
 const COMMAND_COMPLETION_FILE = 'command-completion.ts';
 const INVOKE_FILE_COMPLETER_COMMAND = 'completer:invoke-file';
 const JUPYTERLITE_AI_OPEN_CHAT_COMMAND = '@jupyterlite/ai:open-chat';
@@ -25,11 +41,16 @@ const JUPYTERLITE_AI_CHAT_PANEL_ID = '@jupyterlite/ai:chat-panel';
 const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
 const TOKEN_SECTION_ID = 'jp-plugin-token-sidebar';
 const EXAMPLE_SECTION_ID = 'jp-plugin-example-sidebar';
-const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Auto Load on Save';
+const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Run on save';
+const FOLDER_SHARE_DISABLE_DIALOG_CHECKBOX_LABEL =
+  'Do not ask me again if all files can be included';
 
 interface IWindowWithExportCounter extends Window {
   __exportDownloadCount?: number;
   __originalCreateObjectURL?: typeof URL.createObjectURL;
+  __exportDownloadFilenames?: string[];
+  __exportDownloadBlobs?: Blob[];
+  __originalAnchorClick?: (this: HTMLAnchorElement) => void;
 }
 
 test.use({ autoGoto: false });
@@ -52,6 +73,150 @@ const plugin = {
 
 export default plugin;
 `;
+
+const INSTALLED_WHEEL_PROJECT_NAME = 'playground-wheel-installed-smoke';
+const INSTALLED_WHEEL_ARTIFACT_PATH =
+  '/tmp/playground_wheel_installed_smoke-0.1.0-py3-none-any.whl';
+const INSTALLED_WHEEL_MARKER_ID = 'jp-plugin-playground-wheel-installed-marker';
+const INSTALLED_WHEEL_MARKER_TEXT = 'wheel-installed-marker-ready';
+const INSTALLED_WHEEL_PLUGIN_SOURCE = `
+const MARKER_ID = '${INSTALLED_WHEEL_MARKER_ID}';
+const MARKER_TEXT = '${INSTALLED_WHEEL_MARKER_TEXT}';
+
+const plugin = {
+  id: 'playground-wheel-installed-smoke:plugin',
+  autoStart: true,
+  activate: () => {
+    let marker = document.getElementById(MARKER_ID);
+    if (!marker) {
+      marker = document.createElement('div');
+      marker.id = MARKER_ID;
+      marker.textContent = MARKER_TEXT;
+      document.body.appendChild(marker);
+    }
+  }
+};
+
+export default plugin;
+`;
+
+const CSS_IMPORT_TEST_SOURCE = `
+import './style.css';
+
+const plugin = {
+  id: '${CSS_IMPORT_TEST_PLUGIN_ID}',
+  autoStart: true,
+  activate: () => {
+    const existing = document.getElementById('${CSS_IMPORT_TEST_MARKER_ID}');
+    if (existing) {
+      existing.remove();
+    }
+    const marker = document.createElement('div');
+    marker.id = '${CSS_IMPORT_TEST_MARKER_ID}';
+    marker.textContent = 'css import marker';
+    document.body.appendChild(marker);
+  },
+  deactivate: () => {
+    document.getElementById('${CSS_IMPORT_TEST_MARKER_ID}')?.remove();
+  }
+};
+
+export default plugin;
+`;
+
+const CSS_IMPORT_TEST_SOURCE_WITHOUT_STYLE = `
+const plugin = {
+  id: '${CSS_IMPORT_TEST_PLUGIN_ID}',
+  autoStart: true,
+  activate: () => {
+    const existing = document.getElementById('${CSS_IMPORT_TEST_MARKER_ID}');
+    if (existing) {
+      existing.remove();
+    }
+    const marker = document.createElement('div');
+    marker.id = '${CSS_IMPORT_TEST_MARKER_ID}';
+    marker.textContent = 'css import marker';
+    document.body.appendChild(marker);
+  },
+  deactivate: () => {
+    document.getElementById('${CSS_IMPORT_TEST_MARKER_ID}')?.remove();
+  }
+};
+
+export default plugin;
+`;
+
+const CSS_IMPORT_TEST_SOURCE_WITH_FAILING_IMPORT = `
+import './style.css';
+import './broken';
+
+const plugin = {
+  id: '${CSS_IMPORT_TEST_PLUGIN_ID}',
+  autoStart: true,
+  activate: () => {
+    const existing = document.getElementById('${CSS_IMPORT_TEST_MARKER_ID}');
+    if (existing) {
+      existing.remove();
+    }
+    const marker = document.createElement('div');
+    marker.id = '${CSS_IMPORT_TEST_MARKER_ID}';
+    marker.textContent = 'css import marker';
+    document.body.appendChild(marker);
+  },
+  deactivate: () => {
+    document.getElementById('${CSS_IMPORT_TEST_MARKER_ID}')?.remove();
+  }
+};
+
+export default plugin;
+`;
+
+const CSS_IMPORT_TEST_STYLE = `
+#${CSS_IMPORT_TEST_MARKER_ID} {
+  background-color: ${CSS_IMPORT_TEST_COLOR};
+}
+`;
+
+const CSS_IMPORT_TEST_STYLE_UPDATED = `
+#${CSS_IMPORT_TEST_MARKER_ID} {
+  background-color: ${CSS_IMPORT_TEST_UPDATED_COLOR};
+}
+`;
+
+const CSS_IMPORT_TEST_STYLE_WITH_RELATIVE_IMPORT = `
+@import url('base.css');
+`;
+
+const CSS_IMPORT_TEST_BROKEN_MODULE = `
+throw new Error('${CSS_IMPORT_TEST_BROKEN_MODULE_ERROR}');
+`;
+
+const CSS_IMPORT_TEST_VALID_SCHEMA = JSON.stringify(
+  {
+    title: 'CSS Import Test Settings',
+    type: 'object',
+    properties: {}
+  },
+  null,
+  2
+);
+
+const CSS_IMPORT_TEST_INVALID_SCHEMA = `{
+  "title": "CSS Import Test Settings",
+`;
+
+const CSS_IMPORT_TEST_PACKAGE_JSON_WITH_STYLE = JSON.stringify(
+  {
+    name: 'css-import-package-style-test',
+    version: '0.1.0',
+    style: 'style/index.css',
+    jupyterlab: {
+      extension: true
+    }
+  },
+  null,
+  2
+);
 
 async function openSidebarPanel(
   page: IJupyterLabPageFixture,
@@ -104,14 +269,22 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-async function findLoadOnSaveCheckbox(
+async function findLoadOnSaveToggle(
   page: IJupyterLabPageFixture
 ): Promise<Locator> {
-  const checkbox = page.getByRole('checkbox', {
+  const toggle = page.getByRole('button', {
     name: LOAD_ON_SAVE_CHECKBOX_LABEL
   });
-  await expect(checkbox).toBeVisible();
-  return checkbox;
+  await expect(toggle).toBeVisible();
+  return toggle;
+}
+
+async function findLoadOnSaveToggleLabel(
+  page: IJupyterLabPageFixture
+): Promise<Locator> {
+  const label = page.locator('.jp-PluginPlayground-loadOnSaveText');
+  await expect(label).toBeVisible();
+  return label;
 }
 
 async function focusActiveEditor(page: IJupyterLabPageFixture): Promise<void> {
@@ -119,6 +292,16 @@ async function focusActiveEditor(page: IJupyterLabPageFixture): Promise<void> {
     const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
     current.content.editor.focus();
   });
+}
+
+async function setActiveEditorSource(
+  page: IJupyterLabPageFixture,
+  source: string
+): Promise<void> {
+  await page.evaluate((nextSource: string) => {
+    const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+    current.content.model.sharedModel.setSource(nextSource);
+  }, source);
 }
 
 async function ensureMockJupyterLiteAIChat(
@@ -267,6 +450,16 @@ test('registers plugin playground commands', async ({ page }) => {
   await page.waitForCondition(() =>
     page.evaluate((id: string) => {
       return window.jupyterapp.commands.hasCommand(id);
+    }, CREATE_FILE_WITH_AI_COMMAND)
+  );
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, TAKE_TOUR_COMMAND)
+  );
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
     }, EXPORT_COMMAND)
   );
   await page.waitForCondition(() =>
@@ -304,6 +497,16 @@ test('registers plugin playground commands', async ({ page }) => {
   await expect(
     page.evaluate((id: string) => {
       return window.jupyterapp.commands.hasCommand(id);
+    }, CREATE_FILE_WITH_AI_COMMAND)
+  ).resolves.toBe(true);
+  await expect(
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, TAKE_TOUR_COMMAND)
+  ).resolves.toBe(true);
+  await expect(
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
     }, EXPORT_COMMAND)
   ).resolves.toBe(true);
   await expect(
@@ -326,6 +529,112 @@ test('registers plugin playground commands', async ({ page }) => {
       return window.jupyterapp.commands.hasCommand(id);
     }, LIST_EXAMPLES_COMMAND)
   ).resolves.toBe(true);
+});
+
+test('take tour command launches tour when tour commands are available', async ({
+  page
+}) => {
+  await page.goto();
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, TAKE_TOUR_COMMAND)
+  );
+
+  const result = await page.evaluate(
+    async ({ takeTourCommand, addCommand, launchCommand }) => {
+      const commands = window.jupyterapp.commands as any;
+      const originalHasCommand = commands.hasCommand.bind(commands);
+      const originalExecute = commands.execute.bind(commands);
+      let addedTourId = '';
+      let launchedTourId = '';
+
+      commands.hasCommand = (id: string) => {
+        if (id === addCommand || id === launchCommand) {
+          return true;
+        }
+        return originalHasCommand(id);
+      };
+      commands.execute = async (id: string, args?: any) => {
+        if (id === addCommand) {
+          addedTourId = args?.tour?.id ?? '';
+          return { id: addedTourId };
+        }
+        if (id === launchCommand) {
+          launchedTourId = args?.id ?? '';
+          return undefined;
+        }
+        return originalExecute(id, args);
+      };
+
+      try {
+        const commandResult = (await originalExecute(takeTourCommand, {})) as {
+          ok?: boolean;
+          message?: string;
+        };
+        return {
+          commandResult,
+          addedTourId,
+          launchedTourId
+        };
+      } finally {
+        commands.hasCommand = originalHasCommand;
+        commands.execute = originalExecute;
+      }
+    },
+    {
+      takeTourCommand: TAKE_TOUR_COMMAND,
+      addCommand: 'jupyterlab-tour:add',
+      launchCommand: 'jupyterlab-tour:launch'
+    }
+  );
+
+  expect(result.commandResult.ok).toBe(true);
+  expect(result.addedTourId).toBe(TOUR_ID);
+  expect(result.launchedTourId).toBe(TOUR_ID);
+});
+
+test('take tour command returns a deterministic missing-tour message when tour commands are unavailable', async ({
+  page
+}) => {
+  await page.goto();
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, TAKE_TOUR_COMMAND)
+  );
+
+  const result = await page.evaluate(
+    async ({ takeTourCommand, addCommand, launchCommand }) => {
+      const commands = window.jupyterapp.commands as any;
+      const originalHasCommand = commands.hasCommand.bind(commands);
+      commands.hasCommand = (id: string) => {
+        if (id === addCommand || id === launchCommand) {
+          return false;
+        }
+        return originalHasCommand(id);
+      };
+
+      try {
+        return (await commands.execute(takeTourCommand, {})) as {
+          ok?: boolean;
+          message?: string;
+        };
+      } finally {
+        commands.hasCommand = originalHasCommand;
+      }
+    },
+    {
+      takeTourCommand: TAKE_TOUR_COMMAND,
+      addCommand: 'jupyterlab-tour:add',
+      launchCommand: 'jupyterlab-tour:launch'
+    }
+  );
+
+  expect(result.ok).toBe(false);
+  expect(result.message).toBe(TOUR_MISSING_HINT);
 });
 
 test('opens a dummy extension example from the sidebar', async ({ page }) => {
@@ -408,6 +717,54 @@ test('opens a dummy extension example from the sidebar', async ({ page }) => {
     const path = current?.context?.path;
     return path === pathToOpen;
   }, expectedReadmePath);
+});
+
+test('shows a no-match empty state for extension example filters', async ({
+  page
+}) => {
+  const integrationExampleName = 'integration-example-filter-no-match';
+  const integrationExampleRoot = `extension-examples/${integrationExampleName}`;
+  const expectedPath = `${integrationExampleRoot}/src/index.ts`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: '@jupyterlab-examples/integration-example-filter-no-match',
+        description: 'Integration test extension example (filter empty state)'
+      },
+      null,
+      2
+    ),
+    'text',
+    `${integrationExampleRoot}/package.json`
+  );
+  await page.contents.uploadContent(
+    "const plugin = { id: 'integration-example-filter-no-match:plugin', autoStart: true, activate: () => undefined }; export default plugin;\n",
+    'text',
+    expectedPath
+  );
+
+  await page.goto();
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LIST_EXAMPLES_COMMAND)
+  );
+
+  const section = await openSidebarPanel(page, EXAMPLE_SECTION_ID);
+  const filterInput = section.getByPlaceholder('Filter extension examples');
+  await expect(filterInput).toBeVisible();
+
+  await filterInput.fill('does-not-match-any-example');
+
+  const exampleItems = section.locator('.jp-PluginPlayground-listItem');
+  await expect(exampleItems).toHaveCount(0);
+  await expect(
+    section.getByText('No matching extension examples found.', { exact: true })
+  ).toBeVisible();
+  await expect(
+    section.locator('text=git submodule update --init --recursive')
+  ).toHaveCount(0);
 });
 
 test('creates a plugin file with an explicit path argument', async ({
@@ -534,8 +891,13 @@ test('open packages reference command switches to packages view', async ({
   const packagesTab = section.getByRole('tab', { name: 'Packages' });
   await expect(packagesTab).toHaveAttribute('aria-selected', 'true');
 
-  const count = section.locator('.jp-PluginPlayground-count').first();
-  await expect(count).toContainText('packages');
+  const filterCount = section
+    .locator('.jp-PluginPlayground-filterCount')
+    .first();
+  await expect(filterCount).toBeVisible();
+  await expect(
+    section.locator('.jp-PluginPlayground-viewDescription').first()
+  ).toContainText('External code libraries');
 
   const packageItems = section.locator('.jp-PluginPlayground-listItem');
   await expect(packageItems.first()).toBeVisible();
@@ -601,6 +963,441 @@ test('loads current editor file as a plugin extension', async ({
   ).resolves.toBe(true);
 });
 
+test('loads plugin importing runtime federated module outside known module map', async ({
+  page,
+  tmpPath
+}) => {
+  const consumerPath = `${tmpPath}/${FEDERATED_RUNTIME_CONSUMER_FILE}`;
+  expect(KNOWN_MODULE_NAMES).not.toContain(FEDERATED_RUNTIME_PACKAGE);
+  const consumerSource = `import { JupyterFrontEnd, JupyterFrontEndPlugin } from '@jupyterlab/application';
+import { IPluginPlayground } from '${FEDERATED_RUNTIME_PACKAGE}';
+import type { IPluginPlayground as IPluginPlaygroundType } from '${FEDERATED_RUNTIME_PACKAGE}';
+
+const plugin: JupyterFrontEndPlugin<void> = {
+  id: '${FEDERATED_RUNTIME_CONSUMER_PLUGIN_ID}',
+  autoStart: true,
+  requires: [IPluginPlayground],
+  activate: (app: JupyterFrontEnd, playground: IPluginPlaygroundType) => {
+    app.commands.addCommand('${FEDERATED_RUNTIME_CONSUMER_COMMAND}', {
+      label: 'Runtime Federated Consumer Check',
+      execute: () => typeof playground.shareViaLink === 'function'
+    });
+  }
+};
+
+export default plugin;
+`;
+
+  await page.contents.uploadContent(consumerSource, 'text', consumerPath);
+  await page.goto();
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+
+  await page.filebrowser.open(consumerPath);
+  expect(await page.activity.activateTab(FEDERATED_RUNTIME_CONSUMER_FILE)).toBe(
+    true
+  );
+
+  const consumerLoadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(consumerLoadResult.ok).toBe(true);
+  expect(consumerLoadResult.status).toBe('loaded');
+  expect(consumerLoadResult.pluginIds).toContain(
+    FEDERATED_RUNTIME_CONSUMER_PLUGIN_ID
+  );
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, FEDERATED_RUNTIME_CONSUMER_COMMAND)
+  );
+
+  await expect(
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.execute(id);
+    }, FEDERATED_RUNTIME_CONSUMER_COMMAND)
+  ).resolves.toBe(true);
+});
+
+test('loads local CSS imports and cleans stale styles on reload', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/css-import-test`;
+  const sourcePath = `${projectRoot}/index.ts`;
+  const stylePath = `${projectRoot}/style.css`;
+
+  await page.contents.uploadContent(CSS_IMPORT_TEST_STYLE, 'text', stylePath);
+  await page.contents.uploadContent(CSS_IMPORT_TEST_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+  const loadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(loadResult.ok).toBe(true);
+  expect(loadResult.status).toBe('loaded');
+  expect(loadResult.pluginIds).toContain(CSS_IMPORT_TEST_PLUGIN_ID);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, color }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return window.getComputedStyle(marker).backgroundColor === color;
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        color: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await expect(
+    page.evaluate((markerId: string) => {
+      const marker = document.getElementById(markerId);
+      if (!marker) {
+        return null;
+      }
+      return window.getComputedStyle(marker).backgroundColor;
+    }, CSS_IMPORT_TEST_MARKER_ID)
+  ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
+
+  await setActiveEditorSource(page, CSS_IMPORT_TEST_SOURCE_WITHOUT_STYLE);
+  const reloadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(reloadResult.ok).toBe(true);
+  expect(reloadResult.status).toBe('loaded');
+  expect(reloadResult.pluginIds).toContain(CSS_IMPORT_TEST_PLUGIN_ID);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, originalColor }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return (
+          window.getComputedStyle(marker).backgroundColor !== originalColor
+        );
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        originalColor: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await expect(
+    page.evaluate((path: string) => {
+      return Array.from(
+        document.querySelectorAll('style[data-plugin-playground-style-path]')
+      ).some(
+        node => node.getAttribute('data-plugin-playground-style-path') === path
+      );
+    }, stylePath)
+  ).resolves.toBe(false);
+});
+
+test('loads package.json style entry without explicit source CSS import', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/css-package-style-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const stylePath = `${projectRoot}/style/index.css`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_PACKAGE_JSON_WITH_STYLE,
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(CSS_IMPORT_TEST_STYLE, 'text', stylePath);
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_SOURCE_WITHOUT_STYLE,
+    'text',
+    sourcePath
+  );
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+  const loadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(loadResult.ok).toBe(true);
+  expect(loadResult.status).toBe('loaded');
+  expect(loadResult.pluginIds).toContain(CSS_IMPORT_TEST_PLUGIN_ID);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, color }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return window.getComputedStyle(marker).backgroundColor === color;
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        color: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await expect(
+    page.evaluate((markerId: string) => {
+      const marker = document.getElementById(markerId);
+      if (!marker) {
+        return null;
+      }
+      return window.getComputedStyle(marker).backgroundColor;
+    }, CSS_IMPORT_TEST_MARKER_ID)
+  ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
+});
+
+test('loads package.json style entry with relative CSS @import', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/css-package-style-import-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+  const indexStylePath = `${projectRoot}/style/index.css`;
+  const baseStylePath = `${projectRoot}/style/base.css`;
+
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_PACKAGE_JSON_WITH_STYLE,
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_STYLE_WITH_RELATIVE_IMPORT,
+    'text',
+    indexStylePath
+  );
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_STYLE,
+    'text',
+    baseStylePath
+  );
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_SOURCE_WITHOUT_STYLE,
+    'text',
+    sourcePath
+  );
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+  const loadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(loadResult.ok).toBe(true);
+  expect(loadResult.status).toBe('loaded');
+  expect(loadResult.pluginIds).toContain(CSS_IMPORT_TEST_PLUGIN_ID);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, color }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return window.getComputedStyle(marker).backgroundColor === color;
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        color: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await expect(
+    page.evaluate((markerId: string) => {
+      const marker = document.getElementById(markerId);
+      if (!marker) {
+        return null;
+      }
+      return window.getComputedStyle(marker).backgroundColor;
+    }, CSS_IMPORT_TEST_MARKER_ID)
+  ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
+});
+
+test('rolls back CSS changes when plugin load fails', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/css-import-rollback-test`;
+  const sourcePath = `${projectRoot}/index.ts`;
+  const stylePath = `${projectRoot}/style.css`;
+  const brokenModulePath = `${projectRoot}/broken.ts`;
+
+  await page.contents.uploadContent(CSS_IMPORT_TEST_STYLE, 'text', stylePath);
+  await page.contents.uploadContent(CSS_IMPORT_TEST_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+  const initialLoadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(initialLoadResult.ok).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, color }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return window.getComputedStyle(marker).backgroundColor === color;
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        color: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_STYLE_UPDATED,
+    'text',
+    stylePath
+  );
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_BROKEN_MODULE,
+    'text',
+    brokenModulePath
+  );
+  await setActiveEditorSource(page, CSS_IMPORT_TEST_SOURCE_WITH_FAILING_IMPORT);
+
+  const failingLoadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(failingLoadResult.ok).toBe(false);
+  expect(failingLoadResult.status).toBe('loading-failed');
+
+  await expect(
+    page.evaluate((markerId: string) => {
+      const marker = document.getElementById(markerId);
+      if (!marker) {
+        return null;
+      }
+      return window.getComputedStyle(marker).backgroundColor;
+    }, CSS_IMPORT_TEST_MARKER_ID)
+  ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
+});
+
+test('rolls back CSS changes when plugin schema parsing fails', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/css-import-schema-rollback-test`;
+  const sourcePath = `${projectRoot}/index.ts`;
+  const stylePath = `${projectRoot}/style.css`;
+  const schemaPath = `${projectRoot}/plugin.json`;
+
+  await page.contents.uploadContent(CSS_IMPORT_TEST_STYLE, 'text', stylePath);
+  await page.contents.uploadContent(CSS_IMPORT_TEST_SOURCE, 'text', sourcePath);
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_VALID_SCHEMA,
+    'text',
+    schemaPath
+  );
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+  const initialLoadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(initialLoadResult.ok).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, color }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return window.getComputedStyle(marker).backgroundColor === color;
+      },
+      {
+        markerId: CSS_IMPORT_TEST_MARKER_ID,
+        color: CSS_IMPORT_TEST_COLOR
+      }
+    )
+  );
+
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_STYLE_UPDATED,
+    'text',
+    stylePath
+  );
+  await page.contents.uploadContent(
+    CSS_IMPORT_TEST_INVALID_SCHEMA,
+    'text',
+    schemaPath
+  );
+
+  const failingLoadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(failingLoadResult.ok).toBe(false);
+  expect(failingLoadResult.status).toBe('loading-failed');
+
+  await expect(
+    page.evaluate((markerId: string) => {
+      const marker = document.getElementById(markerId);
+      if (!marker) {
+        return null;
+      }
+      return window.getComputedStyle(marker).backgroundColor;
+    }, CSS_IMPORT_TEST_MARKER_ID)
+  ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
+});
+
 test('exports active extension folder as a zip archive', async ({
   page,
   tmpPath
@@ -659,6 +1456,414 @@ test('exports active extension folder as a zip archive', async ({
     return (window as IWindowWithExportCounter).__exportDownloadCount ?? 0;
   });
   expect(downloadCount).toBeGreaterThan(0);
+});
+
+test('exports active extension folder as a Python package from toolbar dropdown', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/export-toolbar-wheel-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: 'export-toolbar-wheel-test',
+        version: '0.1.0',
+        main: 'src/index.ts',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, EXPORT_COMMAND)
+  );
+
+  await page.evaluate(() => {
+    const win = window as IWindowWithExportCounter;
+    win.__exportDownloadCount = 0;
+    win.__exportDownloadFilenames = [];
+
+    if (!win.__originalCreateObjectURL) {
+      win.__originalCreateObjectURL = URL.createObjectURL.bind(URL);
+      const originalCreateObjectURL = win.__originalCreateObjectURL;
+      URL.createObjectURL = ((blob: Blob) => {
+        win.__exportDownloadCount = (win.__exportDownloadCount ?? 0) + 1;
+        return originalCreateObjectURL(blob);
+      }) as typeof URL.createObjectURL;
+    }
+
+    if (!win.__originalAnchorClick) {
+      win.__originalAnchorClick = HTMLAnchorElement.prototype.click;
+      const originalAnchorClick = win.__originalAnchorClick;
+      HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+        const targetWindow = window as IWindowWithExportCounter;
+        targetWindow.__exportDownloadFilenames = [
+          ...(targetWindow.__exportDownloadFilenames ?? []),
+          this.download
+        ];
+        return originalAnchorClick.call(this);
+      };
+    }
+  });
+
+  const exportFormatButton = page.getByRole('button', {
+    name: 'Choose export format'
+  });
+  await expect(exportFormatButton).toBeVisible();
+  await exportFormatButton.click();
+
+  const wheelMenuItem = page
+    .locator('.lm-Menu-item', {
+      has: page.locator('.lm-Menu-itemLabel', {
+        hasText: 'Export as Python package (.whl)'
+      })
+    })
+    .first();
+  await expect(wheelMenuItem).toBeVisible();
+  await wheelMenuItem.click();
+
+  const downloadCountBeforeExport = await page.evaluate(() => {
+    return (window as IWindowWithExportCounter).__exportDownloadCount ?? 0;
+  });
+  expect(downloadCountBeforeExport).toBe(0);
+
+  const exportButton = page.getByRole('button', {
+    name: /Export plugin folder as/
+  });
+  await expect(exportButton).toBeVisible();
+  await expect(
+    exportButton.locator('.jp-PluginPlayground-actionLabel')
+  ).toHaveText('Export .whl');
+  await exportButton.click();
+
+  await page.waitForCondition(() =>
+    page.evaluate(() => {
+      const filenames =
+        (window as IWindowWithExportCounter).__exportDownloadFilenames ?? [];
+      return filenames.some(name => name.endsWith('.whl'));
+    })
+  );
+});
+
+test('exports active extension folder as a Python package', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/export-command-wheel-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: 'export-command-wheel-test',
+        version: '0.1.0',
+        main: 'src/index.ts',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, EXPORT_COMMAND)
+  );
+
+  await page.evaluate(() => {
+    const win = window as IWindowWithExportCounter;
+    win.__exportDownloadCount = 0;
+    if (!win.__originalCreateObjectURL) {
+      win.__originalCreateObjectURL = URL.createObjectURL.bind(URL);
+      const originalCreateObjectURL = win.__originalCreateObjectURL;
+      URL.createObjectURL = ((blob: Blob) => {
+        win.__exportDownloadCount = (win.__exportDownloadCount ?? 0) + 1;
+        return originalCreateObjectURL(blob);
+      }) as typeof URL.createObjectURL;
+    }
+  });
+
+  const exportResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id, {
+      format: 'wheel'
+    });
+  }, EXPORT_COMMAND);
+
+  expect(exportResult.ok).toBe(true);
+  expect(exportResult.archiveName).toMatch(/-py3-none-any\.whl$/);
+  expect(exportResult.fileCount).toBeGreaterThanOrEqual(2);
+
+  const downloadCount = await page.evaluate(() => {
+    return (window as IWindowWithExportCounter).__exportDownloadCount ?? 0;
+  });
+  expect(downloadCount).toBeGreaterThan(0);
+});
+
+test('exports deterministic wheel artifact for installed-wheel smoke test', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/${INSTALLED_WHEEL_PROJECT_NAME}`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: INSTALLED_WHEEL_PROJECT_NAME,
+        version: '0.1.0',
+        main: 'src/index.ts',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(
+    INSTALLED_WHEEL_PLUGIN_SOURCE,
+    'text',
+    sourcePath
+  );
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, EXPORT_COMMAND)
+  );
+
+  const exportedWheelDownload = page.waitForEvent('download');
+  const exportResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id, {
+      format: 'wheel'
+    });
+  }, EXPORT_COMMAND);
+
+  expect(exportResult.ok).toBe(true);
+  expect(exportResult.archiveName).toMatch(
+    /^playground[_-]wheel[_-]installed[_-]smoke-0\.1\.0-py3-none-any\.whl$/
+  );
+
+  const downloadedWheel = await exportedWheelDownload;
+  await downloadedWheel.saveAs(INSTALLED_WHEEL_ARTIFACT_PATH);
+});
+
+test('wheel export includes license files and sanitized METADATA fields', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/export-command-wheel-metadata-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const nestedLicensePath = `${projectRoot}/src/license.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+  const licensePath = `${projectRoot}/LICENSE`;
+  const noticePath = `${projectRoot}/NOTICE`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: '../export-command-wheel-metadata-test',
+        version: '0.1.0',
+        main: 'src/index.ts',
+        description: 'Wheel summary line\nwith newline',
+        homepage: 'https://example.test/docs\nINJECTED-HOMEPAGE-LINE',
+        author: {
+          email: 'owner@example.test\nINJECTED-AUTHOR-EMAIL-LINE'
+        },
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.contents.uploadContent(
+    'export const shouldNotBePackagedAsLicense = true;\n',
+    'text',
+    nestedLicensePath
+  );
+  await page.contents.uploadContent('License text\n', 'text', licensePath);
+  await page.contents.uploadContent('Notice text\n', 'text', noticePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, EXPORT_COMMAND)
+  );
+
+  const exportedWheelDownload = page.waitForEvent('download');
+
+  const inspection = await page.evaluate(async (id: string) => {
+    const win = window as IWindowWithExportCounter;
+    win.__exportDownloadBlobs = [];
+    const originalCreateObjectURL =
+      win.__originalCreateObjectURL ?? URL.createObjectURL.bind(URL);
+    win.__originalCreateObjectURL = originalCreateObjectURL;
+    URL.createObjectURL = ((blob: Blob) => {
+      if (blob.type === 'application/zip') {
+        win.__exportDownloadBlobs = [
+          ...(win.__exportDownloadBlobs ?? []),
+          blob
+        ];
+      }
+      return originalCreateObjectURL(blob);
+    }) as typeof URL.createObjectURL;
+
+    try {
+      await window.jupyterapp.commands.execute(id, { format: 'wheel' });
+    } finally {
+      URL.createObjectURL = originalCreateObjectURL;
+    }
+
+    const blobs = win.__exportDownloadBlobs ?? [];
+    const latestBlob = blobs[blobs.length - 1];
+    if (!latestBlob) {
+      return {
+        entryPaths: [] as string[],
+        metadataLines: [] as string[]
+      };
+    }
+
+    const bytes = new Uint8Array(await latestBlob.arrayBuffer());
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const decoder = new TextDecoder();
+    const entryPaths: string[] = [];
+    let metadataText = '';
+    let eocdOffset = -1;
+    const minEocdOffset = Math.max(0, bytes.length - 65557);
+    for (let cursor = bytes.length - 22; cursor >= minEocdOffset; cursor--) {
+      if (view.getUint32(cursor, true) === 0x06054b50) {
+        eocdOffset = cursor;
+        break;
+      }
+    }
+    if (eocdOffset < 0) {
+      return {
+        entryPaths,
+        metadataLines: [] as string[]
+      };
+    }
+
+    const centralDirectorySize = view.getUint32(eocdOffset + 12, true);
+    const centralDirectoryOffset = view.getUint32(eocdOffset + 16, true);
+    const centralDirectoryEnd = centralDirectoryOffset + centralDirectorySize;
+    let offset = centralDirectoryOffset;
+
+    while (
+      offset + 46 <= centralDirectoryEnd &&
+      offset + 46 <= bytes.length &&
+      view.getUint32(offset, true) === 0x02014b50
+    ) {
+      const compressionMethod = view.getUint16(offset + 10, true);
+      const compressedSize = view.getUint32(offset + 20, true);
+      const pathLength = view.getUint16(offset + 28, true);
+      const extraLength = view.getUint16(offset + 30, true);
+      const commentLength = view.getUint16(offset + 32, true);
+      const localHeaderOffset = view.getUint32(offset + 42, true);
+      const pathStart = offset + 46;
+      const pathEnd = pathStart + pathLength;
+      if (pathEnd > bytes.length) {
+        break;
+      }
+
+      const path = decoder.decode(bytes.subarray(pathStart, pathEnd));
+      entryPaths.push(path);
+      if (
+        path.endsWith('/METADATA') &&
+        compressionMethod === 0 &&
+        localHeaderOffset + 30 <= bytes.length &&
+        view.getUint32(localHeaderOffset, true) === 0x04034b50
+      ) {
+        const localPathLength = view.getUint16(localHeaderOffset + 26, true);
+        const localExtraLength = view.getUint16(localHeaderOffset + 28, true);
+        const dataStart =
+          localHeaderOffset + 30 + localPathLength + localExtraLength;
+        const dataEnd = dataStart + compressedSize;
+        if (dataEnd <= bytes.length) {
+          metadataText = decoder.decode(bytes.subarray(dataStart, dataEnd));
+        }
+      }
+
+      offset = pathEnd + extraLength + commentLength;
+    }
+
+    return {
+      entryPaths,
+      metadataLines: metadataText
+        .split('\n')
+        .map(line => line.trimEnd())
+        .filter(line => line.length > 0)
+    };
+  }, EXPORT_COMMAND);
+
+  const downloadedWheel = await exportedWheelDownload;
+  await downloadedWheel.saveAs(`/tmp/${downloadedWheel.suggestedFilename()}`);
+
+  expect(
+    inspection.entryPaths.some(
+      path => path.includes('/licenses/') && path.endsWith('/LICENSE')
+    )
+  ).toBe(true);
+  expect(
+    inspection.entryPaths.some(
+      path => path.includes('/licenses/') && path.endsWith('/NOTICE')
+    )
+  ).toBe(true);
+  expect(
+    inspection.entryPaths.some(path =>
+      path.endsWith('/licenses/src/license.ts')
+    )
+  ).toBe(false);
+  expect(
+    inspection.entryPaths.some(path => /(^|\/)\.\.(\/|$)/.test(path))
+  ).toBe(false);
+  expect(inspection.entryPaths.some(path => /(^|\/)\.(\/|$)/.test(path))).toBe(
+    false
+  );
+
+  expect(inspection.metadataLines).toContain(
+    'Summary: Wheel summary line with newline'
+  );
+  expect(inspection.metadataLines).toContain(
+    'Home-page: https://example.test/docs INJECTED-HOMEPAGE-LINE'
+  );
+  expect(inspection.metadataLines).toContain(
+    'Author-email: owner@example.test INJECTED-AUTHOR-EMAIL-LINE'
+  );
 });
 
 test('shares active file via URL by default', async ({ page, tmpPath }) => {
@@ -721,25 +1926,33 @@ export default plugin;
   expect(shareResult.urlLength).toBeGreaterThan(0);
 
   const parsed = new URL(shareResult.link);
-  const payloadToken = parsed.searchParams.get('plugin');
+  expect(parsed.hash).toContain('plugin=');
+  const hashQuery = parsed.hash.startsWith('#')
+    ? parsed.hash.slice(1)
+    : parsed.hash;
+  const payloadToken =
+    parsed.searchParams.get('plugin') ??
+    new URLSearchParams(hashQuery).get('plugin');
   expect(payloadToken).toBeTruthy();
   expect(payloadToken ?? '').toMatch(/^1\.[gr]\.[A-Za-z0-9_-]+$/);
 });
 
-test('loads a shared plugin from URL and clears query param', async ({
+test('loads a shared plugin from URL and clears share token', async ({
   page,
   tmpPath
 }) => {
   const projectRoot = `${tmpPath}/share-load-command-test`;
+  const sharedPluginId = 'share-load-command-test:plugin';
+  const sharedToggleCommand = 'share-load-command-test:toggle';
   const sourceFilename = 'share-load-entry.ts';
   const sourcePath = `${projectRoot}/src/${sourceFilename}`;
   const packageJsonPath = `${projectRoot}/package.json`;
   const sharedPluginSource = `
 const plugin = {
-  id: 'share-load-command-test:plugin',
+  id: '${sharedPluginId}',
   autoStart: true,
   activate: app => {
-    app.commands.addCommand('share-load-command-test:toggle', {
+    app.commands.addCommand('${sharedToggleCommand}', {
       label: 'Share Load Toggle',
       execute: () => {
         return undefined;
@@ -834,6 +2047,89 @@ export default plugin;
         'Shared file was not restored under plugin-playground-shared.'
       );
     }
+    await page.filebrowser.open(restoredPath);
+    expect(await page.activity.activateTab(sourceFilename)).toBe(true);
+
+    const toolbarState = await page.evaluate(() => {
+      const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+      const root = current?.node as HTMLElement | undefined;
+      if (!root) {
+        return null;
+      }
+      const loadItem = root.querySelector(
+        '.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name="load-as-extension"]'
+      ) as HTMLElement | null;
+      const loadButton = loadItem?.querySelector(
+        '.jp-ToolbarButtonComponent'
+      ) as HTMLElement | null;
+      const floatingHint = root.querySelector(
+        '.jp-PluginPlayground-urlLoadedFloatingHint'
+      ) as HTMLElement | null;
+      const exportButton = root.querySelector(
+        '.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name="export-extension"] .jp-ToolbarButtonComponent'
+      ) as HTMLElement | null;
+      const loadIcon = loadButton?.querySelector('svg') as SVGElement | null;
+      const exportIcon = exportButton?.querySelector(
+        'svg'
+      ) as SVGElement | null;
+      return {
+        hasHintClass: root.classList.contains(
+          'jp-PluginPlayground-urlLoadedEditorHint'
+        ),
+        hintLabel:
+          floatingHint
+            ?.querySelector('.jp-PluginPlayground-urlLoadedHintText')
+            ?.textContent?.trim() ?? '',
+        hasHintCloseButton: !!floatingHint?.querySelector(
+          '.jp-PluginPlayground-urlLoadedHintClose'
+        ),
+        hasVisibleFloatingHint:
+          !!floatingHint &&
+          window.getComputedStyle(floatingHint).display !== 'none',
+        loadButtonIconColor: loadIcon
+          ? window.getComputedStyle(loadIcon).color
+          : '',
+        exportButtonIconColor: exportIcon
+          ? window.getComputedStyle(exportIcon).color
+          : ''
+      };
+    });
+    expect(toolbarState).not.toBeNull();
+    expect(toolbarState?.hasHintClass).toBe(true);
+    expect(toolbarState?.hintLabel).toBe('Load as Extension');
+    expect(toolbarState?.hasHintCloseButton).toBe(true);
+    expect(toolbarState?.hasVisibleFloatingHint).toBe(true);
+    expect(toolbarState?.loadButtonIconColor).not.toBe(
+      toolbarState?.exportButtonIconColor
+    );
+
+    const loadResult = await page.evaluate((id: string) => {
+      return window.jupyterapp.commands.execute(id);
+    }, LOAD_COMMAND);
+    expect(loadResult.ok).toBe(true);
+    expect(loadResult.status).toBe('loaded');
+    expect(loadResult.pluginIds).toContain(sharedPluginId);
+
+    await page.waitForCondition(() =>
+      page.evaluate(() => {
+        const current = window.jupyterapp.shell
+          .currentWidget as FileEditorWidget;
+        const root = current?.node as HTMLElement | undefined;
+        const floatingHint = root?.querySelector(
+          '.jp-PluginPlayground-urlLoadedFloatingHint'
+        ) as HTMLElement | null;
+        const hintDisplay = floatingHint
+          ? window.getComputedStyle(floatingHint).display
+          : 'none';
+        return (
+          !!current &&
+          !!root &&
+          !root.classList.contains('jp-PluginPlayground-urlLoadedEditorHint') &&
+          hintDisplay === 'none'
+        );
+      })
+    );
+
     const restoredSource = await page.evaluate(async (path: string) => {
       const fileModel = await window.jupyterapp.serviceManager.contents.get(
         path,
@@ -844,15 +2140,18 @@ export default plugin;
       );
       return typeof fileModel.content === 'string' ? fileModel.content : null;
     }, restoredPath);
-    const browserState = await page.evaluate(() => {
+    const browserState = await page.evaluate((toggleCommand: string) => {
       const currentUrl = new URL(window.location.href);
+      const hashQuery = currentUrl.hash.startsWith('#')
+        ? currentUrl.hash.slice(1)
+        : currentUrl.hash;
       return {
         pluginQueryParam: currentUrl.searchParams.get('plugin'),
-        hasLoadedToggleCommand: window.jupyterapp.commands.hasCommand(
-          'share-load-command-test:toggle'
-        )
+        pluginHashParam: new URLSearchParams(hashQuery).get('plugin'),
+        hasLoadedToggleCommand:
+          window.jupyterapp.commands.hasCommand(toggleCommand)
       };
-    });
+    }, sharedToggleCommand);
     const hasUntitledFolderWithSameNamedFile = await page.evaluate(async () => {
       const root = await window.jupyterapp.serviceManager.contents.get('', {
         content: true
@@ -899,39 +2198,36 @@ export default plugin;
     expect(restoredPath.includes(`/${sourceFilename}`)).toBe(true);
     expect(restoredSource?.trim()).toBe(sharedPluginSource.trim());
     expect(browserState.pluginQueryParam).toBeNull();
-    expect(browserState.hasLoadedToggleCommand).toBe(false);
+    expect(browserState.pluginHashParam).toBeNull();
+    expect(browserState.hasLoadedToggleCommand).toBe(true);
     expect(hasUntitledFolderWithSameNamedFile).toBe(false);
   } finally {
     await page.unrouteAll({ behavior: 'ignoreErrors' });
   }
 });
 
-test('returns an error when sharing a directory path', async ({
+test('shares selected file or folder when using browser selection', async ({
   page,
   tmpPath
 }) => {
-  const projectRoot = `${tmpPath}/share-folder-command-test`;
-  const sourcePath = `${projectRoot}/src/index.ts`;
-  const packageJsonPath = `${projectRoot}/package.json`;
+  const projectRoot = `${tmpPath}/share-browser-selection-test`;
+  const filePath = `${projectRoot}/README.md`;
+  const folderPath = `${projectRoot}/src`;
+  const sourcePath = `${folderPath}/index.ts`;
+  const helperPath = `${folderPath}/util.ts`;
 
   await page.contents.uploadContent(
-    JSON.stringify(
-      {
-        name: 'share-folder-command-test',
-        version: '0.1.0',
-        jupyterlab: { extension: true }
-      },
-      null,
-      2
-    ),
+    '# Share Browser Selection\n',
     'text',
-    packageJsonPath
+    filePath
   );
   await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.contents.uploadContent(
+    'export const util = 1;\n',
+    'text',
+    helperPath
+  );
   await page.goto();
-
-  await page.filebrowser.open(sourcePath);
-  expect(await page.activity.activateTab('index.ts')).toBe(true);
 
   await page.waitForCondition(() =>
     page.evaluate((id: string) => {
@@ -939,23 +2235,632 @@ test('returns an error when sharing a directory path', async ({
     }, SHARE_COMMAND)
   );
 
-  const shareResult = await page.evaluate(
-    ({ id, path }) => {
-      return window.jupyterapp.commands.execute(id, { path });
-    },
-    {
-      id: SHARE_COMMAND,
-      path: projectRoot
-    }
+  await page.filebrowser.openDirectory(projectRoot);
+  const browserSection = page.getByRole('region', {
+    name: 'File Browser Section'
+  });
+  const fileItem = browserSection.getByRole('listitem', {
+    name: /^Name: README\.md/
+  });
+  await fileItem.click();
+
+  const fileShareResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id, {
+      useBrowserSelection: true
+    });
+  }, SHARE_COMMAND);
+  expect(fileShareResult.ok).toBe(true);
+  expect(fileShareResult.sourcePath).toBe(filePath);
+  expect(fileShareResult.link).toContain('plugin=');
+
+  await page.filebrowser.openDirectory(projectRoot);
+  const folderItem = browserSection.getByRole('listitem', {
+    name: /^Name: src/
+  });
+  await folderItem.click();
+
+  const folderSharePromise = page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id, {
+      useBrowserSelection: true
+    });
+  }, SHARE_COMMAND);
+
+  const disableDialogCheckbox = page.getByRole('checkbox', {
+    name: FOLDER_SHARE_DISABLE_DIALOG_CHECKBOX_LABEL
+  });
+  await expect(disableDialogCheckbox).toBeVisible();
+
+  const shareSelectedFilesButton = page.getByRole('button', {
+    name: 'Share Selected Files',
+    exact: true
+  });
+  await expect(shareSelectedFilesButton).toBeVisible();
+
+  const indexFileCheckbox = page
+    .locator('label', { hasText: /^index\.ts \(/ })
+    .locator('input[type="checkbox"]');
+  const utilFileCheckbox = page
+    .locator('label', { hasText: /^util\.ts \(/ })
+    .locator('input[type="checkbox"]');
+  await expect(indexFileCheckbox).toBeVisible();
+  await expect(utilFileCheckbox).toBeVisible();
+  await expect(indexFileCheckbox).toBeChecked();
+  await expect(utilFileCheckbox).toBeChecked();
+
+  await utilFileCheckbox.uncheck();
+  await expect(indexFileCheckbox).toBeChecked();
+  await expect(utilFileCheckbox).not.toBeChecked();
+
+  await shareSelectedFilesButton.click();
+
+  const folderShareResult = await folderSharePromise;
+  expect(folderShareResult.ok).toBe(true);
+  expect(folderShareResult.sourcePath).toBe(folderPath);
+  expect(folderShareResult.link).toContain('plugin=');
+});
+
+test('does not fall back to browser selection when context target is required', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/share-context-target-strict-test`;
+  const filePath = `${projectRoot}/README.md`;
+
+  await page.contents.uploadContent(
+    '# Share Context Target Strict\n',
+    'text',
+    filePath
+  );
+  await page.goto();
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, SHARE_COMMAND)
   );
 
-  expect(shareResult.ok).toBe(false);
-  expect(shareResult.link).toBeNull();
-  expect(shareResult.sourcePath).toBe(projectRoot);
-  expect(shareResult.urlLength).toBe(0);
-  expect(shareResult.message ?? '').toContain(
-    'Folder sharing is temporarily disabled'
+  await page.filebrowser.openDirectory(projectRoot);
+  const browserSection = page.getByRole('region', {
+    name: 'File Browser Section'
+  });
+  const fileItem = browserSection.getByRole('listitem', {
+    name: /^Name: README\.md/
+  });
+  await fileItem.click();
+
+  const result = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id, {
+      useBrowserSelection: true,
+      useContextTarget: true
+    });
+  }, SHARE_COMMAND);
+
+  expect(result.ok).toBe(false);
+  expect(result.sourcePath).toBeNull();
+  expect(result.message).toContain('Could not resolve the context-menu target');
+});
+
+test('disables always-show folder selection dialog after opting out', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/share-folder-setting-optout-test`;
+  const folderPath = `${projectRoot}/src`;
+  const sourcePath = `${folderPath}/index.ts`;
+
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.goto();
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, SHARE_COMMAND)
   );
+
+  await page.filebrowser.openDirectory(projectRoot);
+  const browserSection = page.getByRole('region', {
+    name: 'File Browser Section'
+  });
+  const folderItem = browserSection.getByRole('listitem', {
+    name: /^Name: src/
+  });
+  await folderItem.click();
+
+  const firstSharePromise = page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id, {
+      useBrowserSelection: true
+    });
+  }, SHARE_COMMAND);
+
+  const disableDialogCheckbox = page.getByRole('checkbox', {
+    name: FOLDER_SHARE_DISABLE_DIALOG_CHECKBOX_LABEL
+  });
+  await expect(disableDialogCheckbox).toBeVisible();
+  await disableDialogCheckbox.check();
+
+  const shareSelectedFilesButton = page.getByRole('button', {
+    name: 'Share Selected Files',
+    exact: true
+  });
+  await expect(shareSelectedFilesButton).toBeVisible();
+  await shareSelectedFilesButton.click();
+
+  const firstShareResult = await firstSharePromise;
+  expect(firstShareResult.ok).toBe(true);
+  expect(firstShareResult.sourcePath).toBe(folderPath);
+
+  await page.filebrowser.openDirectory(projectRoot);
+  await folderItem.click();
+
+  const secondShareResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id, {
+      useBrowserSelection: true
+    });
+  }, SHARE_COMMAND);
+
+  expect(secondShareResult.ok).toBe(true);
+  expect(secondShareResult.sourcePath).toBe(folderPath);
+  await expect(
+    page.getByRole('button', {
+      name: 'Share Selected Files',
+      exact: true
+    })
+  ).toHaveCount(0);
+});
+
+test('shows auto-excluded files as optional in always mode', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/share-folder-always-auto-excluded-test`;
+  const folderPath = `${projectRoot}/src`;
+  const sourcePath = `${folderPath}/index.ts`;
+  const imagePath = `${folderPath}/icon.png`;
+
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.contents.uploadContent('not-a-real-png', 'text', imagePath);
+  await page.goto();
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, SHARE_COMMAND)
+  );
+
+  await page.filebrowser.openDirectory(projectRoot);
+  const browserSection = page.getByRole('region', {
+    name: 'File Browser Section'
+  });
+  const folderItem = browserSection.getByRole('listitem', {
+    name: /^Name: src/
+  });
+  await folderItem.click();
+
+  const sharePromise = page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id, {
+      useBrowserSelection: true
+    });
+  }, SHARE_COMMAND);
+
+  const shareSelectedFilesButton = page.getByRole('button', {
+    name: 'Share Selected Files',
+    exact: true
+  });
+  await expect(shareSelectedFilesButton).toBeVisible();
+  await expect(
+    page.getByRole('checkbox', {
+      name: FOLDER_SHARE_DISABLE_DIALOG_CHECKBOX_LABEL
+    })
+  ).toHaveCount(0);
+
+  const imageCheckbox = page
+    .locator('label', { hasText: /^icon\.png \(/ })
+    .locator('input[type="checkbox"]');
+  await expect(imageCheckbox).toBeVisible();
+  await expect(imageCheckbox).not.toBeChecked();
+  await imageCheckbox.check();
+  await expect(imageCheckbox).toBeChecked();
+
+  await shareSelectedFilesButton.click();
+  const result = await sharePromise;
+  expect(result.ok).toBe(true);
+  expect(result.sourcePath).toBe(folderPath);
+  expect(result.link).toContain('plugin=');
+});
+
+test.describe('share capacity meter', () => {
+  test.use({
+    mockSettings: {
+      ...galata.DEFAULT_SETTINGS,
+      [PLAYGROUND_PLUGIN_ID]: {
+        shareFolderSelectionDialogMode: 'always'
+      }
+    }
+  });
+
+  test('shows share capacity meter and excludes docs/test/python files by default', async ({
+    page,
+    tmpPath
+  }) => {
+    const projectRoot = `${tmpPath}/share-folder-capacity-meter-test`;
+    const folderPath = `${projectRoot}/src`;
+    const sourcePath = `${folderPath}/index.ts`;
+    const readmePath = `${folderPath}/README.md`;
+    const specPath = `${folderPath}/index.spec.ts`;
+    const pythonPath = `${folderPath}/main.py`;
+
+    await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+    await page.contents.uploadContent('# test readme\n', 'text', readmePath);
+    await page.contents.uploadContent(
+      'describe("spec", () => { expect(true).toBe(true); });',
+      'text',
+      specPath
+    );
+    await page.contents.uploadContent('print("hello")\n', 'text', pythonPath);
+    await page.goto();
+
+    await page.waitForCondition(() =>
+      page.evaluate((id: string) => {
+        return window.jupyterapp.commands.hasCommand(id);
+      }, SHARE_COMMAND)
+    );
+
+    const sharePromise = page.evaluate(
+      ({ id, path }: { id: string; path: string }) => {
+        return window.jupyterapp.commands.execute(id, {
+          path
+        });
+      },
+      {
+        id: SHARE_COMMAND,
+        path: folderPath
+      }
+    );
+
+    const shareSelectedFilesButton = page.getByRole('button', {
+      name: 'Share Selected Files',
+      exact: true
+    });
+    await expect(shareSelectedFilesButton).toBeVisible();
+    await expect(
+      page.locator('.jp-PluginPlayground-folderShareSelectionCapacityLabel')
+    ).toContainText(/selected/i);
+    await expect(
+      page.locator('.jp-PluginPlayground-folderShareSelectionCapacityDetails')
+    ).toContainText(/% capacity used/i);
+
+    const sourceCheckbox = page
+      .locator('label', { hasText: /^index\.ts \(/ })
+      .locator('input[type="checkbox"]');
+    await expect(sourceCheckbox).toBeChecked();
+
+    const readmeCheckbox = page
+      .locator('label', { hasText: /^README\.md \(/i })
+      .locator('input[type="checkbox"]');
+    await expect(readmeCheckbox).not.toBeChecked();
+
+    const specCheckbox = page
+      .locator('label', { hasText: /^index\.spec\.ts \(/ })
+      .locator('input[type="checkbox"]');
+    await expect(specCheckbox).not.toBeChecked();
+
+    const pythonCheckbox = page
+      .locator('label', { hasText: /^main\.py \(/ })
+      .locator('input[type="checkbox"]');
+    await expect(pythonCheckbox).not.toBeChecked();
+
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    const result = await sharePromise;
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('cancelled');
+  });
+});
+
+test.describe('share folder selection dialog modes', () => {
+  test.describe('auto-excluded-or-limit', () => {
+    test.use({
+      mockSettings: {
+        ...galata.DEFAULT_SETTINGS,
+        [PLAYGROUND_PLUGIN_ID]: {
+          shareFolderSelectionDialogMode: 'auto-excluded-or-limit'
+        }
+      }
+    });
+
+    test('opens file selection dialog when folder has auto-excluded files', async ({
+      page,
+      tmpPath
+    }) => {
+      const projectRoot = `${tmpPath}/share-folder-auto-excluded-mode-test`;
+      const folderPath = `${projectRoot}/src`;
+      const sourcePath = `${folderPath}/index.ts`;
+      const imagePath = `${folderPath}/icon.png`;
+
+      await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+      await page.contents.uploadContent('not-a-real-png', 'text', imagePath);
+      await page.goto();
+
+      await page.waitForCondition(() =>
+        page.evaluate((id: string) => {
+          return window.jupyterapp.commands.hasCommand(id);
+        }, SHARE_COMMAND)
+      );
+
+      await page.filebrowser.openDirectory(projectRoot);
+      const browserSection = page.getByRole('region', {
+        name: 'File Browser Section'
+      });
+      const folderItem = browserSection.getByRole('listitem', {
+        name: /^Name: src/
+      });
+      await folderItem.click();
+
+      const sharePromise = page.evaluate((id: string) => {
+        return window.jupyterapp.commands.execute(id, {
+          useBrowserSelection: true
+        });
+      }, SHARE_COMMAND);
+
+      const shareSelectedFilesButton = page.getByRole('button', {
+        name: 'Share Selected Files',
+        exact: true
+      });
+      await expect(shareSelectedFilesButton).toBeVisible();
+      await expect(
+        page.getByRole('checkbox', {
+          name: FOLDER_SHARE_DISABLE_DIALOG_CHECKBOX_LABEL
+        })
+      ).toHaveCount(0);
+
+      const imageCheckbox = page
+        .locator('label', { hasText: /^icon\.png \(/ })
+        .locator('input[type="checkbox"]');
+      await expect(imageCheckbox).toBeVisible();
+      await expect(imageCheckbox).not.toBeChecked();
+      await imageCheckbox.check();
+      await expect(imageCheckbox).toBeChecked();
+
+      await shareSelectedFilesButton.click();
+      const result = await sharePromise;
+      expect(result.ok).toBe(true);
+      expect(result.sourcePath).toBe(folderPath);
+      expect(result.link).toContain('plugin=');
+    });
+  });
+
+  test.describe('limit-only', () => {
+    test.use({
+      mockSettings: {
+        ...galata.DEFAULT_SETTINGS,
+        [PLAYGROUND_PLUGIN_ID]: {
+          shareFolderSelectionDialogMode: 'limit-only'
+        }
+      }
+    });
+
+    test('skips file selection dialog when only auto-excluded files are omitted', async ({
+      page,
+      tmpPath
+    }) => {
+      const projectRoot = `${tmpPath}/share-folder-limit-only-mode-test`;
+      const folderPath = `${projectRoot}/src`;
+      const sourcePath = `${folderPath}/index.ts`;
+      const imagePath = `${folderPath}/icon.png`;
+
+      await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+      await page.contents.uploadContent('not-a-real-png', 'text', imagePath);
+      await page.goto();
+
+      await page.waitForCondition(() =>
+        page.evaluate((id: string) => {
+          return window.jupyterapp.commands.hasCommand(id);
+        }, SHARE_COMMAND)
+      );
+
+      await page.filebrowser.openDirectory(projectRoot);
+      const browserSection = page.getByRole('region', {
+        name: 'File Browser Section'
+      });
+      const folderItem = browserSection.getByRole('listitem', {
+        name: /^Name: src/
+      });
+      await folderItem.click();
+
+      const result = await page.evaluate((id: string) => {
+        return window.jupyterapp.commands.execute(id, {
+          useBrowserSelection: true
+        });
+      }, SHARE_COMMAND);
+
+      expect(result.ok).toBe(true);
+      expect(result.sourcePath).toBe(folderPath);
+      expect(result.link).toContain('plugin=');
+      await expect(
+        page.getByRole('button', {
+          name: 'Share Selected Files',
+          exact: true
+        })
+      ).toHaveCount(0);
+    });
+
+    test('opens selection dialog from size-limit notification action', async ({
+      page,
+      tmpPath
+    }) => {
+      const projectRoot = `${tmpPath}/share-folder-limit-only-overflow-test`;
+      const folderPath = `${projectRoot}/src`;
+      const sourcePath = `${folderPath}/index.ts`;
+      const helperPath = `${folderPath}/helper.ts`;
+      const indexSource = Array.from(
+        { length: 4000 },
+        (_, index) => `${index.toString(36)}|`
+      ).join('');
+      const helperSource = Array.from(
+        { length: 4000 },
+        (_, index) => `${(index + 5000).toString(36)}#`
+      ).join('');
+
+      await page.contents.uploadContent(indexSource, 'text', sourcePath);
+      await page.contents.uploadContent(helperSource, 'text', helperPath);
+      await page.goto();
+
+      await page.waitForCondition(() =>
+        page.evaluate((id: string) => {
+          return window.jupyterapp.commands.hasCommand(id);
+        }, SHARE_COMMAND)
+      );
+
+      await page.filebrowser.openDirectory(projectRoot);
+      const browserSection = page.getByRole('region', {
+        name: 'File Browser Section'
+      });
+      const folderItem = browserSection.getByRole('listitem', {
+        name: /^Name: src/
+      });
+      await folderItem.click();
+
+      const initialResult = await page.evaluate((id: string) => {
+        return window.jupyterapp.commands.execute(id, {
+          useBrowserSelection: true
+        });
+      }, SHARE_COMMAND);
+
+      expect(initialResult.ok).toBe(false);
+      expect(initialResult.sourcePath).toBe(folderPath);
+      expect(initialResult.message).toContain('exceeds the configured limit');
+
+      await page.waitForFunction(() => {
+        const button = Array.from(
+          document.querySelectorAll('button.jp-toast-button')
+        ).find(
+          element =>
+            element instanceof HTMLButtonElement &&
+            element.textContent?.trim() === 'Select files'
+        );
+        if (!(button instanceof HTMLButtonElement)) {
+          return false;
+        }
+        button.click();
+        return true;
+      });
+
+      const shareSelectedFilesButton = page.getByRole('button', {
+        name: 'Share Selected Files',
+        exact: true
+      });
+      await expect(shareSelectedFilesButton).toBeVisible();
+
+      const helperCheckbox = page
+        .locator('label', { hasText: /^helper\.ts \(/ })
+        .locator('input[type="checkbox"]');
+      await expect(helperCheckbox).toBeVisible();
+      await helperCheckbox.uncheck();
+      await shareSelectedFilesButton.click();
+
+      await expect(
+        page.getByText(
+          new RegExp(
+            `Copied a share link for "${escapeRegExp(folderPath)}" \\(`
+          )
+        )
+      ).toBeVisible();
+    });
+  });
+});
+
+test('shows toolbar share dropdown package option availability', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/share-toolbar-dropdown-test`;
+  const sourcePath = `${projectRoot}/src/index.ts`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.goto();
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  const shareToolbarButton = page.locator(
+    '.jp-PluginPlayground-shareDropdownButton'
+  );
+  await expect(shareToolbarButton).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Share file' })).toBeVisible();
+
+  await shareToolbarButton.click();
+  const singleFileMenuItem = page
+    .locator('[role="menuitem"], [role="menuitemcheckbox"]')
+    .filter({ hasText: /^Share (Single )?File$/ });
+  await expect(singleFileMenuItem).toBeVisible();
+  const disabledPackageMenuItem = page
+    .locator('[role="menuitem"], [role="menuitemcheckbox"]')
+    .filter({ hasText: /^Share Package$/ });
+  await expect(disabledPackageMenuItem).toBeVisible();
+  await expect(disabledPackageMenuItem).toHaveClass(/lm-mod-disabled/);
+  await page.keyboard.press('Escape');
+
+  await page.contents.uploadContent(
+    JSON.stringify({ name: 'share-toolbar-dropdown-test', version: '0.1.0' }),
+    'text',
+    packageJsonPath
+  );
+
+  await shareToolbarButton.click();
+  const packageMenuItem = page
+    .locator('[role="menuitem"], [role="menuitemcheckbox"]')
+    .filter({ hasText: /^Share Package$/ });
+  await expect(packageMenuItem).toBeVisible();
+  await expect(packageMenuItem).not.toHaveClass(/lm-mod-disabled/);
+  await packageMenuItem.click();
+  await expect(
+    page.getByRole('button', { name: 'Share package' })
+  ).toBeVisible();
+
+  const shareSelectedFilesButton = page.getByRole('button', {
+    name: 'Share Selected Files',
+    exact: true
+  });
+  await expect(shareSelectedFilesButton).toBeHidden();
+  await page.getByRole('button', { name: 'Share package' }).click();
+  await expect(shareSelectedFilesButton).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+});
+
+test('shows share action in file browser context menu for file and folder', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/share-context-menu-test`;
+  const filePath = `${projectRoot}/README.md`;
+  const folderPath = `${projectRoot}/src`;
+  const sourcePath = `${folderPath}/index.ts`;
+
+  await page.contents.uploadContent('# Context Menu Test\n', 'text', filePath);
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.goto();
+  await page.filebrowser.openDirectory(projectRoot);
+
+  const browserSection = page.getByRole('region', {
+    name: 'File Browser Section'
+  });
+  const shareMenuItem = page.getByRole('menuitem', {
+    name: 'Copy Shareable Plugin Link',
+    exact: true
+  });
+
+  const fileItem = browserSection.getByRole('listitem', {
+    name: /^Name: README\.md/
+  });
+  await fileItem.click({ button: 'right' });
+  await expect(shareMenuItem).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  const folderItem = browserSection.getByRole('listitem', {
+    name: /^Name: src/
+  });
+  await folderItem.click({ button: 'right' });
+  await expect(shareMenuItem).toBeVisible();
+  await page.keyboard.press('Escape');
 });
 
 test('opens token sidebar, shows tokens, and filters by exact token', async ({
@@ -1404,11 +3309,6 @@ test('commands tab lists and filters available commands', async ({ page }) => {
   const loadCommandArgumentsButton = panel.locator(
     '.jp-PluginPlayground-argumentBadgeButton'
   );
-  await expect(
-    loadCommandArgumentsButton.locator(
-      '.jp-PluginPlayground-argumentCountBadge'
-    )
-  ).toHaveText('?');
   await expect(loadCommandArgumentsButton).toBeDisabled();
   await expect(loadCommandArgumentsButton).toHaveAttribute(
     'title',
@@ -2051,7 +3951,7 @@ const run = (application: JupyterFrontEnd) => {
   }, LOAD_COMMAND);
 });
 
-test('per-file load-on-save checkbox is unchecked by default and enables auto-load', async ({
+test('per-file load-on-save toggle is off by default and enables auto-load', async ({
   page,
   tmpPath
 }) => {
@@ -2068,10 +3968,11 @@ test('per-file load-on-save checkbox is unchecked by default and enables auto-lo
   await page.filebrowser.open(pluginPath);
   expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
 
-  const loadOnSaveCheckbox = await findLoadOnSaveCheckbox(page);
-  await expect(loadOnSaveCheckbox).not.toBeChecked();
-  await loadOnSaveCheckbox.check();
-  await expect(loadOnSaveCheckbox).toBeChecked();
+  const loadOnSaveToggle = await findLoadOnSaveToggle(page);
+  const loadOnSaveToggleLabel = await findLoadOnSaveToggleLabel(page);
+  await expect(loadOnSaveToggle).toHaveAttribute('aria-pressed', 'false');
+  await loadOnSaveToggleLabel.click();
+  await expect(loadOnSaveToggle).toHaveAttribute('aria-pressed', 'true');
 
   await focusActiveEditor(page);
   await page.keyboard.press('Space');
@@ -2119,12 +4020,12 @@ test.describe('load-on-save setting', () => {
 
     await page.filebrowser.open(pluginPath);
     expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
-    const loadOnSaveCheckbox = page.getByRole('checkbox', {
+    const loadOnSaveToggle = page.getByRole('button', {
       name: LOAD_ON_SAVE_CHECKBOX_LABEL,
       includeHidden: true
     });
-    await expect(loadOnSaveCheckbox).toBeAttached();
-    await expect(loadOnSaveCheckbox).toBeHidden();
+    await expect(loadOnSaveToggle).toBeAttached();
+    await expect(loadOnSaveToggle).toBeHidden();
 
     // Make the editor dirty so save reliably emits a completed saveState.
     await focusActiveEditor(page);
@@ -2153,7 +4054,7 @@ test.describe('load-on-save setting', () => {
     expect(initiallyToggled).toBe(false);
   });
 
-  test('hides file-level load-on-save checkbox when setting is enabled', async ({
+  test('hides file-level load-on-save toggle when setting is enabled', async ({
     page,
     tmpPath
   }) => {
@@ -2170,11 +4071,11 @@ test.describe('load-on-save setting', () => {
     await page.filebrowser.open(pluginPath);
     expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
 
-    const loadOnSaveCheckbox = page.getByRole('checkbox', {
+    const loadOnSaveToggle = page.getByRole('button', {
       name: LOAD_ON_SAVE_CHECKBOX_LABEL,
       includeHidden: true
     });
-    await expect(loadOnSaveCheckbox).toBeAttached();
-    await expect(loadOnSaveCheckbox).toBeHidden();
+    await expect(loadOnSaveToggle).toBeAttached();
+    await expect(loadOnSaveToggle).toBeHidden();
   });
 });

@@ -65,14 +65,51 @@
   margin: 5px 0px;
 }
 
+.jp-PluginPlayground-filterRow {
+  position: relative;
+}
+
+.jp-PluginPlayground-exampleFilterRow {
+  margin-bottom: 5px;
+}
+
 .jp-PluginPlayground-filter {
   background: var(--jp-layout-color1);
   border: var(--jp-border-width) solid var(--jp-border-color1);
   border-radius: var(--jp-border-radius);
   color: var(--jp-ui-font-color1);
   font-size: var(--jp-ui-font-size1);
-  padding: 4px 8px;
+  padding: 4px 52px 4px 8px;
   width: 100%;
+}
+
+.jp-PluginPlayground-filterCount {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1;
+  pointer-events: none;
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.jp-PluginPlayground-visuallyHidden {
+  border: 0;
+  clip: rect(0, 0, 0, 0);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.jp-PluginPlayground-viewDescription {
+  color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  margin: 4px;
 }
 
 .jp-PluginPlayground-list {
@@ -120,6 +157,7 @@
   cursor: pointer;
   display: inline-flex;
   flex: 0 0 auto;
+  font-family: var(--jp-ui-font-family);
   font-size: var(--jp-ui-font-size0);
   gap: 4px;
   line-height: 1;
@@ -127,95 +165,92 @@
   justify-content: center;
 }
 
-.jp-PluginPlayground-commandInsertSplit {
+.jp-PluginPlayground-splitAction {
   align-items: center;
   border-radius: var(--jp-border-radius);
   display: inline-flex;
   gap: 0;
-  position: relative;
 }
 
-.jp-PluginPlayground-commandInsertSplit::after {
-  border: var(--jp-border-width) solid transparent;
-  border-radius: inherit;
-  content: '';
-  inset: calc(-1 * var(--jp-border-width));
-  pointer-events: none;
-  position: absolute;
-}
-
-.jp-PluginPlayground-commandInsertSplit:hover::after,
-.jp-PluginPlayground-commandInsertSplit:focus-within::after {
-  border-color: var(--jp-brand-color1);
-}
-
-.jp-PluginPlayground-commandInsertButton {
+.jp-PluginPlayground-splitActionPrimaryButton {
   min-width: 26px;
   position: relative;
   z-index: 1;
+  border: solid var(--jp-border-color2) !important;
+  border-width: 1px 1px 1px 1px !important;
+  height: 26px !important;
+  min-height: 26px !important;
 }
 
-.jp-PluginPlayground-commandInsertMenuButton {
+.jp-PluginPlayground-splitActionMenuButton {
   z-index: 1;
+  border: solid var(--jp-border-color2) !important;
+  border-width: 1px 1px 1px 0px !important;
+  height: 26px !important;
+  min-height: 26px !important;
 }
 
-.jp-PluginPlayground-commandInsertDropdownButton {
-  border-left: var(--jp-border-width) solid var(--jp-border-color1);
+.jp-PluginPlayground-splitActionDropdownButton {
   margin-left: calc(-1 * var(--jp-border-width));
   min-width: 7px;
   padding: 0 5px !important;
 }
 
 .jp-PluginPlayground-commandInsertAIMarkerIcon {
-  top: -5px;
+  top: -7px;
   height: 10px;
   pointer-events: none;
   position: absolute;
-  right: 7px;
+  right: 6px;
   width: 10px;
+}
+
+.jp-PluginPlayground-shareDropdownCaretIcon {
+  margin-left: 2px;
+  opacity: 0.8;
 }
 
 .jp-PluginPlayground-argumentBadgeButton {
   position: relative;
 }
 
-.jp-PluginPlayground-argumentFunctionLabel {
-  align-items: center;
-  display: inline-flex;
-  font-family: var(--jp-code-font-family);
-  font-size: var(--jp-ui-font-size0);
-  line-height: 1;
-}
-
-.jp-PluginPlayground-actionButton:hover {
+.jp-PluginPlayground-actionButton:not(:disabled):hover {
   background: var(--jp-layout-color3);
 }
 
-.jp-PluginPlayground-argumentCountBadge {
-  background: var(--jp-brand-color1);
-  border-radius: 999px;
-  color: var(--jp-ui-inverse-font-color1);
-  display: inline-flex;
+.jp-PluginPlayground-splitAction
+  .jp-PluginPlayground-actionButton:not(:disabled):hover {
+  background: var(--jp-layout-color2);
+}
+
+.jp-PluginPlayground-argumentSchemaBaseIcon {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.jp-PluginPlayground-argumentSchemaBaseIcon svg {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.jp-PluginPlayground-argumentSchemaCount {
+  color: var(--jp-inverse-layout-color3);
   font-family: var(--jp-code-font-family);
-  font-size: 8px;
-  font-weight: 700;
-  justify-content: center;
-  line-height: 1;
-  min-width: 10px;
-  padding: 2px;
-  pointer-events: none;
-  text-align: center;
+  font-size: var(--jp-ui-font-size0);
+  font-weight: 600;
 }
 
 .jp-PluginPlayground-argumentBadgeButton:disabled {
+  background: var(--jp-layout-color1);
+  border-color: var(--jp-border-color1);
+  color: var(--jp-ui-font-color2);
+  cursor: default;
   opacity: 1;
 }
 
 .jp-PluginPlayground-argumentBadgeButton:disabled
   .jp-PluginPlayground-argumentCountBadge {
-  background: var(--jp-layout-color3);
-  border: var(--jp-border-width) solid var(--jp-border-color2);
-  color: var(--jp-ui-font-color1);
+  color: var(--jp-ui-font-color2);
 }
 
 .jp-PluginPlayground-viewButton:focus-visible,
@@ -237,6 +272,27 @@
   display: block;
   height: 14px;
   width: 14px;
+}
+
+.jp-PluginPlayground-actionSuccessIcon svg {
+  animation: jp-PluginPlayground-actionSuccessIconPulse 280ms ease-out;
+}
+
+@keyframes jp-PluginPlayground-actionSuccessIconPulse {
+  0% {
+    opacity: 0.4;
+    transform: scale(0.75);
+  }
+
+  65% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .jp-PluginPlayground-actionLabel {
@@ -291,6 +347,21 @@
   white-space: normal;
 }
 
+.jp-PluginPlayground-emptyState {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.jp-PluginPlayground-emptyStateLine {
+  line-height: 1.4;
+  margin: 0;
+}
+
+.jp-PluginPlayground-emptyStateLine code {
+  font-size: inherit;
+}
+
 .jp-PluginPlayground-tokenString {
   font-family: var(--jp-code-font-family);
 }
@@ -298,6 +369,82 @@
 .jp-PluginPlayground-packageName {
   overflow-wrap: break-word;
   word-break: normal;
+}
+
+.jp-PluginPlayground-folderShareSelectionDialog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jp-PluginPlayground-folderShareSelectionSummary {
+  margin: 0;
+}
+
+.jp-PluginPlayground-folderShareSelectionCapacity {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.jp-PluginPlayground-folderShareSelectionCapacityLabel {
+  font-weight: 600;
+  margin: 0;
+}
+
+.jp-PluginPlayground-folderShareSelectionCapacityTrack {
+  background: var(--jp-layout-color2);
+  border: var(--jp-border-width) solid var(--jp-border-color1);
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+}
+
+.jp-PluginPlayground-folderShareSelectionCapacityFill {
+  background: var(--jp-brand-color1);
+  height: 100%;
+  transition: width 120ms ease-out;
+  width: 0;
+}
+
+.jp-PluginPlayground-folderShareSelectionCapacity.jp-mod-warning
+  .jp-PluginPlayground-folderShareSelectionCapacityFill {
+  background: var(--jp-warn-color1);
+}
+
+.jp-PluginPlayground-folderShareSelectionCapacity.jp-mod-error
+  .jp-PluginPlayground-folderShareSelectionCapacityFill {
+  background: var(--jp-error-color1);
+}
+
+.jp-PluginPlayground-folderShareSelectionCapacityDetails {
+  color: var(--jp-ui-font-color2);
+  margin: 0;
+}
+
+.jp-PluginPlayground-folderShareSelectionList {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.jp-PluginPlayground-folderShareSelectionHeading {
+  font-weight: 600;
+  margin: 10px 0 6px;
+}
+
+.jp-PluginPlayground-folderShareSelectionHeading:first-child {
+  margin-top: 0;
+}
+
+.jp-PluginPlayground-folderShareSelectionRow {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.jp-PluginPlayground-folderShareSelectionPath {
+  overflow-wrap: anywhere;
 }
 
 .jp-PluginPlayground-exampleError {
@@ -357,35 +504,237 @@
 .jp-PluginPlayground-loadOnSaveWidget {
   align-items: center;
   display: inline-flex;
+  height: 24px;
 }
 
 .jp-PluginPlayground-loadOnSaveToggle {
   align-items: center;
-  cursor: pointer;
   display: inline-flex;
-  gap: 6px;
-  margin: 0;
-  user-select: none;
+  gap: 2px;
 }
 
-.jp-PluginPlayground-loadOnSaveCheckbox {
+.jp-PluginPlayground-loadOnSaveToggle.jp-mod-disabled
+  .jp-PluginPlayground-loadOnSaveText {
+  color: var(--jp-ui-font-color2);
+  cursor: default;
+  pointer-events: none;
+}
+
+.jp-PluginPlayground-loadOnSaveToggleIconButton {
+  align-items: center;
+  color: var(--jp-ui-font-color1);
+  cursor: pointer;
+  display: inline-flex;
+  height: 24px !important;
+  justify-content: center;
   margin: 0;
+  min-height: unset;
+  min-width: unset;
+  padding: 0 5px !important;
+  text-align: center;
+  user-select: none;
+  width: auto;
+}
+
+.jp-PluginPlayground-loadOnSaveToggleIconButton:hover {
+  background: var(--jp-layout-color2);
+}
+
+.jp-PluginPlayground-loadOnSaveToggleIconButton[aria-pressed='true'] {
+  background: var(--jp-layout-color2);
+  box-shadow: inset 0 var(--jp-border-width) 4px
+    rgba(
+      var(--jp-shadow-base-lightness),
+      var(--jp-shadow-base-lightness),
+      var(--jp-shadow-base-lightness),
+      0.6
+    );
+}
+
+.jp-PluginPlayground-loadOnSaveToggleIconButton[aria-pressed='true']:hover {
+  background: var(--jp-layout-color2);
+}
+
+.jp-PluginPlayground-loadOnSaveToggleIconButton:disabled {
+  box-shadow: none;
+  color: var(--jp-ui-font-color2);
+  cursor: default;
+}
+
+.jp-PluginPlayground-loadOnSaveToggleIconButton:focus-visible {
+  outline: var(--jp-border-width) solid var(--jp-brand-color1);
+  outline-offset: 2px;
+}
+
+.jp-PluginPlayground-loadOnSaveIcon {
+  align-items: center;
+  display: inline-flex;
+  height: 16px;
+  justify-content: center;
+  width: 16px;
+}
+.jp-PluginPlayground-loadOnSaveIcon svg {
+  display: block;
+  height: 16px;
+  width: 16px;
 }
 
 .jp-PluginPlayground-loadOnSaveText {
+  align-items: center;
   color: var(--jp-ui-font-color1);
-  font-size: var(--jp-ui-font-size0);
-  line-height: 1;
+  display: inline-flex;
+  font-family: var(--jp-ui-font-family);
+  font-size: var(--jp-ui-font-size1);
+  height: 24px !important;
+  justify-content: center;
+  line-height: 100%;
+  margin: 0;
+  margin-left: -6px;
+  min-height: unset;
+  min-width: unset;
+  padding: 0 4px !important;
+  text-align: center;
+  user-select: none;
   white-space: nowrap;
 }
 
-.jp-PluginPlayground-loadOnSaveCheckbox:disabled
-  + .jp-PluginPlayground-loadOnSaveText {
+[data-command='plugin-playground:load-as-extension']
+  .jp-ToolbarButtonComponent-label {
+  padding-left: 4px;
+}
+
+.jp-PluginPlayground-urlLoadedEditorHint
+  .jp-Toolbar
+  > .jp-Toolbar-item[data-jp-item-name='load-as-extension']
+  .jp-ToolbarButtonComponent {
+  color: var(--jp-success-color1, #2e7d32);
+}
+
+.jp-PluginPlayground-urlLoadedEditorHint
+  .jp-Toolbar
+  > .jp-Toolbar-item[data-jp-item-name='load-as-extension']
+  .jp-ToolbarButtonComponent:hover,
+.jp-PluginPlayground-urlLoadedEditorHint
+  .jp-Toolbar
+  > .jp-Toolbar-item[data-jp-item-name='load-as-extension']
+  .jp-ToolbarButtonComponent:focus-visible {
+  color: var(--jp-success-color0, #1f7a1f);
+}
+
+.jp-PluginPlayground-urlLoadedEditorHint
+  .jp-Toolbar
+  > .jp-Toolbar-item[data-jp-item-name='load-as-extension']
+  .jp-ToolbarButtonComponent
+  svg {
+  color: currentColor;
+}
+
+.jp-PluginPlayground-urlLoadedEditorHint
+  .jp-Toolbar
+  > .jp-Toolbar-item[data-jp-item-name='load-as-extension']
+  .jp-ToolbarButtonComponent
+  svg
+  * {
+  fill: currentColor;
+}
+
+.jp-PluginPlayground-urlLoadedHintCard {
+  background: var(--jp-layout-color1);
+  border: 1px solid var(--jp-border-color1);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+  color: var(--jp-ui-font-color1);
+  display: flex;
+  flex-direction: column;
+  font-size: var(--jp-ui-font-size0);
+  gap: 4px;
+  line-height: 1.3;
+  max-width: 240px;
+  min-width: 200px;
+  padding: 10px 12px;
+  position: relative;
+}
+
+.jp-PluginPlayground-urlLoadedFloatingHint {
+  left: 0;
+  position: absolute;
+  top: 0;
+  z-index: 20;
+}
+
+.jp-PluginPlayground-urlLoadedHintCard::before {
+  background: var(--jp-layout-color1);
+  border-left: 1px solid var(--jp-border-color1);
+  border-top: 1px solid var(--jp-border-color1);
+  content: '';
+  height: 12px;
+  left: 6px;
+  position: absolute;
+  top: -7px;
+  transform: rotate(45deg);
+  width: 12px;
+}
+
+.jp-PluginPlayground-urlLoadedHintText {
+  font-size: var(--jp-ui-font-size1);
+  font-weight: 600;
+  line-height: 1.2;
+  padding-right: 18px;
+}
+
+.jp-PluginPlayground-urlLoadedHintDescription {
   color: var(--jp-ui-font-color2);
+  font-size: var(--jp-ui-font-size0);
+  line-height: 1.35;
+}
+
+.jp-PluginPlayground-urlLoadedHintClose {
+  align-items: center;
+  background: transparent;
+  border: none;
+  color: var(--jp-ui-font-color2);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 15px;
+  height: 20px;
+  justify-content: center;
+  line-height: 1;
+  margin: 0;
+  padding: 0;
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  width: 20px;
+}
+
+.jp-PluginPlayground-urlLoadedHintClose:hover {
+  background: var(--jp-layout-color2);
+  color: var(--jp-ui-font-color0);
+}
+
+.jp-PluginPlayground-urlLoadedHintClose:focus-visible {
+  background: var(--jp-layout-color2);
+  color: var(--jp-ui-font-color0);
+  outline: var(--jp-border-width) solid var(--jp-brand-color1);
+  outline-offset: 2px;
 }
 
 .jp-Toolbar > .jp-Toolbar-item[data-jp-item-name='export-extension'] {
   margin-left: auto;
+  order: 1001;
+}
+
+.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name='share-extension-link'] {
+  margin-left: 5px;
+  order: 1002;
+}
+
+.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name='reject-all-diff'] {
+  order: 1003;
+}
+
+.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name='accept-all-diff'] {
+  order: 1004;
 }
 
 @keyframes jp-PluginPlayground-lineChangePulse {

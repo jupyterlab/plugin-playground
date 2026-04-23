@@ -4,7 +4,7 @@
     "extra_file_types": {
       "typescript": {
         "name": "typescript",
-        "extensions": [".ts"],
+        "extensions": [".ts", ".tsx"],
         "mimeTypes": ["text/plain"],
         "fileFormat": "text"
       },

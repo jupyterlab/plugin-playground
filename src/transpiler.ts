@@ -35,8 +35,13 @@ export class PluginTranspiler {
    * Transpile an ES6 plugin into a function body of an async function,
    * returning the plugin that would be exported as default.
    */
-  transpile(code: string, requireDefaultExport: boolean): string {
+  transpile(
+    code: string,
+    requireDefaultExport: boolean,
+    fileName?: string
+  ): string {
     const result = ts.transpileModule(code, {
+      fileName,
       compilerOptions: {
         ...this._options.compilerOptions,
         module: ts.ModuleKind.CommonJS

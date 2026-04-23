@@ -31,6 +31,7 @@ export namespace PluginLoader {
     code: string;
     transpiled: boolean;
     schemas: Record<string, string>;
+    declaredStylePaths: string[];
   }
 }
 
@@ -69,12 +70,8 @@ export class PluginLoader {
       return schemas;
     }
     const sourceDirectory = PathExt.dirname(pluginPath);
-    const packageJsonPaths = [
-      PathExt.join(sourceDirectory, 'package.json'),
-      PathExt.join(sourceDirectory, '..', 'package.json')
-    ];
 
-    for (const packageJsonPath of packageJsonPaths) {
+    for (const packageJsonPath of this._packageJsonCandidates(pluginPath)) {
       const packageSchemas = await this._discoverPackageSchemas(
         packageJsonPath,
         plugins
@@ -96,6 +93,73 @@ export class PluginLoader {
       schemas[plugins[0].id] = schema;
     }
     return schemas;
+  }
+
+  private async _discoverDeclaredStyles(
+    pluginPath: string | null
+  ): Promise<string[]> {
+    if (!pluginPath) {
+      return [];
+    }
+    const serviceManager = this._options.serviceManager;
+    if (!serviceManager) {
+      return [];
+    }
+
+    for (const packageJsonPath of this._packageJsonCandidates(pluginPath)) {
+      const declaredStyles = await this._discoverPackageDeclaredStyles(
+        packageJsonPath
+      );
+      if (declaredStyles.length > 0) {
+        return declaredStyles;
+      }
+    }
+
+    return [];
+  }
+
+  private async _discoverPackageDeclaredStyles(
+    packageJsonPath: string
+  ): Promise<string[]> {
+    const serviceManager = this._options.serviceManager;
+    if (!serviceManager) {
+      return [];
+    }
+
+    const packageJson = await ContentUtils.readContentsFileAsText(
+      serviceManager,
+      packageJsonPath
+    );
+    if (packageJson === null) {
+      return [];
+    }
+
+    try {
+      const packageData = JSON.parse(packageJson) as {
+        style?: unknown;
+      };
+      const style = packageData.style;
+      if (typeof style !== 'string' || style.trim().length === 0) {
+        return [];
+      }
+      const stylePath = ContentUtils.normalizeContentsPath(
+        PathExt.join(PathExt.dirname(packageJsonPath), style.trim())
+      );
+      if (!stylePath.toLowerCase().endsWith('.css')) {
+        return [];
+      }
+      return [stylePath];
+    } catch {
+      return [];
+    }
+  }
+
+  private _packageJsonCandidates(pluginPath: string): string[] {
+    const sourceDirectory = PathExt.dirname(pluginPath);
+    return [
+      PathExt.join(sourceDirectory, 'package.json'),
+      PathExt.join(sourceDirectory, '..', 'package.json')
+    ];
   }
 
   private async _discoverPackageSchemas(
@@ -262,6 +326,7 @@ export class PluginLoader {
     }
 
     let schemas: Record<string, string> = {};
+    let declaredStylePaths: string[] = [];
 
     try {
       if (transpiled) {
@@ -280,6 +345,7 @@ export class PluginLoader {
       throw new PluginLoadingError(e as Error, {
         code: functionBody,
         schemas: {},
+        declaredStylePaths: [],
         transpiled
       });
     }
@@ -292,9 +358,11 @@ export class PluginLoader {
     if (transpiled) {
       schemas = await this._discoverSchema(basePath, plugins);
     }
+    declaredStylePaths = await this._discoverDeclaredStyles(basePath);
 
     return {
       schemas,
+      declaredStylePaths,
       plugins,
       code: functionBody,
       transpiled
