@@ -392,7 +392,7 @@ class PluginPlayground {
       icon: runTileIcon,
       isEnabled: () => {
         const currentWidget = editorTracker.currentWidget;
-        if (!currentWidget || currentWidget !== app.shell.currentWidget) {
+        if (!currentWidget) {
           return false;
         }
         return this._isSupportedPluginSourceFile(
@@ -401,7 +401,7 @@ class PluginPlayground {
       },
       isVisible: () => {
         const currentWidget = editorTracker.currentWidget;
-        if (!currentWidget || currentWidget !== app.shell.currentWidget) {
+        if (!currentWidget) {
           return false;
         }
         return this._isSupportedPluginSourceFile(
@@ -410,7 +410,7 @@ class PluginPlayground {
       },
       execute: async () => {
         const currentWidget = editorTracker.currentWidget;
-        if (currentWidget && currentWidget === app.shell.currentWidget) {
+        if (currentWidget) {
           if (this._sharedFileCueWidgetId === currentWidget.id) {
             this._dismissSharedFileCue?.();
           }
