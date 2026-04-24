@@ -1759,7 +1759,7 @@ class PluginPlayground {
         this.settingRegistry.plugins[plugin.id] = {
           id: plugin.id,
           schema: JSON.parse(schema),
-          raw: schema,
+          raw: '{}',
           data: {
             composite: {},
             user: {}
