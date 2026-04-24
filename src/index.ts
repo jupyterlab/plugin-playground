@@ -588,7 +588,10 @@ class PluginPlayground {
     });
 
     app.commands.addCommand(CommandIDs.createNewFile, {
-      label: 'Start from File',
+      label: args =>
+        args['isPalette']
+          ? 'Plugin Playground: Start from File'
+          : 'Start from File',
       caption:
         'Create a new TypeScript plugin file and open the playground sidebar',
       describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
@@ -669,7 +672,10 @@ class PluginPlayground {
     });
 
     app.commands.addCommand(CommandIDs.createNewFileWithAI, {
-      label: 'Build with AI',
+      label: args =>
+        args['isPalette']
+          ? 'Plugin Playground: Build with AI'
+          : 'Build with AI',
       caption:
         'Create a new TypeScript plugin file and open AI chat setup for guided building',
       describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
@@ -697,7 +703,10 @@ class PluginPlayground {
     });
 
     app.commands.addCommand(CommandIDs.takeTour, {
-      label: 'Take the Tour',
+      label: args =>
+        args['isPalette']
+          ? 'Plugin Playground: Take the Tour'
+          : 'Take the Tour',
       caption:
         'Open a guided walkthrough of Plugin Playground, extension examples, and AI setup',
       describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
