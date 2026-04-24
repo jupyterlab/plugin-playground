@@ -4004,6 +4004,74 @@ test('per-file load-on-save toggle is off by default and enables auto-load', asy
   );
 });
 
+test('hides run controls in non-JS/TS files', async ({ page, tmpPath }) => {
+  const pluginPath = `${tmpPath}/${TEST_FILE}`;
+  const readmePath = `${tmpPath}/README.md`;
+
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', pluginPath);
+  await page.contents.uploadContent(
+    '# Playground\n\nThis is not a runnable plugin source file.\n',
+    'text',
+    readmePath
+  );
+  await page.goto();
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+
+  const getCurrentRunControlsVisibility = async (): Promise<{
+    runVisible: boolean;
+    loadOnSaveVisible: boolean;
+  }> => {
+    return page.evaluate((label: string) => {
+      const isElementVisible = (element: HTMLElement | null): boolean => {
+        if (!element) {
+          return false;
+        }
+        const style = window.getComputedStyle(element);
+        return (
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          element.getClientRects().length > 0
+        );
+      };
+      const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
+      const root = current?.node as HTMLElement | undefined;
+      if (!root) {
+        return { runVisible: false, loadOnSaveVisible: false };
+      }
+      const runItem = root.querySelector(
+        '.jp-Toolbar > .jp-Toolbar-item[data-jp-item-name="load-as-extension"]'
+      ) as HTMLElement | null;
+      const loadOnSaveButton = root.querySelector(
+        `button[aria-label="${label}"]`
+      ) as HTMLElement | null;
+      return {
+        runVisible: isElementVisible(runItem),
+        loadOnSaveVisible: isElementVisible(loadOnSaveButton)
+      };
+    }, LOAD_ON_SAVE_CHECKBOX_LABEL);
+  };
+
+  await page.filebrowser.open(pluginPath);
+  expect(await page.activity.activateTab(TEST_FILE)).toBe(true);
+  await expect
+    .poll(async () => {
+      return getCurrentRunControlsVisibility();
+    })
+    .toEqual({ runVisible: true, loadOnSaveVisible: true });
+
+  await page.filebrowser.open(readmePath);
+  expect(await page.activity.activateTab('README.md')).toBe(true);
+  await expect
+    .poll(async () => {
+      return getCurrentRunControlsVisibility();
+    })
+    .toEqual({ runVisible: false, loadOnSaveVisible: false });
+});
+
 test.describe('load-on-save setting', () => {
   test.use({
     mockSettings: {
