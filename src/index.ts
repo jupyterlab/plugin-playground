@@ -185,6 +185,12 @@ interface IResolvedExportContext {
   usedTemplate: boolean;
 }
 
+interface ILayoutHideSelection {
+  hideAll: boolean;
+  hideMenu: boolean;
+  hideStatusBar: boolean;
+}
+
 const PLUGIN_TEMPLATE = `import {
   JupyterFrontEnd,
   JupyterFrontEndPlugin,
@@ -325,6 +331,15 @@ const ARCHIVE_EXCLUDED_DIRECTORIES = new Set([
   'node_modules'
 ]);
 const ARCHIVE_FILE_READ_CONCURRENCY = 8;
+const HIDE_QUERY_KEY = 'hide';
+const HIDE_QUERY_VALUE_ALL = 'all';
+const HIDE_QUERY_VALUE_MENU = 'menu';
+const HIDE_QUERY_VALUE_STATUSBAR = 'statusbar';
+const EMPTY_LAYOUT_HIDE_SELECTION: ILayoutHideSelection = {
+  hideAll: false,
+  hideMenu: false,
+  hideStatusBar: false
+};
 const URL_LOADED_EDITOR_HINT_CLASS = 'jp-PluginPlayground-urlLoadedEditorHint';
 const URL_LOADED_EDITOR_HINT_TITLE = 'Load as Extension';
 const URL_LOADED_EDITOR_HINT_MESSAGE =
@@ -366,6 +381,10 @@ class PluginPlayground {
     protected logConsoleTracker: ILogConsoleTracker | null
   ) {
     registerCoreKnownModules();
+    this._layoutHideFromInitialUrl =
+      typeof window !== 'undefined'
+        ? this._layoutHideSelectionFromUrl(window.location.href)
+        : EMPTY_LAYOUT_HIDE_SELECTION;
 
     this._shareViaLinkController = new ShareViaLinkController({
       app: this.app,
@@ -901,6 +920,7 @@ class PluginPlayground {
         await this._loadPlugin(t, null);
       }
       await this._shareViaLinkController.loadSharedPluginFromUrl();
+      await this._applyLayoutFromQuery();
 
       settings.changed.connect(updatedSettings => {
         this.settings = updatedSettings;
@@ -1189,6 +1209,164 @@ class PluginPlayground {
     };
     widget.context.pathChanged.connect(onPathChanged);
     widget.disposed.connect(disposeCue);
+  }
+
+  private async _applyLayoutFromQuery(): Promise<void> {
+    const querySelection =
+      typeof window !== 'undefined'
+        ? this._layoutHideSelectionFromUrl(window.location.href)
+        : EMPTY_LAYOUT_HIDE_SELECTION;
+    const hideSelection: ILayoutHideSelection = {
+      hideAll: this._layoutHideFromInitialUrl.hideAll || querySelection.hideAll,
+      hideMenu:
+        this._layoutHideFromInitialUrl.hideMenu || querySelection.hideMenu,
+      hideStatusBar:
+        this._layoutHideFromInitialUrl.hideStatusBar ||
+        querySelection.hideStatusBar
+    };
+    if (hideSelection.hideAll) {
+      hideSelection.hideMenu = true;
+      hideSelection.hideStatusBar = true;
+    }
+
+    if (
+      !hideSelection.hideAll &&
+      !hideSelection.hideMenu &&
+      !hideSelection.hideStatusBar
+    ) {
+      return;
+    }
+
+    const runCommand = async (command: string, args?: any): Promise<void> => {
+      if (!this.app.commands.hasCommand(command)) {
+        return;
+      }
+      if (args !== undefined) {
+        await this.app.commands.execute(command, args);
+      } else {
+        await this.app.commands.execute(command);
+      }
+    };
+
+    const shell = this.app.shell as any;
+
+    const hideArea = async (
+      command: string,
+      collapsedState: boolean | null
+    ): Promise<void> => {
+      if (collapsedState !== null) {
+        if (!collapsedState) {
+          await runCommand(command);
+        }
+        return;
+      }
+      await runCommand(command);
+    };
+
+    const hideMenu = async (
+      ensureSingleDocumentMode: boolean
+    ): Promise<void> => {
+      if (ensureSingleDocumentMode) {
+        await runCommand('application:set-mode', { mode: 'single-document' });
+      }
+      if (typeof shell.isTopInSimpleModeVisible === 'function') {
+        if (shell.isTopInSimpleModeVisible()) {
+          await runCommand('application:toggle-header');
+        }
+        return;
+      }
+      await runCommand('application:toggle-header');
+    };
+
+    const hideStatusBar = async (): Promise<void> => {
+      try {
+        if (!this.app.commands.isToggled('statusbar:toggle')) {
+          return;
+        }
+        await runCommand('statusbar:toggle');
+      } catch {
+        return;
+      }
+    };
+
+    if (!hideSelection.hideAll) {
+      if (hideSelection.hideMenu) {
+        await hideMenu(true);
+      }
+      if (hideSelection.hideStatusBar) {
+        await hideStatusBar();
+      }
+      return;
+    }
+
+    await runCommand('application:set-mode', { mode: 'single-document' });
+    if (typeof shell.collapseLeft === 'function') {
+      shell.collapseLeft();
+    } else {
+      await hideArea(
+        'application:toggle-left-area',
+        typeof shell.leftCollapsed === 'boolean' ? shell.leftCollapsed : null
+      );
+    }
+    if (typeof shell.collapseRight === 'function') {
+      shell.collapseRight();
+    } else {
+      await hideArea(
+        'application:toggle-right-area',
+        typeof shell.rightCollapsed === 'boolean' ? shell.rightCollapsed : null
+      );
+    }
+
+    await hideMenu(false);
+    await hideStatusBar();
+  }
+
+  private _layoutHideSelectionFromUrl(url: string): ILayoutHideSelection {
+    const selection: ILayoutHideSelection = {
+      hideAll: false,
+      hideMenu: false,
+      hideStatusBar: false
+    };
+    const applyParams = (params: URLSearchParams): void => {
+      for (const hideValue of params.getAll(HIDE_QUERY_KEY)) {
+        const values = hideValue.split(',');
+        for (const rawValue of values) {
+          const value = rawValue.trim().toLowerCase();
+          if (value === HIDE_QUERY_VALUE_ALL) {
+            selection.hideAll = true;
+          } else if (value === HIDE_QUERY_VALUE_MENU) {
+            selection.hideMenu = true;
+          } else if (value === HIDE_QUERY_VALUE_STATUSBAR) {
+            selection.hideStatusBar = true;
+          }
+        }
+      }
+    };
+
+    try {
+      const parsedUrl = new URL(url);
+      applyParams(parsedUrl.searchParams);
+
+      const trimmedHash = parsedUrl.hash.startsWith('#')
+        ? parsedUrl.hash.slice(1)
+        : parsedUrl.hash;
+      if (trimmedHash) {
+        const queryLike = trimmedHash.startsWith('?')
+          ? trimmedHash.slice(1)
+          : trimmedHash;
+        if (queryLike.includes('=')) {
+          applyParams(new URLSearchParams(queryLike));
+        }
+      }
+
+      if (selection.hideAll) {
+        selection.hideMenu = true;
+        selection.hideStatusBar = true;
+      }
+      return selection;
+    } catch {
+      return EMPTY_LAYOUT_HIDE_SELECTION;
+    }
   }
 
   private _queuePluginLoad(
@@ -3141,6 +3319,7 @@ class PluginPlayground {
   private readonly _loadOnSaveToggleRefreshers = new Set<() => void>();
   private _sharedFileCueWidgetId: string | null = null;
   private _dismissSharedFileCue: (() => void) | null = null;
+  private readonly _layoutHideFromInitialUrl: ILayoutHideSelection;
   private readonly _tokenMap = new Map<string, Token<string>>();
   private readonly _tokenDescriptionMap = new Map<string, string>();
   private readonly _documentationWidgets = new Map<
