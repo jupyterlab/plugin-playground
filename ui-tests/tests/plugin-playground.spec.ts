@@ -2239,6 +2239,218 @@ export default plugin;
   }
 });
 
+test('applies hide=all layout from shared URL hash params', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/share-hide-all-hash-layout-test`;
+  const sourceFilename = 'share-hide-all-hash-entry.ts';
+  const sourcePath = `${projectRoot}/src/${sourceFilename}`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+  const sharedPluginSource = `
+const plugin = {
+  id: 'share-hide-all-hash-layout-test:plugin',
+  autoStart: true,
+  activate: () => undefined
+};
+
+export default plugin;
+`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: 'share-hide-all-hash-layout-test',
+        version: '0.1.0',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(sharedPluginSource, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab(sourceFilename)).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      (id: string) => window.jupyterapp.commands.hasCommand(id),
+      SHARE_COMMAND
+    )
+  );
+
+  const shareResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, SHARE_COMMAND);
+  expect(shareResult.ok).toBe(true);
+  expect(typeof shareResult.link).toBe('string');
+
+  const hideAllInHashSharedLink = await page.evaluate((link: string) => {
+    const url = new URL(link);
+    url.searchParams.set('z', '1');
+    const hashQuery = url.hash.startsWith('#') ? url.hash.slice(1) : url.hash;
+    const hashParams = new URLSearchParams(hashQuery);
+    hashParams.set('hide', 'all');
+    url.hash = hashParams.toString();
+    return url.toString();
+  }, shareResult.link);
+
+  await page.evaluate((url: string) => {
+    window.location.assign(url);
+  }, hideAllInHashSharedLink);
+
+  await page.waitForCondition(async () => {
+    try {
+      return await page.evaluate((sharedFileName: string) => {
+        const app = window.jupyterapp as any;
+        if (!app) {
+          return false;
+        }
+        const shell = app.shell as any;
+        const currentPath = shell.currentWidget?.context?.path ?? '';
+        const openedSharedFile =
+          typeof currentPath === 'string' &&
+          currentPath.includes('plugin-playground-shared/') &&
+          currentPath.endsWith(`/${sharedFileName}`);
+        if (!openedSharedFile) {
+          return false;
+        }
+
+        const leftCollapsed = shell.leftCollapsed === true;
+        const rightCollapsed = shell.rightCollapsed === true;
+        if (!leftCollapsed || !rightCollapsed) {
+          return false;
+        }
+
+        const isNotebookHost = app.hasPlugin(
+          '@jupyter-notebook/application-extension:shell'
+        );
+        if (isNotebookHost) {
+          return true;
+        }
+
+        const topHidden =
+          typeof shell.isTopInSimpleModeVisible === 'function'
+            ? shell.isTopInSimpleModeVisible() === false
+            : true;
+        const statusbarHidden = app.commands.hasCommand('statusbar:toggle')
+          ? app.commands.isToggled('statusbar:toggle') === false
+          : true;
+
+        return shell.mode === 'single-document' && topHidden && statusbarHidden;
+      }, sourceFilename);
+    } catch {
+      return false;
+    }
+  });
+});
+
+test('applies repeated hide query values from shared URL', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/share-hide-query-layout-test`;
+  const sourceFilename = 'share-hide-query-entry.ts';
+  const sourcePath = `${projectRoot}/src/${sourceFilename}`;
+  const packageJsonPath = `${projectRoot}/package.json`;
+  const sharedPluginSource = `
+const plugin = {
+  id: 'share-hide-query-layout-test:plugin',
+  autoStart: true,
+  activate: () => undefined
+};
+
+export default plugin;
+`;
+
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        name: 'share-hide-query-layout-test',
+        version: '0.1.0',
+        jupyterlab: { extension: true }
+      },
+      null,
+      2
+    ),
+    'text',
+    packageJsonPath
+  );
+  await page.contents.uploadContent(sharedPluginSource, 'text', sourcePath);
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab(sourceFilename)).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      (id: string) => window.jupyterapp.commands.hasCommand(id),
+      SHARE_COMMAND
+    )
+  );
+
+  const shareResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, SHARE_COMMAND);
+  expect(shareResult.ok).toBe(true);
+  expect(typeof shareResult.link).toBe('string');
+
+  const hideValuesSharedLink = await page.evaluate((link: string) => {
+    const url = new URL(link);
+    url.searchParams.set('z', '1');
+    url.searchParams.append('hide', 'statusbar');
+    url.searchParams.append('hide', 'menu');
+    return url.toString();
+  }, shareResult.link);
+
+  await page.evaluate((url: string) => {
+    window.location.assign(url);
+  }, hideValuesSharedLink);
+
+  await page.waitForCondition(async () => {
+    try {
+      return await page.evaluate((sharedFileName: string) => {
+        const app = window.jupyterapp as any;
+        if (!app) {
+          return false;
+        }
+        const shell = app.shell as any;
+        const currentPath = shell.currentWidget?.context?.path ?? '';
+        const openedSharedFile =
+          typeof currentPath === 'string' &&
+          currentPath.includes('plugin-playground-shared/') &&
+          currentPath.endsWith(`/${sharedFileName}`);
+        if (!openedSharedFile) {
+          return false;
+        }
+
+        const isNotebookHost = app.hasPlugin(
+          '@jupyter-notebook/application-extension:shell'
+        );
+        if (isNotebookHost) {
+          return true;
+        }
+
+        const topHidden =
+          typeof shell.isTopInSimpleModeVisible === 'function'
+            ? shell.isTopInSimpleModeVisible() === false
+            : true;
+        const statusbarHidden = app.commands.hasCommand('statusbar:toggle')
+          ? app.commands.isToggled('statusbar:toggle') === false
+          : true;
+
+        return topHidden && statusbarHidden;
+      }, sourceFilename);
+    } catch {
+      return false;
+    }
+  });
+});
+
 test('shares selected file or folder when using browser selection', async ({
   page,
   tmpPath
