@@ -5,28 +5,12 @@
 [![version on PyPI](https://img.shields.io/pypi/v/jupyterlab-plugin-playground.svg)](https://pypi.org/project/jupyterlab-plugin-playground/)
 [![version on conda-forge](https://img.shields.io/conda/vn/conda-forge/jupyterlab-plugin-playground.svg)](https://anaconda.org/conda-forge/jupyterlab-plugin-playground)
 
-| Preview     | Lab                                                                                                                                                       | Notebook v7                                                                                                                                                            |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Binder      | [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/jupyterlab/plugin-playground/main?urlpath=lab)                                | [![Binder Notebook v7](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/jupyterlab/plugin-playground/main?urlpath=tree)                                |
-| JupyterLite | [![JupyterLite](https://jupyterlite.rtfd.io/en/latest/_static/badge-launch.svg)](https://jupyterlab-plugin-playground.readthedocs.io/en/latest/lite/lab/) | [![JupyterLite Notebook v7](https://jupyterlite.rtfd.io/en/latest/_static/badge-launch.svg)](https://jupyterlab-plugin-playground.readthedocs.io/en/latest/lite/tree/) |
+| Try in your browser   | Lab                                                                                                                                                       | Notebook v7                                                                                                                                                            |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Binder (Powerful)     | [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/jupyterlab/plugin-playground/main?urlpath=lab)                                | [![Binder Notebook v7](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/jupyterlab/plugin-playground/main?urlpath=tree)                                |
+| JupyterLite (Instant) | [![JupyterLite](https://jupyterlite.rtfd.io/en/latest/_static/badge-launch.svg)](https://jupyterlab-plugin-playground.readthedocs.io/en/latest/lite/lab/) | [![JupyterLite Notebook v7](https://jupyterlite.rtfd.io/en/latest/_static/badge-launch.svg)](https://jupyterlab-plugin-playground.readthedocs.io/en/latest/lite/tree/) |
 
 A JupyterLab extension to write and load simple JupyterLab plugins inside JupyterLab.
-
-### Open commit-pinned files in JupyterLite
-
-The playground deployments include
-[`jupyterlab-open-url-parameter`](https://github.com/jupyterlab-contrib/jupyterlab-open-url-parameter),
-so you can open files directly from URL query parameters with `fromURL`.
-
-Use raw GitHub links pinned to a commit SHA (not `github.com/.../blob/...` links), for example:
-
-```text
-https://jupyterlab-plugin-playground.readthedocs.io/en/latest/lite/lab/index.html?fromURL=https://raw.githubusercontent.com/<org>/<repo>/<commit-sha>/<path-to-file>
-```
-
-Replace `<commit-sha>` with the exact commit you want to lock to.
-
-You can repeat `fromURL` to open multiple files in one launch.
 
 ## Install
 
@@ -330,6 +314,22 @@ Example:
   ]
 }
 ```
+
+### Open commit-pinned files in JupyterLite
+
+The playground deployments include
+[`jupyterlab-open-url-parameter`](https://github.com/jupyterlab-contrib/jupyterlab-open-url-parameter),
+so you can open files directly from URL query parameters with `fromURL`.
+
+Use raw GitHub links pinned to a commit SHA (not `github.com/.../blob/...` links), for example:
+
+```text
+https://jupyterlab-plugin-playground.readthedocs.io/en/latest/lite/lab/index.html?fromURL=https://raw.githubusercontent.com/<org>/<repo>/<commit-sha>/<path-to-file>
+```
+
+Replace `<commit-sha>` with the exact commit you want to lock to.
+
+You can repeat `fromURL` to open multiple files in one launch.
 
 ## Contributing
 

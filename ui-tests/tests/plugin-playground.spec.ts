@@ -1697,6 +1697,7 @@ test('wheel export includes license files and sanitized METADATA fields', async 
   const packageJsonPath = `${projectRoot}/package.json`;
   const licensePath = `${projectRoot}/LICENSE`;
   const noticePath = `${projectRoot}/NOTICE`;
+  const schemaPath = `${projectRoot}/schema/plugin.json`;
 
   await page.contents.uploadContent(
     JSON.stringify(
@@ -1709,7 +1710,7 @@ test('wheel export includes license files and sanitized METADATA fields', async 
         author: {
           email: 'owner@example.test\nINJECTED-AUTHOR-EMAIL-LINE'
         },
-        jupyterlab: { extension: true }
+        jupyterlab: { extension: true, schemaDir: 'schema' }
       },
       null,
       2
@@ -1725,6 +1726,19 @@ test('wheel export includes license files and sanitized METADATA fields', async 
   );
   await page.contents.uploadContent('License text\n', 'text', licensePath);
   await page.contents.uploadContent('Notice text\n', 'text', noticePath);
+  await page.contents.uploadContent(
+    JSON.stringify(
+      {
+        title: 'Wheel Export Schema Test',
+        type: 'object',
+        properties: {}
+      },
+      null,
+      2
+    ),
+    'text',
+    schemaPath
+  );
   await page.goto();
 
   await page.filebrowser.open(sourcePath);
@@ -1858,6 +1872,14 @@ test('wheel export includes license files and sanitized METADATA fields', async 
     inspection.entryPaths.some(path =>
       path.endsWith('/licenses/src/license.ts')
     )
+  ).toBe(false);
+  expect(
+    inspection.entryPaths.some(path =>
+      /\/schemas\/.+\/plugin\.json$/.test(path)
+    )
+  ).toBe(true);
+  expect(
+    inspection.entryPaths.some(path => path.endsWith('/schema/plugin.json'))
   ).toBe(false);
   expect(
     inspection.entryPaths.some(path => /(^|\/)\.\.(\/|$)/.test(path))
