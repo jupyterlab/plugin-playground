@@ -389,7 +389,7 @@ class PluginPlayground {
       caption:
         'Load the active editor file as an extension for plugin development',
       describedBy: { args: null },
-      icon: runTileIcon,
+      icon: args => (args['isPalette'] ? undefined : runTileIcon),
       isEnabled: () => {
         const currentWidget = editorTracker.currentWidget;
         if (!currentWidget || currentWidget !== app.shell.currentWidget) {
@@ -433,7 +433,7 @@ class PluginPlayground {
       caption:
         'Download the active plugin folder as an extension archive (.zip or .whl)',
       describedBy: { args: EXPORT_AS_EXTENSION_ARGS_SCHEMA },
-      icon: fileUploadIcon,
+      icon: args => (args['isPalette'] ? undefined : fileUploadIcon),
       isEnabled: () => this.documentManager !== null,
       execute: async args => {
         const exportFormat: ExportArchiveFormat =
@@ -478,9 +478,10 @@ class PluginPlayground {
         this._shareViaLinkController
       ),
       describedBy: { args: SHARE_VIA_LINK_ARGS_SCHEMA },
-      icon: this._shareViaLinkController.commandIcon.bind(
-        this._shareViaLinkController
-      ),
+      icon: args =>
+        args['isPalette']
+          ? undefined
+          : this._shareViaLinkController.commandIcon(args),
       isEnabled: this._shareViaLinkController.isCommandEnabled.bind(
         this._shareViaLinkController
       ),
@@ -555,19 +556,19 @@ class PluginPlayground {
     commandPalette.addItem({
       command: CommandIDs.loadCurrentAsExtension,
       category: 'Plugin Playground',
-      args: {}
+      args: { isPalette: true }
     });
 
     commandPalette.addItem({
       command: CommandIDs.exportAsExtension,
       category: 'Plugin Playground',
-      args: {}
+      args: { isPalette: true }
     });
 
     commandPalette.addItem({
       command: CommandIDs.shareViaLink,
       category: 'Plugin Playground',
-      args: {}
+      args: { isPalette: true }
     });
 
     app.commands.addCommand(CommandIDs.openJSImportExplorer, {
@@ -587,11 +588,14 @@ class PluginPlayground {
     });
 
     app.commands.addCommand(CommandIDs.createNewFile, {
-      label: 'Start from File',
+      label: args =>
+        args['isPalette']
+          ? 'Plugin Playground: Start from File'
+          : 'Start from File',
       caption:
         'Create a new TypeScript plugin file and open the playground sidebar',
       describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
-      icon: tokenSidebarIcon,
+      icon: args => (args['isPalette'] ? undefined : tokenSidebarIcon),
       execute: async args => {
         const rawPathArg =
           typeof args.path === 'string' ? args.path.trim() : '';
@@ -664,15 +668,18 @@ class PluginPlayground {
     commandPalette.addItem({
       command: CommandIDs.createNewFile,
       category: 'Plugin Playground',
-      args: {}
+      args: { isPalette: true }
     });
 
     app.commands.addCommand(CommandIDs.createNewFileWithAI, {
-      label: 'Build with AI',
+      label: args =>
+        args['isPalette']
+          ? 'Plugin Playground: Build with AI'
+          : 'Build with AI',
       caption:
         'Create a new TypeScript plugin file and open AI chat setup for guided building',
       describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
-      icon: offlineBoltIcon,
+      icon: args => (args['isPalette'] ? undefined : offlineBoltIcon),
       execute: async args => {
         const chatStatus = await this._openJupyterLiteAIChatWithSetupFallback();
         if (chatStatus === 'provider-setup-required') {
@@ -692,15 +699,18 @@ class PluginPlayground {
     commandPalette.addItem({
       command: CommandIDs.createNewFileWithAI,
       category: 'Plugin Playground',
-      args: {}
+      args: { isPalette: true }
     });
 
     app.commands.addCommand(CommandIDs.takeTour, {
-      label: 'Take the Tour',
+      label: args =>
+        args['isPalette']
+          ? 'Plugin Playground: Take the Tour'
+          : 'Take the Tour',
       caption:
         'Open a guided walkthrough of Plugin Playground, extension examples, and AI setup',
       describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
-      icon: infoIcon,
+      icon: args => (args['isPalette'] ? undefined : infoIcon),
       execute: async args => {
         if (!hasPluginPlaygroundTourSupport(app)) {
           Notification.warning(
@@ -736,7 +746,7 @@ class PluginPlayground {
     commandPalette.addItem({
       command: CommandIDs.takeTour,
       category: 'Plugin Playground',
-      args: {}
+      args: { isPalette: true }
     });
 
     app.commands.addCommand(CommandIDs.listTokens, {
