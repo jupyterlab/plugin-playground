@@ -982,6 +982,20 @@ export async function createPythonWheelArchive(
     resolvedLabextension.entries,
     resolvedLabextension.fallbackRootName || rootName
   );
+  const rootJupyterlabConfig = getJupyterlabConfig(rootPackageJson) ?? {};
+  const schemaDirValue = rootJupyterlabConfig.schemaDir;
+  const schemaSourcePath =
+    typeof schemaDirValue === 'string' && schemaDirValue.trim().length > 0
+      ? ContentUtils.normalizeContentsPath(
+          schemaDirValue.trim().replace(/\\/g, '/')
+        ).replace(/\/+$/g, '')
+      : '';
+  const hasSchemaSourcePath =
+    schemaSourcePath.length > 0 &&
+    ContentUtils.isSafeRelativePath(schemaSourcePath);
+  const schemaTargetPath = `schemas/${metadata.labextensionName}`;
+  const schemaSourcePrefix = hasSchemaSourcePath ? `${schemaSourcePath}/` : '';
+  const schemaTargetPrefix = `${schemaTargetPath}/`;
 
   const distribution =
     metadata.pythonPackageName.replace(/[^A-Za-z0-9.]+/g, '_') ||
@@ -991,13 +1005,44 @@ export async function createPythonWheelArchive(
     'plugin_playground_export';
   const distInfoPath = `${distribution}-${version}.dist-info`;
   const labextensionPath = `${distribution}-${version}.data/data/share/jupyter/labextensions/${metadata.labextensionName}`;
-
+  let copiedSchemaEntries = false;
   const wheelEntries: IArchiveEntry[] = resolvedLabextension.entries.map(
-    entry => ({
-      path: `${labextensionPath}/${entry.path}`,
-      data: entry.data
-    })
+    entry => {
+      let relativePath = entry.path;
+      if (
+        hasSchemaSourcePath &&
+        (relativePath === schemaSourcePath ||
+          relativePath.startsWith(schemaSourcePrefix))
+      ) {
+        const schemaRelativePath = relativePath
+          .slice(schemaSourcePath.length)
+          .replace(/^\/+/g, '');
+        relativePath = schemaRelativePath
+          ? `${schemaTargetPrefix}${schemaRelativePath}`
+          : schemaTargetPath;
+        copiedSchemaEntries = true;
+      }
+      return {
+        path: `${labextensionPath}/${relativePath}`,
+        data: entry.data
+      };
+    }
   );
+  if (
+    copiedSchemaEntries &&
+    !wheelEntries.some(
+      entry =>
+        entry.path ===
+        `${labextensionPath}/${schemaTargetPath}/package.json.orig`
+    )
+  ) {
+    wheelEntries.push(
+      textArchiveEntry(
+        `${labextensionPath}/${schemaTargetPath}/package.json.orig`,
+        `${JSON.stringify(rootPackageJson, null, 2)}\n`
+      )
+    );
+  }
 
   const hasInstallJson = resolvedLabextension.entries.some(
     entry => entry.path === 'install.json'
