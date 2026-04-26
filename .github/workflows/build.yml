@@ -35,11 +35,6 @@ jobs:
         jlpm
         jlpm run lint:check
 
-    - name: Validate extension examples compile
-      run: |
-        set -eux
-        jlpm run check:extension-examples
-
     - name: Build the extension
       run: |
         set -eux

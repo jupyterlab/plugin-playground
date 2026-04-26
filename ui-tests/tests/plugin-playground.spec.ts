@@ -778,6 +778,66 @@ test('shows a no-match empty state for extension example filters', async ({
   ).toHaveCount(0);
 });
 
+test.describe('extension-examples smoke loading', () => {
+  test.use({
+    mockSettings: {
+      ...galata.DEFAULT_SETTINGS,
+      [PLAYGROUND_PLUGIN_ID]: {
+        allowCDN: 'never'
+      }
+    }
+  });
+
+  test('loads all extension examples from extension-examples', async ({
+    page
+  }) => {
+    await page.goto();
+    await page.waitForCondition(() =>
+      page.evaluate((id: string) => {
+        return window.jupyterapp.commands.hasCommand(id);
+      }, LIST_EXAMPLES_COMMAND)
+    );
+    await page.waitForCondition(() =>
+      page.evaluate((id: string) => {
+        return window.jupyterapp.commands.hasCommand(id);
+      }, LOAD_COMMAND)
+    );
+
+    const examplesResult = (await page.evaluate((id: string) => {
+      return window.jupyterapp.commands.execute(id);
+    }, LIST_EXAMPLES_COMMAND)) as {
+      count: number;
+      items: Array<{ name: string; path: string }>;
+    };
+
+    expect(
+      examplesResult.count,
+      'No extension examples were discovered. Bundled examples should be available in CI.'
+    ).toBeGreaterThan(0);
+
+    for (const example of examplesResult.items) {
+      await page.filebrowser.open(example.path);
+      await page.waitForFunction((pathToOpen: string) => {
+        const current = window.jupyterapp.shell
+          .currentWidget as FileEditorWidget | null;
+        return current?.context?.path === pathToOpen;
+      }, example.path);
+
+      const loadResult = await page.evaluate((id: string) => {
+        return window.jupyterapp.commands.execute(id);
+      }, LOAD_COMMAND);
+
+      expect(
+        loadResult,
+        `Failed to load extension example "${example.name}" (${example.path})`
+      ).toMatchObject({
+        ok: true,
+        status: 'loaded'
+      });
+    }
+  });
+});
+
 test('creates a plugin file with an explicit path argument', async ({
   page,
   tmpPath
