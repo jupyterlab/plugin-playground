@@ -1,5 +1,6 @@
 import { JupyterFrontEnd } from '@jupyterlab/application';
 import { ReadonlyPartialJSONObject } from '@lumino/coreutils';
+import { MessageLoop } from '@lumino/messaging';
 
 /**
  * Serializable shape for a single Plugin Playground guided tour step.
@@ -54,6 +55,7 @@ interface IPluginPlaygroundTour extends ReadonlyPartialJSONObject {
  */
 interface ITourStepEvent extends ReadonlyPartialJSONObject {
   index?: number;
+  type?: string;
 }
 
 /**
@@ -306,6 +308,8 @@ function activateExtensionPointsTab(
     tab?.classList.contains('jp-mod-active');
   if (!isActive) {
     tab?.click();
+    // Flush so Joyride can resolve step targets after tab switches.
+    MessageLoop.flush();
   }
 }
 
@@ -355,12 +359,36 @@ function attachTourUiHooks(handler: ITourHandlerLike): void {
   }
   CONNECTED_TOUR_IDS.add(handler.id);
 
+  let activeTooltipStepIndex: number = TOUR_STEP_INDEX.welcome;
+
+  const preSyncOnBackClick = (event: Event): void => {
+    if (!(event.target instanceof Element)) {
+      return;
+    }
+    const backButton = event.target.closest(
+      '.react-joyride__tooltip button[data-action="back"]'
+    );
+    if (!backButton) {
+      return;
+    }
+    syncTourUiForStep(activeTooltipStepIndex - 1);
+  };
+
+  if (typeof document !== 'undefined') {
+    // Run before Joyride handles the click so destination targets are mounted.
+    document.addEventListener('click', preSyncOnBackClick, true);
+  }
+
   handler.started?.connect(() => {
+    activeTooltipStepIndex = TOUR_STEP_INDEX.welcome;
     syncTourUiForStep(TOUR_STEP_INDEX.welcome);
   });
   handler.stepChanged?.connect((_sender, args) => {
-    const index = typeof args.index === 'number' ? args.index : 0;
-    syncTourUiForStep(index);
+    if (args.type !== 'tooltip' || typeof args.index !== 'number') {
+      return;
+    }
+    activeTooltipStepIndex = args.index;
+    syncTourUiForStep(activeTooltipStepIndex);
   });
 }
 
