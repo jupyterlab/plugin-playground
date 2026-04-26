@@ -14,7 +14,8 @@ import {
   showDialog,
   showErrorMessage,
   ICommandPalette,
-  IToolbarWidgetRegistry
+  IToolbarWidgetRegistry,
+  ToolbarButton
 } from '@jupyterlab/apputils';
 
 import { ILogConsoleTracker } from 'jupyterlab-js-logs';
@@ -293,6 +294,7 @@ const CREATE_PLUGIN_FROM_NOTEBOOK_TREE_ARGS_SCHEMA = {
     }
   }
 };
+const LOAD_AS_EXTENSION_TOOLBAR_ITEM = 'load-as-extension';
 const LOAD_ON_SAVE_TOGGLE_TOOLBAR_ITEM = 'plugin-playground-load-on-save';
 const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Run on save';
 const LOAD_ON_SAVE_SETTING = 'loadOnSave';
@@ -519,6 +521,12 @@ class PluginPlayground {
 
     toolbarWidgetRegistry.addFactory<IDocumentWidget<FileEditor>>(
       'Editor',
+      LOAD_AS_EXTENSION_TOOLBAR_ITEM,
+      widget => this._createLoadAsExtensionToolbarWidget(widget)
+    );
+
+    toolbarWidgetRegistry.addFactory<IDocumentWidget<FileEditor>>(
+      'Editor',
       LOAD_ON_SAVE_TOGGLE_TOOLBAR_ITEM,
       widget => this._createLoadOnSaveToggleWidget(widget)
     );
@@ -556,18 +564,9 @@ class PluginPlayground {
             });
           }
         };
-        const onPathChanged = () => {
-          if (app.commands.hasCommand(CommandIDs.loadCurrentAsExtension)) {
-            app.commands.notifyCommandChanged(
-              CommandIDs.loadCurrentAsExtension
-            );
-          }
-        };
         widget.context.saveState.connect(onSaveState);
-        widget.context.pathChanged.connect(onPathChanged);
         widget.disposed.connect(() => {
           widget.context.saveState.disconnect(onSaveState);
-          widget.context.pathChanged.disconnect(onPathChanged);
         });
       }
     );
@@ -884,15 +883,9 @@ class PluginPlayground {
 
       app.shell.currentChanged?.connect(() => {
         tokenSidebar.update();
-        if (app.commands.hasCommand(CommandIDs.loadCurrentAsExtension)) {
-          app.commands.notifyCommandChanged(CommandIDs.loadCurrentAsExtension);
-        }
       });
       editorTracker.currentChanged.connect(() => {
         tokenSidebar.update();
-        if (app.commands.hasCommand(CommandIDs.loadCurrentAsExtension)) {
-          app.commands.notifyCommandChanged(CommandIDs.loadCurrentAsExtension);
-        }
       });
       app.commands.commandChanged.connect((_, args) => {
         if (args.type === 'added' || args.type === 'removed') {
@@ -958,6 +951,60 @@ class PluginPlayground {
       return true;
     }
     return this._loadOnSaveByFile.has(normalizedPath);
+  }
+
+  private _createLoadAsExtensionToolbarWidget(
+    widget: IDocumentWidget<FileEditor>
+  ): Widget {
+    const runButton = new ToolbarButton({
+      label: 'Run',
+      icon: runTileIcon,
+      tooltip:
+        'Load the active editor file as an extension for plugin development',
+      dataset: {
+        command: CommandIDs.loadCurrentAsExtension
+      },
+      noFocusOnClick: true,
+      onClick: () => {
+        const normalizedPath = ContentUtils.normalizeContentsPath(
+          widget.context.path
+        );
+        if (!this._isSupportedPluginSourceFile(normalizedPath)) {
+          return;
+        }
+        if (this._sharedFileCueWidgetId === widget.id) {
+          this._dismissSharedFileCue?.();
+        }
+        void this._queuePluginLoad(
+          widget.context.model.toString(),
+          widget.context.path
+        );
+      }
+    });
+
+    const refresh = () => {
+      const normalizedPath = ContentUtils.normalizeContentsPath(
+        widget.context.path
+      );
+      runButton.setHidden(!this._isSupportedPluginSourceFile(normalizedPath));
+    };
+
+    widget.context.pathChanged.connect(refresh);
+    refresh();
+
+    let isDisposed = false;
+    const dispose = () => {
+      if (isDisposed) {
+        return;
+      }
+      isDisposed = true;
+      widget.context.pathChanged.disconnect(refresh);
+    };
+
+    runButton.disposed.connect(dispose);
+    widget.disposed.connect(dispose);
+
+    return runButton;
   }
 
   private _createLoadOnSaveToggleWidget(
