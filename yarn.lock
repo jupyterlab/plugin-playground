@@ -1868,7 +1868,7 @@ __metadata:
     "@typescript-eslint/parser": ^8.56.1
     eslint: ^9.39.3
     eslint-config-prettier: ^10.1.8
-    jupyterlab-js-logs: ^1.1.0
+    jupyterlab-js-logs: ^1.2.0
     npm-run-all: ^4.1.5
     prettier: ^2.8.0
     raw-loader: ^4.0.2
@@ -2012,7 +2012,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@jupyterlab/settingregistry@npm:^4.5.5, @jupyterlab/settingregistry@npm:^4.5.6":
+"@jupyterlab/settingregistry@npm:^4.2.5, @jupyterlab/settingregistry@npm:^4.5.5, @jupyterlab/settingregistry@npm:^4.5.6":
   version: 4.5.6
   resolution: "@jupyterlab/settingregistry@npm:4.5.6"
   dependencies:
@@ -6775,9 +6775,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"jupyterlab-js-logs@npm:^1.1.0":
-  version: 1.1.0
-  resolution: "jupyterlab-js-logs@npm:1.1.0"
+"jupyterlab-js-logs@npm:^1.2.0":
+  version: 1.2.0
+  resolution: "jupyterlab-js-logs@npm:1.2.0"
   dependencies:
     "@jupyterlab/application": ^4.2.5
     "@jupyterlab/apputils": ^4.3.5
@@ -6786,10 +6786,11 @@ __metadata:
     "@jupyterlab/mainmenu": ^4.2.5
     "@jupyterlab/nbformat": ^4.2.5
     "@jupyterlab/rendermime": ^4.2.5
+    "@jupyterlab/settingregistry": ^4.2.5
     "@jupyterlab/ui-components": ^4.2.5
     "@lumino/coreutils": ^2.2.0
     "@lumino/widgets": ^2.5.0
-  checksum: 589a8ea6d9e8d770a200a1c769e5d48adef691782ecb2ffc7b8a7b44ab18a7ffd42f49289948d83ff8171a7e71eb2d11d434082f552c8b5cd873638c2003eaae
+  checksum: f72d15d525b28f27fb43391d65134dc48163012553926971314b0131a00cbd89c871583331bf299253906e1e5f85b0e7bec032d5d087248d77e5dde78d703afc
   languageName: node
   linkType: hard
 
@@ -7931,13 +7932,13 @@ __metadata:
   linkType: hard
 
 "postcss@npm:^8.3.11, postcss@npm:^8.4.33":
-  version: 8.5.8
-  resolution: "postcss@npm:8.5.8"
+  version: 8.5.12
+  resolution: "postcss@npm:8.5.12"
   dependencies:
     nanoid: ^3.3.11
     picocolors: ^1.1.1
     source-map-js: ^1.2.1
-  checksum: 118cbec9551c7107c7884a585b45d7cce1632159065c7f6e112bbb4c4811253e78d507e49082b36d9b89f36a02a611c5a8cd210548dead55795c20c4f37ab9e8
+  checksum: e11818908d9f1693438bd7c6e3af99431552f5c9b3f400ebe76af3f25bd1b1efb26bc4c13533f3dcff45540a66ad4e84c62e06491f88003bbfa4ef35b6175f55
   languageName: node
   linkType: hard
 

@@ -68,7 +68,7 @@
         "@jupyterlab/filebrowser": "^4.5.5",
         "@jupyterlab/fileeditor": "^4.5.5",
         "@jupyterlab/settingregistry": "^4.5.5",
-        "jupyterlab-js-logs": "^1.1.0",
+        "jupyterlab-js-logs": "^1.2.0",
         "raw-loader": "^4.0.2",
         "requirejs": "^2.3.6",
         "typescript": "~5.5.4"

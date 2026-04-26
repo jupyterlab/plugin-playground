@@ -1991,16 +1991,26 @@ class PluginPlayground {
         // - transforms are not applied
         // - any refresh from the server might overwrite the data
         // - it is not a good long term solution in general
-        this.settingRegistry.plugins[plugin.id] = {
+        const dynamicSettingPlugin: ISettingRegistry.IPlugin = {
           id: plugin.id,
           schema: JSON.parse(schema),
-          raw: schema,
+          raw: '{}',
           data: {
             composite: {},
             user: {}
           },
           version: '0.0.0'
         };
+        const validationErrors =
+          this.settingRegistry.validator.validateData(dynamicSettingPlugin);
+        if (validationErrors) {
+          throw new Error(
+            `Could not validate settings for "${plugin.id}". ${validationErrors
+              .map(error => `{${error.keyword}} ${error.message ?? ''}`)
+              .join(' ')}`
+          );
+        }
+        this.settingRegistry.plugins[plugin.id] = dynamicSettingPlugin;
         (
           this.settingRegistry.pluginChanged as Signal<ISettingRegistry, string>
         ).emit(plugin.id);
