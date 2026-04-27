@@ -19,6 +19,7 @@ const PLAYGROUND_PLUGIN_ID = '@jupyterlab/plugin-playground:plugin';
 const LIST_TOKENS_COMMAND = 'plugin-playground:list-tokens';
 const LIST_COMMANDS_COMMAND = 'plugin-playground:list-commands';
 const LIST_EXAMPLES_COMMAND = 'plugin-playground:list-extension-examples';
+const MIN_BUNDLED_EXTENSION_EXAMPLE_COUNT = 29;
 const TOUR_MISSING_HINT =
   'Guided tours are unavailable because "jupyterlab-tour" is not installed in this environment.';
 const TEST_PLUGIN_ID = 'playground-integration-test:plugin';
@@ -791,14 +792,15 @@ test.describe('extension-examples smoke loading', () => {
   test('loads all extension examples from extension-examples', async ({
     page
   }) => {
+    test.slow();
+    const discoveryLogPrefix =
+      '[plugin-playground] extension-examples discovered count=';
     const loadCompletionPrefix =
       '[plugin-playground] load-as-extension completed path=';
     const loadCompletionStatusPrefix = ' status=';
     const completedLoadPaths = new Set<string>();
     const expectedConsoleIssues = [
       'Skipping plugin @jupyterlab-examples/clap-button:pluginNotebook: missing required services @jupyter-notebook/application:INotebookShell',
-      // remove once launcher example issue is fixed
-      'SVG HTML was malformed for LabIcon instance. name: launcher:python-icon, svgstr: [object Object]',
       'Error on POST /jupyterlab-examples-server/hello [object Object].'
     ];
     const unexpectedConsoleIssues: string[] = [];
@@ -839,22 +841,49 @@ test.describe('extension-examples smoke loading', () => {
         }, LOAD_COMMAND)
       );
 
-      const examplesResult = (await page.evaluate((id: string) => {
-        return window.jupyterapp.commands.execute(id);
-      }, LIST_EXAMPLES_COMMAND)) as {
-        count: number;
-        items: Array<{ name: string; path: string }>;
+      const discoveryResult = (await page.evaluate(
+        async ({ id, prefix }) => {
+          const result = (await window.jupyterapp.commands.execute(id, {})) as {
+            count: number;
+            items: Array<{ name: string; path: string }>;
+          };
+          const discoveryLog = `${prefix}${result.count}`;
+          window.console.debug(discoveryLog);
+          return { result, discoveryLog };
+        },
+        {
+          id: LIST_EXAMPLES_COMMAND,
+          prefix: discoveryLogPrefix
+        }
+      )) as {
+        result: {
+          count: number;
+          items: Array<{ name: string; path: string }>;
+        };
+        discoveryLog: string;
       };
+      const examplesResult = discoveryResult.result;
+      const discoveredCount = Number.parseInt(
+        discoveryResult.discoveryLog.slice(discoveryLogPrefix.length),
+        10
+      );
+      expect(
+        Number.isInteger(discoveredCount),
+        `Could not parse discovery log count from "${discoveryResult.discoveryLog}".`
+      ).toBe(true);
+      expect(
+        discoveredCount,
+        'Discovery log count does not match list-extension-examples command output.'
+      ).toBe(examplesResult.count);
+
       const bundledExamples = examplesResult.items.filter(
         example =>
           !example.path.startsWith('extension-examples/integration-example')
       );
-      if (bundledExamples.length === 0) {
-        test.skip(
-          true,
-          'No bundled extension examples are available in this environment.'
-        );
-      }
+      expect(
+        bundledExamples.length,
+        `Expected at least ${MIN_BUNDLED_EXTENSION_EXAMPLE_COUNT} bundled extension examples, but discovered ${bundledExamples.length}.`
+      ).toBeGreaterThanOrEqual(MIN_BUNDLED_EXTENSION_EXAMPLE_COUNT);
 
       for (const example of bundledExamples) {
         await page.evaluate(async (pathToOpen: string) => {
@@ -875,7 +904,9 @@ test.describe('extension-examples smoke loading', () => {
 
         expect(
           loadResult,
-          `Failed to load extension example "${example.name}" (${example.path})`
+          `Failed to load extension example "${example.name}" (${
+            example.path
+          }). Result: ${JSON.stringify(loadResult)}`
         ).toMatchObject({
           ok: true,
           status: 'loaded'
