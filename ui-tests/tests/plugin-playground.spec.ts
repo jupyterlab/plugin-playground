@@ -3,7 +3,9 @@ import { KNOWN_MODULE_NAMES } from '../../src/modules';
 import type { FileEditorWidget } from '@jupyterlab/fileeditor';
 import type { IJupyterLabPageFixture } from '@jupyterlab/galata';
 import type { Contents } from '@jupyterlab/services';
-import type { Locator } from '@playwright/test';
+import type { ConsoleMessage, Locator } from '@playwright/test';
+import { existsSync } from 'fs';
+import { resolve } from 'path';
 
 const LOAD_COMMAND = 'plugin-playground:load-as-extension';
 const EXPORT_COMMAND = 'plugin-playground:export-as-extension';
@@ -19,6 +21,12 @@ const PLAYGROUND_PLUGIN_ID = '@jupyterlab/plugin-playground:plugin';
 const LIST_TOKENS_COMMAND = 'plugin-playground:list-tokens';
 const LIST_COMMANDS_COMMAND = 'plugin-playground:list-commands';
 const LIST_EXAMPLES_COMMAND = 'plugin-playground:list-extension-examples';
+const MIN_BUNDLED_EXTENSION_EXAMPLE_COUNT = 29;
+const EXTENSION_EXAMPLES_ROOT = 'extension-examples';
+const LOCAL_EXTENSION_EXAMPLES_PATH = resolve(
+  process.cwd(),
+  '../extension-examples'
+);
 const TOUR_MISSING_HINT =
   'Guided tours are unavailable because "jupyterlab-tour" is not installed in this environment.';
 const TEST_PLUGIN_ID = 'playground-integration-test:plugin';
@@ -776,6 +784,178 @@ test('shows a no-match empty state for extension example filters', async ({
   await expect(
     section.locator('text=git submodule update --init --recursive')
   ).toHaveCount(0);
+});
+
+test.describe('extension-examples smoke loading', () => {
+  test.use({
+    mockSettings: {
+      ...galata.DEFAULT_SETTINGS,
+      [PLAYGROUND_PLUGIN_ID]: {
+        allowCDN: 'never'
+      }
+    }
+  });
+
+  test('loads all extension examples from extension-examples', async ({
+    page
+  }) => {
+    test.slow();
+    const discoveryLogPrefix =
+      '[plugin-playground] extension-examples discovered count=';
+    const loadCompletionPrefix =
+      '[plugin-playground] load-as-extension completed path=';
+    const loadCompletionStatusPrefix = ' status=';
+    const completedLoadPaths = new Set<string>();
+    const expectedConsoleIssues = [
+      'Skipping plugin @jupyterlab-examples/clap-button:pluginNotebook: missing required services @jupyter-notebook/application:INotebookShell',
+      'Error on POST /jupyterlab-examples-server/hello [object Object].'
+    ];
+    const unexpectedConsoleIssues: string[] = [];
+    const onConsole = (message: ConsoleMessage): void => {
+      const text = message.text();
+      if (text.startsWith(loadCompletionPrefix)) {
+        const statusSeparatorIndex = text.indexOf(
+          loadCompletionStatusPrefix,
+          loadCompletionPrefix.length
+        );
+        if (statusSeparatorIndex > loadCompletionPrefix.length) {
+          completedLoadPaths.add(
+            text.slice(loadCompletionPrefix.length, statusSeparatorIndex)
+          );
+        }
+      }
+      const type = message.type();
+      if (type !== 'warning' && type !== 'error') {
+        return;
+      }
+      if (expectedConsoleIssues.some(expected => text.includes(expected))) {
+        return;
+      }
+      unexpectedConsoleIssues.push(`[${type}] ${text}`);
+    };
+
+    page.on('console', onConsole);
+    try {
+      await page.goto();
+      expect(
+        existsSync(LOCAL_EXTENSION_EXAMPLES_PATH),
+        `Missing local extension examples at ${LOCAL_EXTENSION_EXAMPLES_PATH}.`
+      ).toBe(true);
+      await page.contents.uploadDirectory(
+        LOCAL_EXTENSION_EXAMPLES_PATH,
+        EXTENSION_EXAMPLES_ROOT
+      );
+      await page.waitForCondition(() =>
+        page.evaluate((id: string) => {
+          return window.jupyterapp.commands.hasCommand(id);
+        }, LIST_EXAMPLES_COMMAND)
+      );
+      await page.waitForCondition(() =>
+        page.evaluate((id: string) => {
+          return window.jupyterapp.commands.hasCommand(id);
+        }, LOAD_COMMAND)
+      );
+
+      const discoverExamples = async () => {
+        return (await page.evaluate(
+          async ({ id, prefix }) => {
+            const result = (await window.jupyterapp.commands.execute(
+              id,
+              {}
+            )) as {
+              count: number;
+              items: Array<{ name: string; path: string }>;
+            };
+            const discoveryLog = `${prefix}${result.count}`;
+            window.console.debug(discoveryLog);
+            return { result, discoveryLog };
+          },
+          {
+            id: LIST_EXAMPLES_COMMAND,
+            prefix: discoveryLogPrefix
+          }
+        )) as {
+          result: {
+            count: number;
+            items: Array<{ name: string; path: string }>;
+          };
+          discoveryLog: string;
+        };
+      };
+
+      const discoveryResult = await discoverExamples();
+      const examplesResult = discoveryResult.result;
+      const bundledExamples = examplesResult.items.filter(
+        example =>
+          !example.path.startsWith('extension-examples/integration-example')
+      );
+
+      const discoveredCount = Number.parseInt(
+        discoveryResult.discoveryLog.slice(discoveryLogPrefix.length),
+        10
+      );
+      expect(
+        Number.isInteger(discoveredCount),
+        `Could not parse discovery log count from "${discoveryResult.discoveryLog}".`
+      ).toBe(true);
+      expect(
+        discoveredCount,
+        'Discovery log count does not match list-extension-examples command output.'
+      ).toBe(examplesResult.count);
+
+      expect(
+        bundledExamples.length,
+        `Expected at least ${MIN_BUNDLED_EXTENSION_EXAMPLE_COUNT} bundled extension examples, but discovered ${bundledExamples.length}.`
+      ).toBeGreaterThanOrEqual(MIN_BUNDLED_EXTENSION_EXAMPLE_COUNT);
+
+      for (const example of bundledExamples) {
+        await page.evaluate(async (pathToOpen: string) => {
+          await window.jupyterapp.commands.execute('docmanager:open', {
+            path: pathToOpen,
+            factory: 'Editor'
+          });
+        }, example.path);
+        await page.waitForFunction((pathToOpen: string) => {
+          const current = window.jupyterapp.shell
+            .currentWidget as FileEditorWidget | null;
+          return current?.context?.path === pathToOpen;
+        }, example.path);
+
+        const loadResult = await page.evaluate((id: string) => {
+          return window.jupyterapp.commands.execute(id);
+        }, LOAD_COMMAND);
+
+        expect(
+          loadResult,
+          `Failed to load extension example "${example.name}" (${
+            example.path
+          }). Result: ${JSON.stringify(loadResult)}`
+        ).toMatchObject({
+          ok: true,
+          status: 'loaded'
+        });
+      }
+
+      const missingCompletionLogs = bundledExamples
+        .map(example => example.path)
+        .filter(path => !completedLoadPaths.has(path));
+      expect(
+        missingCompletionLogs,
+        `Missing completion console.debug entries for:\n${missingCompletionLogs.join(
+          '\n'
+        )}`
+      ).toEqual([]);
+
+      expect(
+        unexpectedConsoleIssues,
+        `Unexpected console warnings/errors while loading examples:\n${unexpectedConsoleIssues.join(
+          '\n'
+        )}`
+      ).toEqual([]);
+    } finally {
+      page.off('console', onConsole);
+    }
+  });
 });
 
 test('creates a plugin file with an explicit path argument', async ({
@@ -1939,7 +2119,17 @@ export default plugin;
   await page.contents.uploadContent(sharedPluginSource, 'text', sourcePath);
   await page.goto();
 
-  await page.filebrowser.open(sourcePath);
+  await page.evaluate(async (pathToOpen: string) => {
+    await window.jupyterapp.commands.execute('docmanager:open', {
+      path: pathToOpen,
+      factory: 'Editor'
+    });
+  }, sourcePath);
+  await page.waitForFunction((pathToOpen: string) => {
+    const current = window.jupyterapp.shell
+      .currentWidget as FileEditorWidget | null;
+    return current?.context?.path === pathToOpen;
+  }, sourcePath);
   expect(await page.activity.activateTab(sourceFilename)).toBe(true);
 
   await page.waitForCondition(() =>
@@ -2273,7 +2463,17 @@ export default plugin;
   await page.contents.uploadContent(sharedPluginSource, 'text', sourcePath);
   await page.goto();
 
-  await page.filebrowser.open(sourcePath);
+  await page.evaluate(async (pathToOpen: string) => {
+    await window.jupyterapp.commands.execute('docmanager:open', {
+      path: pathToOpen,
+      factory: 'Editor'
+    });
+  }, sourcePath);
+  await page.waitForFunction((pathToOpen: string) => {
+    const current = window.jupyterapp.shell
+      .currentWidget as FileEditorWidget | null;
+    return current?.context?.path === pathToOpen;
+  }, sourcePath);
   expect(await page.activity.activateTab(sourceFilename)).toBe(true);
 
   await page.waitForCondition(() =>
@@ -2299,9 +2499,12 @@ export default plugin;
     return url.toString();
   }, shareResult.link);
 
-  await page.evaluate((url: string) => {
-    window.location.assign(url);
-  }, hideAllInHashSharedLink);
+  await Promise.all([
+    page.waitForLoadState('domcontentloaded'),
+    page.evaluate((url: string) => {
+      window.location.assign(url);
+    }, hideAllInHashSharedLink)
+  ]);
 
   await page.waitForCondition(async () => {
     try {
@@ -2383,7 +2586,17 @@ export default plugin;
   await page.contents.uploadContent(sharedPluginSource, 'text', sourcePath);
   await page.goto();
 
-  await page.filebrowser.open(sourcePath);
+  await page.evaluate(async (pathToOpen: string) => {
+    await window.jupyterapp.commands.execute('docmanager:open', {
+      path: pathToOpen,
+      factory: 'Editor'
+    });
+  }, sourcePath);
+  await page.waitForFunction((pathToOpen: string) => {
+    const current = window.jupyterapp.shell
+      .currentWidget as FileEditorWidget | null;
+    return current?.context?.path === pathToOpen;
+  }, sourcePath);
   expect(await page.activity.activateTab(sourceFilename)).toBe(true);
 
   await page.waitForCondition(() =>
@@ -2407,9 +2620,12 @@ export default plugin;
     return url.toString();
   }, shareResult.link);
 
-  await page.evaluate((url: string) => {
-    window.location.assign(url);
-  }, hideValuesSharedLink);
+  await Promise.all([
+    page.waitForLoadState('domcontentloaded'),
+    page.evaluate((url: string) => {
+      window.location.assign(url);
+    }, hideValuesSharedLink)
+  ]);
 
   await page.waitForCondition(async () => {
     try {

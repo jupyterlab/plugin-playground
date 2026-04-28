@@ -1388,6 +1388,9 @@ class PluginPlayground {
       if (shouldNotify) {
         this._notifyPluginLoadResult(result, normalizedPath);
       }
+      console.debug(
+        `[plugin-playground] load-as-extension completed path=${normalizedPath} status=${result.status} ok=${result.ok}`
+      );
       return result;
     });
 
