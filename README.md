@@ -279,7 +279,8 @@ Runtime import resolution order is:
 
 1. Known modules (`KNOWN_MODULE_NAMES` / static map)
 2. Module Federation (shared scopes and federated extension modules)
-3. CDN (RequireJS), if allowed by policy
+3. Local/relative file imports
+4. CDN (RequireJS), if allowed by policy
 
 `allowCDN` controls whether unknown packages can be executed from a CDN. The default `awaiting-decision` mode keeps things explicit, while `always-insecure` and `never` let you enforce a fixed policy.
 

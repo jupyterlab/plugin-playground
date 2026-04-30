@@ -201,9 +201,9 @@ export class ImportResolver {
    */
   async resolve(module: string): Promise<Token<any> | IModule | IModuleMember> {
     try {
-      const knownModule = await this._resolveKnownModule(module);
-      if (knownModule !== null) {
-        return this._createTokenAwareModule(module, knownModule);
+      const runtimeModule = await this._resolveRuntimeModule(module);
+      if (runtimeModule !== null) {
+        return this._createTokenAwareModule(module, runtimeModule);
       }
 
       const federatedModule = await this._resolveFederatedExtensionModule(
@@ -349,7 +349,7 @@ export class ImportResolver {
     }
   }
 
-  private async _resolveKnownModule(module: string): Promise<IModule | null> {
+  private async _resolveRuntimeModule(module: string): Promise<IModule | null> {
     const knownModule = await this._options.loadKnownModule(module);
     if (knownModule !== null) {
       return knownModule;
