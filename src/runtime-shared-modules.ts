@@ -35,6 +35,8 @@ export async function loadSharedScopeModule(
     return null;
   }
 
+  await initializeDefaultShareScope();
+
   const requiredVersionRange = normalizeRequiredVersionRange(
     options.requiredVersion
   );
@@ -71,6 +73,23 @@ export async function loadSharedScopeModule(
       error
     );
     return null;
+  }
+}
+
+/**
+ * Initialize the default share scope before reading providers from runtime maps.
+ */
+async function initializeDefaultShareScope(): Promise<void> {
+  if (
+    typeof __webpack_require__ === 'undefined' ||
+    typeof __webpack_require__.I !== 'function'
+  ) {
+    return;
+  }
+  try {
+    await __webpack_require__.I('default');
+  } catch {
+    // ignore, best-effort only
   }
 }
 
@@ -168,13 +187,6 @@ function collectSharedScopes(): ReadonlyArray<ISharedScope> {
   const scopes: ISharedScope[] = [];
 
   if (typeof __webpack_require__ !== 'undefined') {
-    if (typeof __webpack_require__.I === 'function') {
-      try {
-        void __webpack_require__.I('default');
-      } catch {
-        // ignore, best-effort only
-      }
-    }
     const runtimeScope = __webpack_require__.S?.default;
     if (
       runtimeScope &&

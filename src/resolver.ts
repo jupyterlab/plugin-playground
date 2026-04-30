@@ -361,7 +361,13 @@ export class ImportResolver {
     }
 
     const requiredVersion = await this._requiredVersionForPackage(packageName);
-    return loadSharedScopeModule(module, { requiredVersion });
+    const directSharedModule = await loadSharedScopeModule(module, {
+      requiredVersion
+    });
+    if (directSharedModule !== null || packageName === module) {
+      return directSharedModule;
+    }
+    return loadSharedScopeModule(packageName, { requiredVersion });
   }
 
   private _packageNameForImportSpecifier(module: string): string | null {
