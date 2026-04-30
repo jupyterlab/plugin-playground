@@ -534,6 +534,7 @@ export class ImportResolver {
       const normalizedResolvedPath = resolvedPath.toLowerCase();
       if (normalizedResolvedPath.endsWith('.svg')) {
         return {
+          __esModule: true as unknown as IModuleMember,
           default: content as unknown as IModuleMember
         };
       }
