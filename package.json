@@ -72,6 +72,7 @@
         "jupyterlab-js-logs": "^1.2.0",
         "raw-loader": "^4.0.2",
         "requirejs": "^2.3.6",
+        "semver": "^7.7.4",
         "typescript": "~5.5.4"
     },
     "devDependencies": {
