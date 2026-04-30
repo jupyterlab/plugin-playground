@@ -1,3 +1,4 @@
+// semver deep imports used at runtime do not expose module typings directly.
 declare module 'semver/ranges/max-satisfying' {
   interface ISemverOptions {
     includePrerelease?: boolean;

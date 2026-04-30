@@ -29,6 +29,10 @@ const FEDERATED_RUNTIME_PACKAGE = '@jupyterlab/plugin-playground';
 const FEDERATED_RUNTIME_CONSUMER_PLUGIN_ID = 'runtime-consumer-test:plugin';
 const FEDERATED_RUNTIME_CONSUMER_COMMAND = 'runtime-consumer-test:check';
 const FEDERATED_RUNTIME_CONSUMER_FILE = 'runtime-consumer-test.ts';
+const SHARED_RUNTIME_PACKAGE = '@jupyter/chat';
+const SHARED_RUNTIME_CONSUMER_PLUGIN_ID = 'shared-runtime-consumer-test:plugin';
+const SHARED_RUNTIME_CONSUMER_COMMAND = 'shared-runtime-consumer-test:check';
+const SHARED_RUNTIME_CONSUMER_FILE = 'shared-runtime-consumer-test.ts';
 const CSS_IMPORT_TEST_PLUGIN_ID = 'playground-css-import-test:plugin';
 const CSS_IMPORT_TEST_MARKER_ID = 'playground-css-import-test-marker';
 const CSS_IMPORT_TEST_COLOR = 'rgb(17, 34, 51)';
@@ -1032,6 +1036,65 @@ export default plugin;
     page.evaluate((id: string) => {
       return window.jupyterapp.commands.execute(id);
     }, FEDERATED_RUNTIME_CONSUMER_COMMAND)
+  ).resolves.toBe(true);
+});
+
+test('loads plugin importing shared module outside known module map', async ({
+  page,
+  tmpPath
+}) => {
+  const consumerPath = `${tmpPath}/${SHARED_RUNTIME_CONSUMER_FILE}`;
+  expect(KNOWN_MODULE_NAMES).not.toContain(SHARED_RUNTIME_PACKAGE);
+  const consumerSource = `import { JupyterFrontEnd, JupyterFrontEndPlugin } from '@jupyterlab/application';
+import { IChatCommandRegistry } from '${SHARED_RUNTIME_PACKAGE}';
+
+const plugin: JupyterFrontEndPlugin<void> = {
+  id: '${SHARED_RUNTIME_CONSUMER_PLUGIN_ID}',
+  autoStart: true,
+  activate: (app: JupyterFrontEnd) => {
+    app.commands.addCommand('${SHARED_RUNTIME_CONSUMER_COMMAND}', {
+      label: 'Shared Runtime Consumer Check',
+      execute: () => IChatCommandRegistry.name === '@jupyter/chat:IChatCommandRegistry'
+    });
+  }
+};
+
+export default plugin;
+`;
+
+  await page.contents.uploadContent(consumerSource, 'text', consumerPath);
+  await page.goto();
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+
+  await page.filebrowser.open(consumerPath);
+  expect(await page.activity.activateTab(SHARED_RUNTIME_CONSUMER_FILE)).toBe(
+    true
+  );
+
+  const consumerLoadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(consumerLoadResult.ok).toBe(true);
+  expect(consumerLoadResult.status).toBe('loaded');
+  expect(consumerLoadResult.pluginIds).toContain(
+    SHARED_RUNTIME_CONSUMER_PLUGIN_ID
+  );
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, SHARED_RUNTIME_CONSUMER_COMMAND)
+  );
+
+  await expect(
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.execute(id);
+    }, SHARED_RUNTIME_CONSUMER_COMMAND)
   ).resolves.toBe(true);
 });
 

@@ -23,6 +23,10 @@ interface IWebpackRuntimeRequire {
 declare const __webpack_require__: IWebpackRuntimeRequire | undefined;
 declare const __webpack_share_scopes__: ISharedScopes | undefined;
 
+/**
+ * Resolve a module from webpack/rspack shared scopes using an optional
+ * required semver range.
+ */
 export async function loadSharedScopeModule(
   name: string,
   options: ILoadSharedScopeModuleOptions = {}
@@ -70,6 +74,10 @@ export async function loadSharedScopeModule(
   }
 }
 
+/**
+ * Pick the most suitable shared-module provider for the requested semver range.
+ * Stable versions are preferred; prereleases are used only when no stable exists.
+ */
 function pickCompatibleSharedProvider(
   providers: ISharedModuleProviders,
   requiredVersionRange: string | null
@@ -96,6 +104,10 @@ function pickCompatibleSharedProvider(
   return providers[selectedVersion] ?? null;
 }
 
+/**
+ * Normalize dependency specifiers into a semver range that can be matched
+ * against providers in the webpack share scope.
+ */
 function normalizeRequiredVersionRange(
   raw: string | null | undefined
 ): string | null {
@@ -129,6 +141,9 @@ function normalizeRequiredVersionRange(
   return validRange(trimmed) ? trimmed : null;
 }
 
+/**
+ * Collect all valid providers for a shared package across discovered scopes.
+ */
 function collectSharedProviders(name: string): ISharedModuleProviders | null {
   const merged: ISharedModuleProviders = {};
   for (const scope of collectSharedScopes()) {
@@ -146,6 +161,9 @@ function collectSharedProviders(name: string): ISharedModuleProviders | null {
   return Object.keys(merged).length > 0 ? merged : null;
 }
 
+/**
+ * Read webpack/rspack share scopes from runtime globals in best-effort order.
+ */
 function collectSharedScopes(): ReadonlyArray<ISharedScope> {
   const scopes: ISharedScope[] = [];
 
