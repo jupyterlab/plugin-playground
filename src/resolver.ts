@@ -7,7 +7,7 @@ import { Token } from '@lumino/coreutils';
 import { PageConfig, PathExt } from '@jupyterlab/coreutils';
 
 import { IRequireJS } from './requirejs';
-import type { ILoadKnownModuleOptions } from './modules';
+import { loadSharedScopeModule } from './runtime-shared-modules';
 
 import { IModule, IModuleMember } from './types';
 
@@ -32,10 +32,7 @@ function errorMessage(error: unknown): string {
 
 export namespace ImportResolver {
   export interface IOptions {
-    loadKnownModule: (
-      name: string,
-      options?: ILoadKnownModuleOptions
-    ) => Promise<IModule | null>;
+    loadKnownModule: (name: string) => Promise<IModule | null>;
     tokenMap: Map<string, Token<any>>;
     requirejs: IRequireJS;
     settings: ISettingRegistry.ISettings;
@@ -353,13 +350,18 @@ export class ImportResolver {
   }
 
   private async _resolveKnownModule(module: string): Promise<IModule | null> {
+    const knownModule = await this._options.loadKnownModule(module);
+    if (knownModule !== null) {
+      return knownModule;
+    }
+
     const packageName = this._packageNameForImportSpecifier(module);
     if (!packageName) {
-      return this._options.loadKnownModule(module);
+      return null;
     }
 
     const requiredVersion = await this._requiredVersionForPackage(packageName);
-    return this._options.loadKnownModule(module, { requiredVersion });
+    return loadSharedScopeModule(module, { requiredVersion });
   }
 
   private _packageNameForImportSpecifier(module: string): string | null {
