@@ -1,4 +1,4 @@
-import maxSatisfying from 'semver/functions/max-satisfying';
+import maxSatisfying from 'semver/ranges/max-satisfying';
 import validRange from 'semver/ranges/valid';
 
 import type { IModule } from './types';

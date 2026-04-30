@@ -1,4 +1,4 @@
-declare module 'semver/functions/max-satisfying' {
+declare module 'semver/ranges/max-satisfying' {
   interface ISemverOptions {
     includePrerelease?: boolean;
     loose?: boolean;
