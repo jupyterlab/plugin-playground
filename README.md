@@ -275,6 +275,13 @@ return a JSON object with:
 
 Plugin Playground settings are available in `Settings > Settings Editor > Plugin Playground`. These settings are intended to support both quick experiments and repeatable startup workflows.
 
+Runtime import resolution order is:
+
+1. Known modules (`KNOWN_MODULE_NAMES` / static map)
+2. Module Federation (shared scopes and federated extension modules)
+3. Local/relative file imports
+4. CDN (RequireJS), if allowed by policy
+
 `allowCDN` controls whether unknown packages can be executed from a CDN. The default `awaiting-decision` mode keeps things explicit, while `always-insecure` and `never` let you enforce a fixed policy.
 
 `requirejsCDN` defines the base URL used by RequireJS to resolve unknown package imports (for example `https://cdn.jsdelivr.net/npm/`). If you rely on external AMD packages in prototypes, this setting determines where those packages are fetched from.

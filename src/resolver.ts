@@ -7,6 +7,7 @@ import { Token } from '@lumino/coreutils';
 import { PageConfig, PathExt } from '@jupyterlab/coreutils';
 
 import { IRequireJS } from './requirejs';
+import { loadSharedScopeModule } from './runtime-shared-modules';
 
 import { IModule, IModuleMember } from './types';
 
@@ -91,6 +92,11 @@ interface IFederatedExtensionContainer {
   get: (key: string) => Promise<(() => IModule) | IModule>;
 }
 
+interface INpmPackageJson {
+  dependencies?: Record<string, unknown>;
+  peerDependencies?: Record<string, unknown>;
+}
+
 export class ImportResolver {
   private static _localCssStyles = new Map<string, HTMLStyleElement>();
   private static _localCssSnapshotStacks = new Map<
@@ -103,6 +109,10 @@ export class ImportResolver {
     ImportResolver._nextLocalCssSnapshotId++;
   private _localCssSnapshots = new Map<string, string | null>();
   private _loadedLocalStylePaths = new Set<string>();
+  private _nearestPackageDependencyRangesPromise: Promise<Map<
+    string,
+    string
+  > | null> | null = null;
 
   constructor(private _options: ImportResolver.IOptions) {
     // no-op
@@ -191,9 +201,9 @@ export class ImportResolver {
    */
   async resolve(module: string): Promise<Token<any> | IModule | IModuleMember> {
     try {
-      const knownModule = await this._resolveKnownModule(module);
-      if (knownModule !== null) {
-        return this._createTokenAwareModule(module, knownModule);
+      const runtimeModule = await this._resolveRuntimeModule(module);
+      if (runtimeModule !== null) {
+        return this._createTokenAwareModule(module, runtimeModule);
       }
 
       const federatedModule = await this._resolveFederatedExtensionModule(
@@ -339,8 +349,134 @@ export class ImportResolver {
     }
   }
 
-  private async _resolveKnownModule(module: string): Promise<IModule | null> {
-    return this._options.loadKnownModule(module);
+  private async _resolveRuntimeModule(module: string): Promise<IModule | null> {
+    const knownModule = await this._options.loadKnownModule(module);
+    if (knownModule !== null) {
+      return knownModule;
+    }
+
+    const packageName = this._packageNameForImportSpecifier(module);
+    if (!packageName) {
+      return null;
+    }
+
+    const requiredVersion = await this._requiredVersionForPackage(packageName);
+    const directSharedModule = await loadSharedScopeModule(module, {
+      requiredVersion
+    });
+    if (directSharedModule !== null || packageName === module) {
+      return directSharedModule;
+    }
+    return loadSharedScopeModule(packageName, { requiredVersion });
+  }
+
+  private _packageNameForImportSpecifier(module: string): string | null {
+    if (!module || module.startsWith('.') || module.startsWith('/')) {
+      return null;
+    }
+    if (module.includes('://')) {
+      return null;
+    }
+    const parts = module.split('/').filter(Boolean);
+    if (parts.length === 0) {
+      return null;
+    }
+    if (parts[0].startsWith('@')) {
+      if (parts.length < 2) {
+        return null;
+      }
+      return `${parts[0]}/${parts[1]}`;
+    }
+    return parts[0];
+  }
+
+  private async _requiredVersionForPackage(
+    packageName: string
+  ): Promise<string | null> {
+    if (!this._nearestPackageDependencyRangesPromise) {
+      this._nearestPackageDependencyRangesPromise =
+        this._loadNearestPackageDependencyRanges();
+    }
+    const ranges = await this._nearestPackageDependencyRangesPromise;
+    if (!ranges) {
+      return null;
+    }
+    const value = ranges.get(packageName);
+    return typeof value === 'string' && value.trim().length > 0 ? value : null;
+  }
+
+  private async _loadNearestPackageDependencyRanges(): Promise<Map<
+    string,
+    string
+  > | null> {
+    const serviceManager = this._options.serviceManager;
+    const basePath = this._options.basePath;
+    if (!serviceManager || !basePath) {
+      return null;
+    }
+
+    const normalizedBasePath = ContentUtils.normalizeContentsPath(basePath);
+    if (!normalizedBasePath) {
+      return null;
+    }
+    let currentDirectory = ContentUtils.normalizeContentsPath(
+      PathExt.dirname(normalizedBasePath)
+    ).replace(/^\.$/, '');
+
+    while (true) {
+      const packageJsonPath = currentDirectory
+        ? PathExt.join(currentDirectory, 'package.json')
+        : 'package.json';
+      const packageJsonFile = await ContentUtils.getFileModel(
+        serviceManager,
+        packageJsonPath
+      );
+      if (packageJsonFile) {
+        const packageJson = ContentUtils.fileModelToJsonObject(packageJsonFile);
+        if (!packageJson) {
+          return null;
+        }
+        return this._collectDependencyRanges(packageJson as INpmPackageJson);
+      }
+
+      if (!currentDirectory) {
+        return null;
+      }
+      const parentDirectory = ContentUtils.normalizeContentsPath(
+        PathExt.dirname(currentDirectory)
+      ).replace(/^\.$/, '');
+      if (parentDirectory === currentDirectory) {
+        return null;
+      }
+      currentDirectory = parentDirectory;
+    }
+  }
+
+  private _collectDependencyRanges(
+    packageJson: INpmPackageJson
+  ): Map<string, string> {
+    const ranges = new Map<string, string>();
+    for (const field of [
+      packageJson.dependencies,
+      packageJson.peerDependencies
+    ]) {
+      if (!field || typeof field !== 'object' || Array.isArray(field)) {
+        continue;
+      }
+      for (const [packageName, range] of Object.entries(field)) {
+        if (typeof range !== 'string') {
+          continue;
+        }
+        const trimmed = range.trim();
+        if (!trimmed) {
+          continue;
+        }
+        if (!ranges.has(packageName)) {
+          ranges.set(packageName, trimmed);
+        }
+      }
+    }
+    return ranges;
   }
 
   private async _resolveAMDModule(
