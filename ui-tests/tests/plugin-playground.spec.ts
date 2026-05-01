@@ -1090,6 +1090,12 @@ test.describe('extension-examples smoke loading', () => {
             example.path
           }). Result: ${JSON.stringify(loadResult)}`
         ).toBe(true);
+        const loadOutcome = hasExpectedAutostartConflict
+          ? 'autostart-conflict-accepted'
+          : 'loaded';
+        console.info(
+          `[ui-tests] loaded example path=${example.path} outcome=${loadOutcome}`
+        );
         await dismissDialogIfPresent();
       }
     } finally {
