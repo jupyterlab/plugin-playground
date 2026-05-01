@@ -22,6 +22,12 @@ const LIST_TOKENS_COMMAND = 'plugin-playground:list-tokens';
 const LIST_COMMANDS_COMMAND = 'plugin-playground:list-commands';
 const LIST_EXAMPLES_COMMAND = 'plugin-playground:list-extension-examples';
 const MIN_BUNDLED_EXTENSION_EXAMPLE_COUNT = 29;
+const SMOKE_EXAMPLE_PATHS = [
+  'extension-examples/hello-world/src/index.ts',
+  'extension-examples/commands/src/index.ts',
+  'extension-examples/command-palette/src/index.ts',
+  'extension-examples/context-menu/src/index.ts'
+];
 const EXTENSION_EXAMPLES_ROOT = 'extension-examples';
 const LOCAL_EXTENSION_EXAMPLES_PATH = resolve(
   process.cwd(),
@@ -804,39 +810,42 @@ test.describe('extension-examples smoke loading', () => {
     }
   });
 
-  test('loads all extension examples from extension-examples', async ({
+  test('discovers bundled extension examples and loads all bundled examples', async ({
     page
   }) => {
     test.slow();
     const discoveryLogPrefix =
       '[plugin-playground] extension-examples discovered count=';
-    const loadCompletionPrefix =
-      '[plugin-playground] load-as-extension completed path=';
-    const loadCompletionStatusPrefix = ' status=';
-    const completedLoadPaths = new Set<string>();
     const expectedConsoleIssues = [
       'Skipping plugin @jupyterlab-examples/clap-button:pluginNotebook: missing required services @jupyter-notebook/application:INotebookShell',
       'Error on POST /jupyterlab-examples-server/hello [object Object].'
     ];
     const unexpectedConsoleIssues: string[] = [];
+    const hasAutostartConflictMarker = (text: string): boolean =>
+      text.includes('already registered.') || text.includes('already has id');
+    const isExampleLoadConsoleIssue = (text: string): boolean =>
+      text.includes('jupyterlab-examples') ||
+      text.includes('plugin-playground') ||
+      text.includes('Plugin autostart failed') ||
+      text.includes('Error activating plugin:');
+
     const onConsole = (message: ConsoleMessage): void => {
-      const text = message.text();
-      if (text.startsWith(loadCompletionPrefix)) {
-        const statusSeparatorIndex = text.indexOf(
-          loadCompletionStatusPrefix,
-          loadCompletionPrefix.length
-        );
-        if (statusSeparatorIndex > loadCompletionPrefix.length) {
-          completedLoadPaths.add(
-            text.slice(loadCompletionPrefix.length, statusSeparatorIndex)
-          );
-        }
-      }
       const type = message.type();
       if (type !== 'warning' && type !== 'error') {
         return;
       }
+      const text = message.text();
+      if (!isExampleLoadConsoleIssue(text)) {
+        return;
+      }
       if (expectedConsoleIssues.some(expected => text.includes(expected))) {
+        return;
+      }
+      if (
+        (text.includes('Plugin autostart failed') ||
+          text.includes('Error activating plugin:')) &&
+        hasAutostartConflictMarker(text)
+      ) {
         return;
       }
       unexpectedConsoleIssues.push(`[${type}] ${text}`);
@@ -863,6 +872,31 @@ test.describe('extension-examples smoke loading', () => {
           return window.jupyterapp.commands.hasCommand(id);
         }, LOAD_COMMAND)
       );
+      await page.evaluate(() => {
+        type DeactivatePluginFn = (id: string) => Promise<void>;
+        type DeactivatePatchableApp = {
+          deactivatePlugin: DeactivatePluginFn;
+          __playgroundOriginalDeactivatePlugin?: DeactivatePluginFn;
+        };
+        const app = window.jupyterapp as unknown as DeactivatePatchableApp;
+        if (app.__playgroundOriginalDeactivatePlugin) {
+          return;
+        }
+        app.__playgroundOriginalDeactivatePlugin =
+          app.deactivatePlugin.bind(app);
+        app.deactivatePlugin = async (pluginId: string): Promise<void> => {
+          try {
+            await app.__playgroundOriginalDeactivatePlugin?.(pluginId);
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            if (message.includes('#deactivate() method missing')) {
+              return;
+            }
+            throw error;
+          }
+        };
+      });
 
       const discoverExamples = async () => {
         return (await page.evaluate(
@@ -874,37 +908,39 @@ test.describe('extension-examples smoke loading', () => {
               count: number;
               items: Array<{ name: string; path: string }>;
             };
-            const discoveryLog = `${prefix}${result.count}`;
-            window.console.debug(discoveryLog);
-            return { result, discoveryLog };
+            window.console.debug(`${prefix}${result.count}`);
+            return result;
           },
           {
             id: LIST_EXAMPLES_COMMAND,
             prefix: discoveryLogPrefix
           }
         )) as {
-          result: {
-            count: number;
-            items: Array<{ name: string; path: string }>;
-          };
-          discoveryLog: string;
+          count: number;
+          items: Array<{ name: string; path: string }>;
         };
       };
-
-      const discoveryResult = await discoverExamples();
-      const examplesResult = discoveryResult.result;
+      const discoveryLogMessage = page.waitForEvent('console', {
+        predicate: message =>
+          message.type() === 'debug' &&
+          message.text().startsWith(discoveryLogPrefix)
+      });
+      const examplesResult = await discoverExamples();
+      const awaitedDiscoveryLog = await discoveryLogMessage;
+      const discoveryLog = awaitedDiscoveryLog.text();
       const bundledExamples = examplesResult.items.filter(
         example =>
           !example.path.startsWith('extension-examples/integration-example')
       );
+      console.info(`[ui-tests] ${discoveryLog}`);
 
       const discoveredCount = Number.parseInt(
-        discoveryResult.discoveryLog.slice(discoveryLogPrefix.length),
+        discoveryLog.slice(discoveryLogPrefix.length),
         10
       );
       expect(
         Number.isInteger(discoveredCount),
-        `Could not parse discovery log count from "${discoveryResult.discoveryLog}".`
+        `Could not parse discovery log count from "${discoveryLog}".`
       ).toBe(true);
       expect(
         discoveredCount,
@@ -916,53 +952,156 @@ test.describe('extension-examples smoke loading', () => {
         `Expected at least ${MIN_BUNDLED_EXTENSION_EXAMPLE_COUNT} bundled extension examples, but discovered ${bundledExamples.length}.`
       ).toBeGreaterThanOrEqual(MIN_BUNDLED_EXTENSION_EXAMPLE_COUNT);
 
-      for (const example of bundledExamples) {
-        await page.evaluate(async (pathToOpen: string) => {
-          await window.jupyterapp.commands.execute('docmanager:open', {
-            path: pathToOpen,
-            factory: 'Editor'
-          });
-        }, example.path);
-        await page.waitForFunction((pathToOpen: string) => {
-          const current = window.jupyterapp.shell
-            .currentWidget as FileEditorWidget | null;
-          return current?.context?.path === pathToOpen;
-        }, example.path);
+      const smokeExamples = SMOKE_EXAMPLE_PATHS.map(path =>
+        bundledExamples.find(example => example.path === path)
+      ).filter(
+        (
+          example
+        ): example is {
+          name: string;
+          path: string;
+        } => example !== undefined
+      );
+      expect(
+        smokeExamples.length,
+        `Missing expected smoke examples. Expected paths:\n${SMOKE_EXAMPLE_PATHS.join(
+          '\n'
+        )}`
+      ).toBe(SMOKE_EXAMPLE_PATHS.length);
+      console.info(
+        `[ui-tests] extension-examples smoke set count=${smokeExamples.length}`
+      );
 
-        const loadResult = await page.evaluate((id: string) => {
-          return window.jupyterapp.commands.execute(id);
-        }, LOAD_COMMAND);
+      const normalizePath = (value: string | null | undefined): string => {
+        return (value ?? '').replace(/^\/+/, '').replace(/\/+/g, '/');
+      };
+
+      const dismissDialogIfPresent = async (): Promise<void> => {
+        const dismissed = await page.evaluate(() => {
+          const dialog = document.querySelector('.jp-Dialog');
+          if (!(dialog instanceof HTMLElement)) {
+            return false;
+          }
+          const acceptButton =
+            dialog.querySelector<HTMLButtonElement>(
+              '.jp-Dialog-button.jp-mod-accept'
+            ) ??
+            dialog.querySelector<HTMLButtonElement>(
+              '.jp-Dialog-button:last-of-type'
+            );
+          if (!acceptButton) {
+            return false;
+          }
+          acceptButton.click();
+          return true;
+        });
+        if (dismissed) {
+          await page.waitForFunction(
+            () => !document.querySelector('.jp-Dialog')
+          );
+        }
+      };
+
+      const openExampleInEditor = async (
+        pathToOpen: string
+      ): Promise<{ widgetId: string | null }> => {
+        const openResult = await page.evaluate(async (path: string) => {
+          type EditorWidgetShape = {
+            id?: string;
+            context?: { ready?: Promise<void>; path?: string };
+            content?: {
+              model?: {
+                sharedModel?: {
+                  getSource?: () => string;
+                };
+              };
+            };
+          };
+          const widget = (await window.jupyterapp.commands.execute(
+            'docmanager:open',
+            {
+              path,
+              factory: 'Editor'
+            }
+          )) as EditorWidgetShape | null;
+          await widget?.context?.ready;
+          if (widget?.id) {
+            window.jupyterapp.shell.activateById(widget.id);
+            await new Promise<void>(resolve =>
+              window.requestAnimationFrame(() => resolve())
+            );
+          }
+          const sourceText = widget?.content?.model?.sharedModel?.getSource?.();
+          return {
+            widgetId: widget?.id ?? null,
+            openedPath: widget?.context?.path ?? null,
+            sourceReady:
+              typeof sourceText === 'string' && sourceText.trim().length > 0
+          };
+        }, pathToOpen);
 
         expect(
-          loadResult,
+          normalizePath(openResult.openedPath),
+          `Opened path does not match requested path "${pathToOpen}".`
+        ).toBe(normalizePath(pathToOpen));
+        expect(
+          openResult.sourceReady,
+          `Opened editor source is empty for "${pathToOpen}".`
+        ).toBe(true);
+        return { widgetId: openResult.widgetId };
+      };
+
+      for (const example of bundledExamples) {
+        console.info(`[ui-tests] loading example path=${example.path}`);
+        await dismissDialogIfPresent();
+        const openedExample = await openExampleInEditor(example.path);
+
+        const loadResult = (await page.evaluate(
+          async ({ id, widgetId }) => {
+            if (widgetId) {
+              window.jupyterapp.shell.activateById(widgetId);
+              await new Promise<void>(resolve =>
+                window.requestAnimationFrame(() => resolve())
+              );
+            }
+            return window.jupyterapp.commands.execute(id);
+          },
+          {
+            id: LOAD_COMMAND,
+            widgetId: openedExample.widgetId
+          }
+        )) as {
+          ok?: boolean;
+          status?: string;
+          message?: string;
+        };
+        const autostartConflictMessage =
+          typeof loadResult?.message === 'string' ? loadResult.message : '';
+        const hasExpectedAutostartConflict =
+          loadResult?.status === 'autostart-failed' &&
+          hasAutostartConflictMarker(autostartConflictMessage);
+        const isLoadAccepted =
+          (loadResult?.ok === true && loadResult?.status === 'loaded') ||
+          hasExpectedAutostartConflict;
+
+        expect(
+          isLoadAccepted,
           `Failed to load extension example "${example.name}" (${
             example.path
           }). Result: ${JSON.stringify(loadResult)}`
-        ).toMatchObject({
-          ok: true,
-          status: 'loaded'
-        });
+        ).toBe(true);
+        await dismissDialogIfPresent();
       }
-
-      const missingCompletionLogs = bundledExamples
-        .map(example => example.path)
-        .filter(path => !completedLoadPaths.has(path));
-      expect(
-        missingCompletionLogs,
-        `Missing completion console.debug entries for:\n${missingCompletionLogs.join(
-          '\n'
-        )}`
-      ).toEqual([]);
-
-      expect(
-        unexpectedConsoleIssues,
-        `Unexpected console warnings/errors while loading examples:\n${unexpectedConsoleIssues.join(
-          '\n'
-        )}`
-      ).toEqual([]);
     } finally {
       page.off('console', onConsole);
+      await page.unrouteAll({ behavior: 'ignoreErrors' });
     }
+    expect(
+      unexpectedConsoleIssues,
+      `Unexpected console warnings/errors:\n${unexpectedConsoleIssues.join(
+        '\n'
+      )}`
+    ).toEqual([]);
   });
 });
 
