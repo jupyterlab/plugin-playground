@@ -35,11 +35,6 @@ jobs:
         jlpm
         jlpm run lint:check
 
-    - name: Validate extension examples compile
-      run: |
-        set -eux
-        jlpm run check:extension-examples
-
     - name: Build the extension
       run: |
         set -eux
@@ -108,6 +103,8 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+      with:
+        submodules: true
 
     - name: Base Setup
       uses: jupyterlab/maintainer-tools/.github/actions/base-setup@v1
@@ -159,7 +156,7 @@ jobs:
       run: |
         set -eux
         python -m pip install --force-reinstall /tmp/playground_wheel_installed_smoke-0.1.0-py3-none-any.whl
-        PLAYGROUND_TEST_INSTALLED_WHEEL=1 jlpm playwright test tests/wheel-installed.spec.ts --workers=1
+        PLAYGROUND_TEST_INSTALLED_WHEEL=1 jlpm playwright test tests/wheel-installed.spec.ts --workers=1 --reporter=line --output=test-results-wheel-installed
 
     - name: Execute docs screenshot tests
       working-directory: ui-tests
@@ -174,6 +171,7 @@ jobs:
         name: playwright-tests
         path: |
           ui-tests/test-results
+          ui-tests/test-results-wheel-installed
           ui-tests/playwright-report
           ui-tests/test-results-docs-screenshots
           ui-tests/playwright-report-docs-screenshots
@@ -189,6 +187,8 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+      with:
+        submodules: true
 
     - name: Base Setup
       uses: jupyterlab/maintainer-tools/.github/actions/base-setup@v1
