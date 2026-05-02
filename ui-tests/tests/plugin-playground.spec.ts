@@ -872,32 +872,6 @@ test.describe('extension-examples smoke loading', () => {
           return window.jupyterapp.commands.hasCommand(id);
         }, LOAD_COMMAND)
       );
-      await page.evaluate(() => {
-        type DeactivatePluginFn = (id: string) => Promise<void>;
-        type DeactivatePatchableApp = {
-          deactivatePlugin: DeactivatePluginFn;
-          __playgroundOriginalDeactivatePlugin?: DeactivatePluginFn;
-        };
-        const app = window.jupyterapp as unknown as DeactivatePatchableApp;
-        if (app.__playgroundOriginalDeactivatePlugin) {
-          return;
-        }
-        app.__playgroundOriginalDeactivatePlugin =
-          app.deactivatePlugin.bind(app);
-        app.deactivatePlugin = async (pluginId: string): Promise<void> => {
-          try {
-            await app.__playgroundOriginalDeactivatePlugin?.(pluginId);
-          } catch (error) {
-            const message =
-              error instanceof Error ? error.message : String(error);
-            if (message.includes('#deactivate() method missing')) {
-              return;
-            }
-            throw error;
-          }
-        };
-      });
-
       const discoverExamples = async () => {
         return (await page.evaluate(
           async ({ id, prefix }) => {
