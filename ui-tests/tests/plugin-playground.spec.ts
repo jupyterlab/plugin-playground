@@ -948,12 +948,12 @@ test.describe('extension-examples smoke loading', () => {
       };
 
       const dismissDialogIfPresent = async (): Promise<void> => {
-        const dismissed = await page.evaluate(() => {
+        const dismissal = await page.evaluate(() => {
           const dialog = document.querySelector('.jp-Dialog');
           if (!(dialog instanceof HTMLElement)) {
-            return false;
+            return { dismissed: false, text: '' };
           }
-          console.info(`Dismissing dialog ${dialog.innerText}`);
+          const dialogText = dialog.innerText;
           const acceptButton =
             dialog.querySelector<HTMLButtonElement>(
               '.jp-Dialog-button.jp-mod-accept'
@@ -962,12 +962,13 @@ test.describe('extension-examples smoke loading', () => {
               '.jp-Dialog-button:last-of-type'
             );
           if (!acceptButton) {
-            return false;
+            return { dismissed: false, text: dialogText };
           }
           acceptButton.click();
-          return true;
+          return { dismissed: true, text: dialogText };
         });
-        if (dismissed) {
+        if (dismissal.dismissed) {
+          console.info(`[ui-tests] Dismissing dialog ${dismissal.text}`);
           await page.waitForFunction(
             () => !document.querySelector('.jp-Dialog')
           );
