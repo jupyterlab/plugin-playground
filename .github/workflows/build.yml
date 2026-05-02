@@ -164,14 +164,6 @@ jobs:
         set -eux
         jlpm test:docs-screenshots
 
-    - name: Generate Playwright HTML report for plugin-playground spec
-      if: always()
-      continue-on-error: true
-      working-directory: ui-tests
-      run: |
-        set -eux
-        PLAYWRIGHT_HTML_OUTPUT_DIR=playwright-report-plugin-playground-spec jlpm playwright test tests/plugin-playground.spec.ts --workers=1 --reporter=html --output=test-results-plugin-playground-spec
-
     - name: Upload Playwright Test report
       if: always()
       uses: actions/upload-artifact@v4
@@ -183,14 +175,6 @@ jobs:
           ui-tests/playwright-report
           ui-tests/test-results-docs-screenshots
           ui-tests/playwright-report-docs-screenshots
-
-    - name: Upload Playwright HTML report (plugin-playground spec)
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: playwright-html-report-plugin-playground-spec
-        path: ui-tests/playwright-report-plugin-playground-spec
-        if-no-files-found: warn
 
   integration_tests_notebook_v7:
     name: Integration tests (Notebook v7)

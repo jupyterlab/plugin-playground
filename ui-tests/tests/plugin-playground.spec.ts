@@ -942,9 +942,6 @@ test.describe('extension-examples smoke loading', () => {
           '\n'
         )}`
       ).toBe(SMOKE_EXAMPLE_PATHS.length);
-      console.info(
-        `[ui-tests] extension-examples smoke set count=${smokeExamples.length}`
-      );
 
       const normalizePath = (value: string | null | undefined): string => {
         return (value ?? '').replace(/^\/+/, '').replace(/\/+/g, '/');
@@ -956,6 +953,7 @@ test.describe('extension-examples smoke loading', () => {
           if (!(dialog instanceof HTMLElement)) {
             return false;
           }
+          console.info(`Dismissing dialog ${dialog.innerText}`);
           const acceptButton =
             dialog.querySelector<HTMLButtonElement>(
               '.jp-Dialog-button.jp-mod-accept'
