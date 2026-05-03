@@ -1,18 +1,15 @@
 
-import json
 import shutil
 from pathlib import Path
 
 HERE = Path(__file__).parent.resolve()
 EXAMPLES = HERE / "extension-examples"
-
-with (HERE / "labextension" / "package.json").open() as fid:
-    data = json.load(fid)
+LABEXTENSION_NAME = "@jupyterlab/plugin-playground"
 
 def _jupyter_labextension_paths():
     return [{
         "src": "labextension",
-        "dest": data["name"]
+        "dest": LABEXTENSION_NAME
     }]
 
 
