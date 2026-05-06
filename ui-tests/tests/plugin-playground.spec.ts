@@ -240,6 +240,67 @@ const CSS_IMPORT_TEST_PACKAGE_JSON_WITH_STYLE = JSON.stringify(
   2
 );
 
+const DYNAMIC_SETTINGS_PERSIST_TEST_PLUGIN_ID =
+  'dynamic-settings-persist-test:plugin';
+const DYNAMIC_SETTINGS_PERSIST_TEST_SET_COMMAND =
+  'dynamic-settings-persist-test:set-enabled';
+const DYNAMIC_SETTINGS_PERSIST_TEST_GET_COMMAND =
+  'dynamic-settings-persist-test:get-enabled';
+const DYNAMIC_SETTINGS_PERSIST_TEST_SOURCE = `
+import { ISettingRegistry } from '@jupyterlab/settingregistry';
+
+const plugin = {
+  id: '${DYNAMIC_SETTINGS_PERSIST_TEST_PLUGIN_ID}',
+  autoStart: true,
+  requires: [ISettingRegistry],
+  activate: async (app, settingRegistry) => {
+    const settings = await settingRegistry.load(
+      '${DYNAMIC_SETTINGS_PERSIST_TEST_PLUGIN_ID}'
+    );
+    app.commands.addCommand('${DYNAMIC_SETTINGS_PERSIST_TEST_SET_COMMAND}', {
+      execute: async args => {
+        const enabled = args.enabled === true;
+        await settings.set('enabled', enabled);
+        return enabled;
+      }
+    });
+    app.commands.addCommand('${DYNAMIC_SETTINGS_PERSIST_TEST_GET_COMMAND}', {
+      execute: () => settings.get('enabled').composite
+    });
+  }
+};
+
+export default plugin;
+`;
+const DYNAMIC_SETTINGS_PERSIST_TEST_SCHEMA = JSON.stringify(
+  {
+    title: 'Dynamic settings persist test schema',
+    type: 'object',
+    properties: {
+      enabled: {
+        type: 'boolean',
+        default: false
+      }
+    }
+  },
+  null,
+  2
+);
+const DYNAMIC_SETTINGS_PERSIST_TEST_SCHEMA_UPDATED = JSON.stringify(
+  {
+    title: 'Dynamic settings persist test schema updated',
+    type: 'object',
+    properties: {
+      enabled: {
+        type: 'number',
+        default: 0
+      }
+    }
+  },
+  null,
+  2
+);
+
 async function openSidebarPanel(
   page: IJupyterLabPageFixture,
   sectionId?: string
@@ -1835,6 +1896,192 @@ test('rolls back CSS changes when plugin schema parsing fails', async ({
       return window.getComputedStyle(marker).backgroundColor;
     }, CSS_IMPORT_TEST_MARKER_ID)
   ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
+});
+
+test('persists dynamic plugin settings in browser storage', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/dynamic-settings-persist-test`;
+  const sourcePath = `${projectRoot}/index.ts`;
+  const schemaPath = `${projectRoot}/plugin.json`;
+
+  await page.contents.uploadContent(
+    DYNAMIC_SETTINGS_PERSIST_TEST_SOURCE,
+    'text',
+    sourcePath
+  );
+  await page.contents.uploadContent(
+    DYNAMIC_SETTINGS_PERSIST_TEST_SCHEMA,
+    'text',
+    schemaPath
+  );
+  await page.goto();
+
+  const waitForCommand = async (commandId: string) => {
+    await page.waitForFunction((id: string) => {
+      return Boolean((window as any).jupyterapp?.commands?.hasCommand(id));
+    }, commandId);
+  };
+
+  const openSourceInEditor = async () => {
+    await waitForCommand('docmanager:open');
+    await page.evaluate(async (path: string) => {
+      await window.jupyterapp.commands.execute('docmanager:open', { path });
+    }, sourcePath);
+    expect(await page.activity.activateTab('index.ts')).toBe(true);
+  };
+
+  await openSourceInEditor();
+
+  await waitForCommand(LOAD_COMMAND);
+
+  const firstLoadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(firstLoadResult.ok).toBe(true);
+  expect(firstLoadResult.status).toBe('loaded');
+  expect(firstLoadResult.pluginIds).toContain(
+    DYNAMIC_SETTINGS_PERSIST_TEST_PLUGIN_ID
+  );
+
+  await waitForCommand(DYNAMIC_SETTINGS_PERSIST_TEST_SET_COMMAND);
+
+  const setResult = await page.evaluate(
+    ({ commandId, enabled }) => {
+      return window.jupyterapp.commands.execute(commandId, { enabled });
+    },
+    { commandId: DYNAMIC_SETTINGS_PERSIST_TEST_SET_COMMAND, enabled: true }
+  );
+  expect(setResult).toBe(true);
+
+  const firstValue = await page.evaluate((commandId: string) => {
+    return window.jupyterapp.commands.execute(commandId);
+  }, DYNAMIC_SETTINGS_PERSIST_TEST_GET_COMMAND);
+  expect(firstValue).toBe(true);
+
+  const storedDynamicSetting = await page.evaluate((pluginId: string) => {
+    const key = `plugin-playground:dynamic-settings:${pluginId}`;
+    return (
+      window.localStorage.getItem(key) ?? window.sessionStorage.getItem(key)
+    );
+  }, DYNAMIC_SETTINGS_PERSIST_TEST_PLUGIN_ID);
+  expect(storedDynamicSetting).not.toBeNull();
+
+  const parsedStoredDynamicSetting = JSON.parse(
+    storedDynamicSetting ?? '{}'
+  ) as
+    | {
+        raw?: string;
+        schema?: { properties?: { enabled?: { default?: boolean } } };
+      }
+    | undefined;
+  expect(parsedStoredDynamicSetting?.raw).toContain('"enabled": true');
+  expect(parsedStoredDynamicSetting?.schema?.properties?.enabled?.default).toBe(
+    false
+  );
+
+  const refreshedPage = await page.context().newPage();
+  try {
+    await refreshedPage.goto(page.url(), { waitUntil: 'domcontentloaded' });
+    const storedDynamicSettingAfterRefresh = await refreshedPage.evaluate(
+      (pluginId: string) => {
+        const key = `plugin-playground:dynamic-settings:${pluginId}`;
+        return (
+          window.localStorage.getItem(key) ?? window.sessionStorage.getItem(key)
+        );
+      },
+      DYNAMIC_SETTINGS_PERSIST_TEST_PLUGIN_ID
+    );
+    expect(storedDynamicSettingAfterRefresh).not.toBeNull();
+
+    const parsedStoredDynamicSettingAfterRefresh = JSON.parse(
+      storedDynamicSettingAfterRefresh ?? '{}'
+    ) as
+      | {
+          raw?: string;
+          schema?: { properties?: { enabled?: { default?: boolean } } };
+        }
+      | undefined;
+    expect(parsedStoredDynamicSettingAfterRefresh?.raw).toContain(
+      '"enabled": true'
+    );
+    expect(
+      parsedStoredDynamicSettingAfterRefresh?.schema?.properties?.enabled
+        ?.default
+    ).toBe(false);
+  } finally {
+    await refreshedPage.close();
+  }
+});
+
+test('reloads when dynamic settings schema changes and stored raw becomes incompatible', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/dynamic-settings-schema-change-test`;
+  const sourcePath = `${projectRoot}/index.ts`;
+  const schemaPath = `${projectRoot}/plugin.json`;
+
+  await page.contents.uploadContent(
+    DYNAMIC_SETTINGS_PERSIST_TEST_SOURCE,
+    'text',
+    sourcePath
+  );
+  await page.contents.uploadContent(
+    DYNAMIC_SETTINGS_PERSIST_TEST_SCHEMA,
+    'text',
+    schemaPath
+  );
+  await page.goto();
+
+  const waitForCommand = async (commandId: string) => {
+    await page.waitForFunction((id: string) => {
+      return Boolean((window as any).jupyterapp?.commands?.hasCommand(id));
+    }, commandId);
+  };
+
+  const openSourceInEditor = async () => {
+    await waitForCommand('docmanager:open');
+    await page.evaluate(async (path: string) => {
+      await window.jupyterapp.commands.execute('docmanager:open', { path });
+    }, sourcePath);
+    expect(await page.activity.activateTab('index.ts')).toBe(true);
+  };
+
+  const executeLoad = async () => {
+    return page.evaluate((id: string) => {
+      return window.jupyterapp.commands.execute(id);
+    }, LOAD_COMMAND);
+  };
+
+  await waitForCommand(LOAD_COMMAND);
+  await openSourceInEditor();
+  const firstLoadResult = await executeLoad();
+  expect(firstLoadResult.ok).toBe(true);
+  expect(firstLoadResult.status).toBe('loaded');
+
+  await waitForCommand(DYNAMIC_SETTINGS_PERSIST_TEST_SET_COMMAND);
+  const setResult = await page.evaluate(
+    ({ commandId, enabled }) => {
+      return window.jupyterapp.commands.execute(commandId, { enabled });
+    },
+    { commandId: DYNAMIC_SETTINGS_PERSIST_TEST_SET_COMMAND, enabled: true }
+  );
+  expect(setResult).toBe(true);
+
+  await page.contents.uploadContent(
+    DYNAMIC_SETTINGS_PERSIST_TEST_SCHEMA_UPDATED,
+    'text',
+    schemaPath
+  );
+
+  const loadAfterSchemaChange = await executeLoad();
+  expect(loadAfterSchemaChange.ok).toBe(true);
+  expect(loadAfterSchemaChange.status).toBe('loaded');
+  expect(loadAfterSchemaChange.pluginIds).toContain(
+    DYNAMIC_SETTINGS_PERSIST_TEST_PLUGIN_ID
+  );
 });
 
 test('exports active extension folder as a zip archive', async ({
