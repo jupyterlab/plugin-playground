@@ -2084,6 +2084,114 @@ test('reloads when dynamic settings schema changes and stored raw becomes incomp
   );
 });
 
+test('restores removed dynamic settings storage when reload fails later', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/dynamic-settings-rollback-test`;
+  const sourcePath = `${projectRoot}/index.ts`;
+  const schemaPath = `${projectRoot}/plugin.json`;
+
+  await page.contents.uploadContent(
+    DYNAMIC_SETTINGS_PERSIST_TEST_SOURCE,
+    'text',
+    sourcePath
+  );
+  await page.contents.uploadContent(
+    DYNAMIC_SETTINGS_PERSIST_TEST_SCHEMA,
+    'text',
+    schemaPath
+  );
+  await page.goto();
+
+  const waitForCommand = async (commandId: string) => {
+    await page.waitForFunction((id: string) => {
+      return Boolean((window as any).jupyterapp?.commands?.hasCommand(id));
+    }, commandId);
+  };
+
+  const openSourceInEditor = async () => {
+    await waitForCommand('docmanager:open');
+    await page.evaluate(async (path: string) => {
+      await window.jupyterapp.commands.execute('docmanager:open', { path });
+    }, sourcePath);
+    expect(await page.activity.activateTab('index.ts')).toBe(true);
+  };
+
+  const readStoredDynamicSetting = async () => {
+    return page.evaluate((pluginId: string) => {
+      const key = `plugin-playground:dynamic-settings:${pluginId}`;
+      return (
+        window.localStorage.getItem(key) ?? window.sessionStorage.getItem(key)
+      );
+    }, DYNAMIC_SETTINGS_PERSIST_TEST_PLUGIN_ID);
+  };
+
+  await waitForCommand(LOAD_COMMAND);
+  await openSourceInEditor();
+
+  const firstLoadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(firstLoadResult.ok).toBe(true);
+  expect(firstLoadResult.status).toBe('loaded');
+
+  await waitForCommand(DYNAMIC_SETTINGS_PERSIST_TEST_SET_COMMAND);
+  const setResult = await page.evaluate(
+    ({ commandId, enabled }) => {
+      return window.jupyterapp.commands.execute(commandId, { enabled });
+    },
+    { commandId: DYNAMIC_SETTINGS_PERSIST_TEST_SET_COMMAND, enabled: true }
+  );
+  expect(setResult).toBe(true);
+
+  const storedBeforeFailure = await readStoredDynamicSetting();
+  expect(storedBeforeFailure).not.toBeNull();
+  const parsedBeforeFailure = JSON.parse(storedBeforeFailure ?? '{}') as
+    | {
+        raw?: string;
+        schema?: { properties?: { enabled?: { default?: boolean } } };
+      }
+    | undefined;
+  expect(parsedBeforeFailure?.raw).toContain('"enabled": true');
+  expect(parsedBeforeFailure?.schema?.properties?.enabled?.default).toBe(false);
+
+  await page.contents.uploadContent(
+    DYNAMIC_SETTINGS_PERSIST_TEST_SCHEMA_UPDATED,
+    'text',
+    schemaPath
+  );
+  await page.evaluate((pluginId: string) => {
+    const app = window.jupyterapp as typeof window.jupyterapp & {
+      registerPlugin: (plugin: { id: string }) => void;
+    };
+    const originalRegisterPlugin = app.registerPlugin.bind(app);
+    app.registerPlugin = (plugin: { id: string }) => {
+      if (plugin.id === pluginId) {
+        throw new Error('Forced registerPlugin failure for rollback test');
+      }
+      originalRegisterPlugin(plugin);
+    };
+  }, DYNAMIC_SETTINGS_PERSIST_TEST_PLUGIN_ID);
+
+  const failingLoadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(failingLoadResult.ok).toBe(false);
+  expect(failingLoadResult.status).toBe('loading-failed');
+
+  const storedAfterFailure = await readStoredDynamicSetting();
+  expect(storedAfterFailure).not.toBeNull();
+  const parsedAfterFailure = JSON.parse(storedAfterFailure ?? '{}') as
+    | {
+        raw?: string;
+        schema?: { properties?: { enabled?: { default?: boolean } } };
+      }
+    | undefined;
+  expect(parsedAfterFailure?.raw).toContain('"enabled": true');
+  expect(parsedAfterFailure?.schema?.properties?.enabled?.default).toBe(false);
+});
+
 test('exports active extension folder as a zip archive', async ({
   page,
   tmpPath
