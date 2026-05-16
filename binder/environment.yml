@@ -11,19 +11,22 @@ channels:
 
 dependencies:
   # runtime dependencies
-  - python >=3.10,<3.13.0a0
-  - jupyterlab >=4.5.0,<5.0.0a0
-  - notebook >=7.5.0,<8.0.0a0
+  # NOTE: with repo2docker + environment.yml, Python runtime is pinned here
+  # (runtime.txt would be ignored).
+  - python=3.11
+  - jupyterlab=4.5.5
+  - notebook=7.5.0
   # labextension build dependencies
-  - nodejs >=18,<21
-  - pip
-  - wheel
+  - nodejs=20
+  - pip=24.2
+  - wheel=0.44.0
   # additional packages for demos
   # - ipywidgets
-  - jupyterlab-lsp
-  - jupyterlab-js-logs>=1.2,<2
-  - jupyterlab-tour>=4,<5
+  - jupyterlab-lsp=5.2.0
+  - jupyter-lsp=2.3.0
+  - jupyterlab-js-logs=1.2.0
+  - jupyterlab-tour=4.0.1
   # use the same AI package in Binder and JupyterLite deployments
-  - jupyterlite-ai>=0.15,<1
+  - jupyterlite-ai=0.15.0
   - pip:
-      - jupyterlab-open-url-parameter>=0.4,<1
+      - jupyterlab-open-url-parameter==0.4.0
