@@ -15,6 +15,7 @@ from pathlib import Path
 
 
 ROOT = Path.cwd()
+EXTENSION_EXAMPLES_REF = "31dccfcf2fffb9e199c128744dc20596363932e1"
 
 def _(*args, **kwargs):
     """ Run a command, echoing the args
@@ -45,7 +46,12 @@ _("jupyter", "labextension", "list")
 
 # install javascript language server for autocompletion and error highlighting
 # (typescript-language-server depends on tsutils which requires us to choose typescript version)
-_("jlpm", "add", "typescript-language-server", "typescript@4.1")
+_(
+    "jlpm",
+    "add",
+    "typescript-language-server@5.1.3",
+    "typescript@4.1.6",
+)
 
 # add overrides for LSP settings
 SETTINGS = Path(sys.prefix) / "share/jupyter/lab/settings"
@@ -73,6 +79,8 @@ else:
         shutil.rmtree(EXAMPLES)
     if not EXAMPLES.exists():
         _("git", "clone", "https://github.com/jupyterlab/extension-examples.git")
+    # Always checkout a known-good commit when falling back to clone.
+    _("git", "-C", "extension-examples", "checkout", EXTENSION_EXAMPLES_REF)
 
 print("JupyterLab with @jupyterlab/plugin-playground is ready to run with:\n")
 print("\tjupyter lab\n")
