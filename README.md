@@ -7,8 +7,10 @@
 
 | Try in your browser   | Lab                                                                                                                                                       | Notebook v7                                                                                                                                                            |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Binder (Powerful)     | [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/jupyterlab/plugin-playground/main?urlpath=lab)                                | [![Binder Notebook v7](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/jupyterlab/plugin-playground/main?urlpath=tree)                                |
+| Binder (Powerful)     | [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/jupyterlab/plugin-playground/binder-stable?urlpath=lab)                       | [![Binder Notebook v7](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/jupyterlab/plugin-playground/binder-stable?urlpath=tree)                       |
 | JupyterLite (Instant) | [![JupyterLite](https://jupyterlite.rtfd.io/en/latest/_static/badge-launch.svg)](https://jupyterlab-plugin-playground.readthedocs.io/en/latest/lite/lab/) | [![JupyterLite Notebook v7](https://jupyterlite.rtfd.io/en/latest/_static/badge-launch.svg)](https://jupyterlab-plugin-playground.readthedocs.io/en/latest/lite/tree/) |
+
+<!-- Binder links above are intentionally pointed at the `binder-stable` branch with pinned Binder dependencies; update that branch only after validating Binder builds. -->
 
 A JupyterLab extension to write and load simple JupyterLab plugins inside JupyterLab.
 
