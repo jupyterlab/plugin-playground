@@ -309,6 +309,8 @@ const LOAD_ON_SAVE_DISABLED_DESCRIPTION =
 const JUPYTERLITE_AI_OPEN_OR_REVEAL_CHAT_COMMAND =
   '@jupyterlite/ai:open-or-reveal-chat';
 const JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND = '@jupyterlite/ai:open-settings';
+const JUPYTERLITE_AI_SETTINGS_MODEL_PLUGIN_ID =
+  '@jupyterlite/ai:settings-model';
 const JUPYTERLITE_AI_INSTALL_HINT =
   'JupyterLite AI is unavailable. Install the jupyterlite-ai extension and reload the application.';
 const JUPYTERLITE_AI_PROVIDER_SETUP_HINT = 'No AI provider configured.';
@@ -3485,6 +3487,77 @@ class PluginPlayground {
     }
   }
 
+  private async _loadJupyterLiteAISettings(): Promise<ISettingRegistry.ISettings | null> {
+    if (this._jupyterLiteAISettings) {
+      return this._jupyterLiteAISettings;
+    }
+    if (this._jupyterLiteAISettingsLoadPromise) {
+      return this._jupyterLiteAISettingsLoadPromise;
+    }
+
+    this._jupyterLiteAISettingsLoadPromise = this.settingRegistry
+      .load(JUPYTERLITE_AI_SETTINGS_MODEL_PLUGIN_ID)
+      .then(settings => {
+        this._jupyterLiteAISettings = settings;
+        settings.changed.connect(() => {
+          void this._updateAskAILogEntryActionRegistration();
+        });
+        return settings;
+      })
+      .catch(() => null)
+      .finally(() => {
+        this._jupyterLiteAISettingsLoadPromise = null;
+      });
+
+    return this._jupyterLiteAISettingsLoadPromise;
+  }
+
+  private async _hasConfiguredJupyterLiteAIProvider(): Promise<boolean> {
+    const aiSettings = await this._loadJupyterLiteAISettings();
+    if (!aiSettings) {
+      return false;
+    }
+
+    const providersValue = aiSettings.get('providers').composite;
+    if (!Array.isArray(providersValue) || providersValue.length === 0) {
+      return false;
+    }
+
+    const defaultProviderValue = aiSettings.get('defaultProvider').composite;
+    if (typeof defaultProviderValue !== 'string') {
+      return false;
+    }
+    const defaultProviderId = defaultProviderValue.trim();
+    if (!defaultProviderId) {
+      return false;
+    }
+
+    return providersValue.some(rawProvider => {
+      if (
+        !rawProvider ||
+        typeof rawProvider !== 'object' ||
+        Array.isArray(rawProvider)
+      ) {
+        return false;
+      }
+
+      const provider = rawProvider as Record<string, unknown>;
+      if (
+        typeof provider.id !== 'string' ||
+        typeof provider.provider !== 'string' ||
+        typeof provider.model !== 'string'
+      ) {
+        return false;
+      }
+
+      return (
+        provider.id.trim() === defaultProviderId &&
+        provider.provider.trim().length > 0 &&
+        provider.model.trim().length > 0
+      );
+    });
+  }
+
   private async _updateAskAILogEntryActionRegistration(): Promise<void> {
     const registrationEpoch = ++this._askAILogEntryActionRegistrationEpoch;
     this._askAILogEntryActionDisposable?.dispose();
@@ -3493,6 +3566,9 @@ class PluginPlayground {
     if (
       !this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_OR_REVEAL_CHAT_COMMAND)
     ) {
+      return;
+    }
+    if (!(await this._hasConfiguredJupyterLiteAIProvider())) {
       return;
     }
     try {
@@ -3576,12 +3652,10 @@ class PluginPlayground {
     if (!rawText) {
       return '';
     }
-    const trimmedText =
-      rawText.length > LOG_ENTRY_PROMPT_MAX_OUTPUT_LENGTH
-        ? `${rawText.slice(0, LOG_ENTRY_PROMPT_MAX_OUTPUT_LENGTH)}\n...`
-        : rawText;
-
-    return trimmedText;
+    if (rawText.length > LOG_ENTRY_PROMPT_MAX_OUTPUT_LENGTH) {
+      return `${rawText.slice(0, LOG_ENTRY_PROMPT_MAX_OUTPUT_LENGTH)}\n...`;
+    }
+    return rawText;
   }
 
   private _extractTextFromLogEntryMessage(
@@ -3970,6 +4044,9 @@ class PluginPlayground {
     string,
     ISettingRegistry.ISchema
   >();
+  private _jupyterLiteAISettings: ISettingRegistry.ISettings | null = null;
+  private _jupyterLiteAISettingsLoadPromise: Promise<ISettingRegistry.ISettings | null> | null =
+    null;
   private _askAILogEntryActionRegistrationEpoch = 0;
   private _askAILogEntryActionDisposable: { dispose: () => void } | null = null;
   private _commandInsertMode: CommandInsertMode = DEFAULT_COMMAND_INSERT_MODE;

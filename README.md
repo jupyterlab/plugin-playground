@@ -176,7 +176,7 @@ Plugin Playground supports AI-assisted extension prototyping in both JupyterLite
 
 ### JS Logs Ask AI
 
-Plugin Playground adds an `Ask AI` button to JS Logs entries so you can send error text to JupyterLite AI chat for debugging context. The button appears only on `error`/`critical` entries that include text content, and only when JupyterLite AI is available.
+Plugin Playground adds an `Ask AI` button to JS Logs entries so you can send error text to JupyterLite AI chat for debugging context. The button appears only on `error`/`critical` entries that include text content, and only when JupyterLite AI is available and a provider is configured.
 
 ### Command Insert Modes (Default + AI Prompt)
 

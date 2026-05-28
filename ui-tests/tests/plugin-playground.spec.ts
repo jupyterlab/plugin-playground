@@ -60,7 +60,10 @@ const COMMAND_COMPLETION_FILE = 'command-completion.ts';
 const INVOKE_FILE_COMPLETER_COMMAND = 'completer:invoke-file';
 const JUPYTERLITE_AI_OPEN_OR_REVEAL_CHAT_COMMAND =
   '@jupyterlite/ai:open-or-reveal-chat';
+const JUPYTERLITE_AI_SETTINGS_MODEL_PLUGIN_ID =
+  '@jupyterlite/ai:settings-model';
 const JS_LOGS_OPEN_COMMAND = 'js-logs:open';
+const TEST_JUPYTERLITE_AI_PROVIDER_ID = 'playground-test-provider';
 const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
 const TOKEN_SECTION_ID = 'jp-plugin-token-sidebar';
 const EXAMPLE_SECTION_ID = 'jp-plugin-example-sidebar';
@@ -4440,13 +4443,106 @@ const run = (application: JupyterFrontEnd) => {
 });
 
 test.describe('JS logs Ask AI action', () => {
+  test.use({
+    mockSettings: {
+      ...galata.DEFAULT_SETTINGS,
+      [JUPYTERLITE_AI_SETTINGS_MODEL_PLUGIN_ID]: {
+        providers: [
+          {
+            id: TEST_JUPYTERLITE_AI_PROVIDER_ID,
+            name: 'Playground Test Provider',
+            provider: 'openai',
+            model: 'gpt-4o-mini'
+          }
+        ],
+        defaultProvider: TEST_JUPYTERLITE_AI_PROVIDER_ID
+      }
+    }
+  });
+
   test('adds Ask AI button in log rows and prefills AI chat input', async ({
     page
   }) => {
     const logMarker = `ask-ai-log-row-${Date.now()}`;
+    const warningMarker = `ask-ai-log-row-warning-${Date.now()}`;
     const chatInput = page.locator(
       '.jp-chat-input-textfield[data-playground-test="ai-input"] textarea'
     );
+
+    await page.goto();
+    await ensureMockJupyterLiteAIChat(page);
+
+    const hasJSLogsCommand = await page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, JS_LOGS_OPEN_COMMAND);
+    test.skip(
+      !hasJSLogsCommand,
+      'jupyterlab-js-logs is required for JS log row actions.'
+    );
+
+    await page.evaluate((id: string) => {
+      const commands = window.jupyterapp.commands;
+      if (!commands.isToggled(id)) {
+        return commands.execute(id);
+      }
+      return undefined;
+    }, JS_LOGS_OPEN_COMMAND);
+
+    await page.evaluate((message: string) => {
+      console.warn(message);
+    }, warningMarker);
+
+    const warningRow = page.locator('.jp-OutputArea-child').filter({
+      hasText: warningMarker
+    });
+    await expect(warningRow).toHaveCount(1);
+    await expect(
+      warningRow
+        .first()
+        .locator('button.jp-JSLogs-entryActionButton:has-text("Ask AI")')
+    ).toHaveCount(0);
+
+    await page.evaluate((message: string) => {
+      console.error(message);
+    }, logMarker);
+
+    const logRow = page.locator('.jp-OutputArea-child').filter({
+      hasText: logMarker
+    });
+    await expect(logRow).toHaveCount(1);
+    const askAIButton = logRow
+      .first()
+      .locator('button.jp-JSLogs-entryActionButton:has-text("Ask AI")');
+    await expect(askAIButton).toBeVisible();
+
+    await askAIButton.click();
+    await expect(chatInput).toHaveValue(new RegExp(escapeRegExp(logMarker)));
+
+    await page.evaluate(() => {
+      document
+        .querySelector(
+          '.jp-chat-input-textfield[data-playground-test="ai-input"]'
+        )
+        ?.remove();
+    });
+  });
+});
+
+test.describe('JS logs Ask AI action without provider setup', () => {
+  test.use({
+    mockSettings: {
+      ...galata.DEFAULT_SETTINGS,
+      [JUPYTERLITE_AI_SETTINGS_MODEL_PLUGIN_ID]: {
+        providers: [],
+        defaultProvider: ''
+      }
+    }
+  });
+
+  test('does not add Ask AI button when no AI provider is configured', async ({
+    page
+  }) => {
+    const logMarker = `ask-ai-log-row-no-provider-${Date.now()}`;
 
     await page.goto();
     await ensureMockJupyterLiteAIChat(page);
@@ -4475,21 +4571,11 @@ test.describe('JS logs Ask AI action', () => {
       hasText: logMarker
     });
     await expect(logRow).toHaveCount(1);
-    const askAIButton = logRow
-      .first()
-      .locator('button.jp-JSLogs-entryActionButton:has-text("Ask AI")');
-    await expect(askAIButton).toBeVisible();
-
-    await askAIButton.click();
-    await expect(chatInput).toHaveValue(new RegExp(escapeRegExp(logMarker)));
-
-    await page.evaluate(() => {
-      document
-        .querySelector(
-          '.jp-chat-input-textfield[data-playground-test="ai-input"]'
-        )
-        ?.remove();
-    });
+    await expect(
+      logRow
+        .first()
+        .locator('button.jp-JSLogs-entryActionButton:has-text("Ask AI")')
+    ).toHaveCount(0);
   });
 });
 
