@@ -1833,7 +1833,7 @@ __metadata:
     "@typescript-eslint/parser": ^8.56.1
     eslint: ^9.39.3
     eslint-config-prettier: ^10.1.8
-    jupyterlab-js-logs: ^1.3.0
+    jupyterlab-js-logs: ^1.3.1
     npm-run-all: ^4.1.5
     prettier: ^2.8.0
     raw-loader: ^4.0.2
@@ -6743,9 +6743,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"jupyterlab-js-logs@npm:^1.3.0":
-  version: 1.3.0
-  resolution: "jupyterlab-js-logs@npm:1.3.0"
+"jupyterlab-js-logs@npm:^1.3.1":
+  version: 1.3.1
+  resolution: "jupyterlab-js-logs@npm:1.3.1"
   dependencies:
     "@jupyterlab/application": ^4.2.5
     "@jupyterlab/apputils": ^4.3.5
@@ -6758,7 +6758,7 @@ __metadata:
     "@jupyterlab/ui-components": ^4.2.5
     "@lumino/coreutils": ^2.2.0
     "@lumino/widgets": ^2.5.0
-  checksum: c046f3d3d0364c171a4d46ef9384ea1488885690c25d2dae885ab2b6c7cc87d75ccb506ac8784b0c4f4a108722250d42ce2d5ea41d7791d4f024165f93a1be65
+  checksum: b1cf33f9e16c3e7a48858d9e8155041eacd2eaafd32c6629dde207989d1772cb2c879f87916d2ac6c61eff7626ee0d52cbbd5c0c3a7e3e0c50d9f6f430d008d4
   languageName: node
   linkType: hard
 
