@@ -64,6 +64,8 @@ const JUPYTERLITE_AI_SETTINGS_MODEL_PLUGIN_ID =
   '@jupyterlite/ai:settings-model';
 const JS_LOGS_OPEN_COMMAND = 'js-logs:open';
 const TEST_JUPYTERLITE_AI_PROVIDER_ID = 'playground-test-provider';
+const ASK_AI_LOG_ENTRY_ACTION_CAPTION =
+  'Open AI chat and include this log entry for debugging';
 const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
 const TOKEN_SECTION_ID = 'jp-plugin-token-sidebar';
 const EXAMPLE_SECTION_ID = 'jp-plugin-example-sidebar';
@@ -4501,9 +4503,9 @@ test.describe('JS logs Ask AI action', () => {
     });
     await expect(warningRow).toHaveCount(1);
     await expect(
-      warningRow
-        .first()
-        .locator('button.jp-JSLogs-entryActionButton:has-text("Ask AI")')
+      warningRow.first().getByRole('button', {
+        name: ASK_AI_LOG_ENTRY_ACTION_CAPTION
+      })
     ).toHaveCount(0);
 
     await page.evaluate((message: string) => {
@@ -4514,9 +4516,9 @@ test.describe('JS logs Ask AI action', () => {
       hasText: logMarker
     });
     await expect(logRow).toHaveCount(1);
-    const askAIButton = logRow
-      .first()
-      .locator('button.jp-JSLogs-entryActionButton:has-text("Ask AI")');
+    const askAIButton = logRow.first().getByRole('button', {
+      name: ASK_AI_LOG_ENTRY_ACTION_CAPTION
+    });
     await expect(askAIButton).toBeVisible();
 
     await askAIButton.click();
@@ -4576,9 +4578,9 @@ test.describe('JS logs Ask AI action without provider setup', () => {
     });
     await expect(logRow).toHaveCount(1);
     await expect(
-      logRow
-        .first()
-        .locator('button.jp-JSLogs-entryActionButton:has-text("Ask AI")')
+      logRow.first().getByRole('button', {
+        name: ASK_AI_LOG_ENTRY_ACTION_CAPTION
+      })
     ).toHaveCount(0);
   });
 });
