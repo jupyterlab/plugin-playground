@@ -3363,6 +3363,77 @@ test('shares selected file or folder when using browser selection', async ({
   expect(folderShareResult.link).toContain('plugin=');
 });
 
+test('shows notebook files in folder share selection', async ({
+  page,
+  tmpPath
+}) => {
+  const projectRoot = `${tmpPath}/share-browser-selection-notebook-test`;
+  const folderPath = `${projectRoot}/src`;
+  const sourcePath = `${folderPath}/index.ts`;
+  const notebookPath = `${folderPath}/repro.ipynb`;
+
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.evaluate(async (path: string) => {
+    await window.jupyterapp.serviceManager.contents.save(path, {
+      type: 'notebook',
+      format: 'json',
+      content: {
+        cells: [
+          {
+            cell_type: 'code',
+            execution_count: null,
+            metadata: {},
+            outputs: [],
+            source: ['print("repro notebook")\n']
+          }
+        ],
+        metadata: {},
+        nbformat: 4,
+        nbformat_minor: 5
+      }
+    });
+  }, notebookPath);
+  await page.goto();
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, SHARE_COMMAND)
+  );
+
+  await page.filebrowser.openDirectory(projectRoot);
+  const browserSection = page.getByRole('region', {
+    name: 'File Browser Section'
+  });
+  const folderItem = browserSection.getByRole('listitem', {
+    name: /^Name: src/
+  });
+  await folderItem.click();
+
+  const sharePromise = page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id, {
+      useBrowserSelection: true
+    });
+  }, SHARE_COMMAND);
+
+  const notebookCheckbox = page
+    .locator('label', { hasText: /^repro\.ipynb \(/ })
+    .locator('input[type="checkbox"]');
+  await expect(notebookCheckbox).toBeVisible();
+  await expect(notebookCheckbox).toBeChecked();
+
+  const shareSelectedFilesButton = page.getByRole('button', {
+    name: 'Share Selected Files',
+    exact: true
+  });
+  await shareSelectedFilesButton.click();
+
+  const shareResult = await sharePromise;
+  expect(shareResult.ok).toBe(true);
+  expect(shareResult.sourcePath).toBe(folderPath);
+  expect(shareResult.link).toContain('plugin=');
+});
+
 test('does not fall back to browser selection when context target is required', async ({
   page,
   tmpPath

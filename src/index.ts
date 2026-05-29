@@ -1713,7 +1713,11 @@ class PluginPlayground {
     const filePaths: string[] = [];
 
     for (const item of directory.content) {
-      if (item.type !== 'directory' && item.type !== 'file') {
+      if (
+        item.type !== 'directory' &&
+        item.type !== 'file' &&
+        item.type !== 'notebook'
+      ) {
         continue;
       }
       if (
