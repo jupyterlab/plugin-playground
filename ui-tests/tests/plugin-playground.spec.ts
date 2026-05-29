@@ -3373,6 +3373,12 @@ test('shows notebook files in folder share selection', async ({
   const notebookPath = `${folderPath}/repro.ipynb`;
 
   await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', sourcePath);
+  await page.goto();
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, SHARE_COMMAND)
+  );
   await page.evaluate(async (path: string) => {
     await window.jupyterapp.serviceManager.contents.save(path, {
       type: 'notebook',
@@ -3393,12 +3399,14 @@ test('shows notebook files in folder share selection', async ({
       }
     });
   }, notebookPath);
-  await page.goto();
 
   await page.waitForCondition(() =>
-    page.evaluate((id: string) => {
-      return window.jupyterapp.commands.hasCommand(id);
-    }, SHARE_COMMAND)
+    page.evaluate(async (path: string) => {
+      const model = await window.jupyterapp.serviceManager.contents.get(path, {
+        content: false
+      });
+      return model?.type === 'notebook';
+    }, notebookPath)
   );
 
   await page.filebrowser.openDirectory(projectRoot);
