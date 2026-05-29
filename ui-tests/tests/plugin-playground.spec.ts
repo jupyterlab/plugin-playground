@@ -458,6 +458,10 @@ async function ensureMockJupyterLiteAIChat(
   );
 }
 
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
 test('registers plugin playground commands', async ({ page }) => {
   await page.goto();
 
