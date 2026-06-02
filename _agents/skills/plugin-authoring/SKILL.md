@@ -37,7 +37,22 @@ Produce working plugin code that can be loaded with `plugin-playground:load-as-e
 - If the user does not already have a plugin file open or specified, run `plugin-playground:create-new-plugin` with a meaningful `path` argument (for example `app.commands.execute('plugin-playground:create-new-plugin', { path: 'status-indicator.ts' })`) instead of relying on untitled defaults.
 - Start from the generated TypeScript scaffold and adapt it.
 - Plugin Playground supports schema-backed settings during prototyping (`package.json` with `jupyterlab.schemaDir`, with `plugin.json` fallback for single-plugin cases).
+- For any plugin with multiple files, settings schema, CSS, SVG, or other local assets, create a package root up front (for example `my-extension/src/index.ts`) and include a minimal `package.json` in `my-extension/` so `Share Package` and extension export operate on the full folder.
+- When creating nested files through AI file commands, create the parent directories first and verify the files appear in the file browser before continuing.
 - Focus on TypeScript/TSX plugin code. Do not scaffold Python projects (`pyproject.toml`, Python package layout) unless explicitly requested.
+
+Minimal package metadata for Playground prototypes:
+
+```json
+{
+  "name": "my-extension",
+  "version": "0.1.0",
+  "jupyterlab": {
+    "extension": true,
+    "schemaDir": "schema"
+  }
+}
+```
 
 2. Discover available extension points
 
@@ -57,7 +72,8 @@ Produce working plugin code that can be loaded with `plugin-playground:load-as-e
 
 - Start from a minimal plugin shape (`id`, `autoStart`, `activate`).
 - Add `requires` tokens only after confirming availability from step 2.
-- Add commands with stable IDs (`<namespace>:<action>`).
+- Add commands with stable, unique IDs (`<namespace>:<action>`).
+- Do not overwrite or reuse built-in JupyterLab command IDs. Plugin Playground skips duplicate command registrations; register a separate command and add it to the relevant palette, menu, toolbar, launcher, or cell toolbar instead.
 - Use one or more `.ts`/`.tsx` files as needed as complexity grows.
 
 5. Load and iterate

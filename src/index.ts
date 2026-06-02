@@ -651,6 +651,15 @@ class PluginPlayground {
           }
 
           if (targetPath !== model.path) {
+            const targetDirectory = ContentUtils.normalizeContentsPath(
+              PathExt.dirname(targetPath)
+            ).replace(/^\.$/, '');
+            if (targetDirectory) {
+              await ContentUtils.ensureContentsDirectory(
+                app.serviceManager,
+                targetDirectory
+              );
+            }
             openPath = (
               await app.serviceManager.contents.rename(model.path, targetPath)
             ).path;
