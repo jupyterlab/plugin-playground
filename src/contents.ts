@@ -62,7 +62,7 @@ export namespace ContentUtils {
   };
 
   export type IFileModel = Contents.IModel & {
-    type: 'file';
+    type: 'file' | 'notebook';
     content: unknown;
     format?: string | null;
   };
@@ -194,23 +194,27 @@ export namespace ContentUtils {
       const model = await getContentsModel(serviceManager, candidatePath, {
         content: true
       });
-      if (!model || model.type !== 'file') {
+      if (!model || (model.type !== 'file' && model.type !== 'notebook')) {
         continue;
       }
       if (model.content !== null) {
         return model as IFileModel;
       }
 
-      const textModel = await getContentsModel(serviceManager, candidatePath, {
-        content: true,
-        format: 'text'
-      });
+      const fallbackModel = await getContentsModel(
+        serviceManager,
+        candidatePath,
+        {
+          content: true,
+          format: model.type === 'notebook' ? 'json' : 'text'
+        }
+      );
       if (
-        textModel &&
-        textModel.type === 'file' &&
-        textModel.content !== null
+        fallbackModel &&
+        (fallbackModel.type === 'file' || fallbackModel.type === 'notebook') &&
+        fallbackModel.content !== null
       ) {
-        return textModel as IFileModel;
+        return fallbackModel as IFileModel;
       }
     }
     return null;
