@@ -138,6 +138,8 @@ There are a few differences in how to write plugins in Plugin Playground compare
 - To load code from an external package, RequireJS is used (hidden behind ES module-compatible import syntax), so import statements may need explicit version or file paths.
   - In addition to JupyterLab and Lumino packages, only AMD modules can be imported; ES modules and modules compiled for Webpack/Node are not supported directly and can fail with `Uncaught SyntaxError: Unexpected token 'export'`.
 - The playground can import relative files (`.ts`, `.tsx`, `.js`, and `.css`), load SVG as strings, and load settings schema from `package.json` (`jupyterlab.schemaDir`) with `plugin.json` fallback for single-plugin prototyping.
+- For multi-file prototypes, create a package root with `package.json` before adding files under `src/`, `schema/`, or `style/`. This lets `Share Package` and extension export find the whole plugin folder reliably.
+- Playground prototypes cannot replace existing JupyterLab commands by reusing their command IDs. Register your own command ID and add it to the relevant menu, toolbar, launcher, palette, or cell toolbar instead.
 
 ### Migrating from version 0.3.0
 
