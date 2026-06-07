@@ -218,6 +218,10 @@
   background: var(--jp-layout-color3);
 }
 
+.jp-PluginPlayground-deactivateButton {
+  color: var(--jp-error-color1);
+}
+
 .jp-PluginPlayground-splitAction
   .jp-PluginPlayground-actionButton:not(:disabled):hover {
   background: var(--jp-layout-color2);
