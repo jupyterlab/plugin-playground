@@ -4637,62 +4637,66 @@ test.describe('JS logs Ask AI action', () => {
       '.jp-chat-input-textfield[data-playground-test="ai-input"] textarea'
     );
 
-    await page.goto();
-    await ensureMockJupyterLiteAIChat(page);
+    try {
+      await page.goto();
+      await ensureMockJupyterLiteAIChat(page);
 
-    const hasJSLogsCommand = await page.evaluate((id: string) => {
-      return window.jupyterapp.commands.hasCommand(id);
-    }, JS_LOGS_OPEN_COMMAND);
-    test.skip(
-      !hasJSLogsCommand,
-      'jupyterlab-js-logs is required for JS log row actions.'
-    );
+      const hasJSLogsCommand = await page.evaluate((id: string) => {
+        return window.jupyterapp.commands.hasCommand(id);
+      }, JS_LOGS_OPEN_COMMAND);
+      test.skip(
+        !hasJSLogsCommand,
+        'jupyterlab-js-logs is required for JS log row actions.'
+      );
 
-    await page.evaluate((id: string) => {
-      const commands = window.jupyterapp.commands;
-      if (!commands.isToggled(id)) {
-        return commands.execute(id);
-      }
-      return undefined;
-    }, JS_LOGS_OPEN_COMMAND);
+      await page.evaluate((id: string) => {
+        const commands = window.jupyterapp.commands;
+        if (!commands.isToggled(id)) {
+          return commands.execute(id);
+        }
+        return undefined;
+      }, JS_LOGS_OPEN_COMMAND);
 
-    await page.evaluate((message: string) => {
-      console.warn(message);
-    }, warningMarker);
+      await page.evaluate((message: string) => {
+        console.warn(message);
+      }, warningMarker);
 
-    const warningRow = page.locator('.jp-OutputArea-child').filter({
-      hasText: warningMarker
-    });
-    await expect(warningRow).toHaveCount(1);
-    await expect(
-      warningRow.first().getByRole('button', {
+      const warningRow = page.locator('.jp-OutputArea-child').filter({
+        hasText: warningMarker
+      });
+      await expect(warningRow).toHaveCount(1);
+      await expect(
+        warningRow.first().getByRole('button', {
+          name: ASK_AI_LOG_ENTRY_ACTION_CAPTION
+        })
+      ).toHaveCount(0);
+
+      await page.evaluate((message: string) => {
+        console.error(message);
+      }, logMarker);
+
+      const logRow = page.locator('.jp-OutputArea-child').filter({
+        hasText: logMarker
+      });
+      await expect(logRow).toHaveCount(1);
+      const askAIButton = logRow.first().getByRole('button', {
         name: ASK_AI_LOG_ENTRY_ACTION_CAPTION
-      })
-    ).toHaveCount(0);
+      });
+      await expect(askAIButton).toBeVisible();
 
-    await page.evaluate((message: string) => {
-      console.error(message);
-    }, logMarker);
+      await askAIButton.click();
+      await expect(chatInput).toHaveValue(new RegExp(escapeRegExp(logMarker)));
 
-    const logRow = page.locator('.jp-OutputArea-child').filter({
-      hasText: logMarker
-    });
-    await expect(logRow).toHaveCount(1);
-    const askAIButton = logRow.first().getByRole('button', {
-      name: ASK_AI_LOG_ENTRY_ACTION_CAPTION
-    });
-    await expect(askAIButton).toBeVisible();
-
-    await askAIButton.click();
-    await expect(chatInput).toHaveValue(new RegExp(escapeRegExp(logMarker)));
-
-    await page.evaluate(() => {
-      document
-        .querySelector(
-          '.jp-chat-input-textfield[data-playground-test="ai-input"]'
-        )
-        ?.remove();
-    });
+      await page.evaluate(() => {
+        document
+          .querySelector(
+            '.jp-chat-input-textfield[data-playground-test="ai-input"]'
+          )
+          ?.remove();
+      });
+    } finally {
+      await page.unrouteAll({ behavior: 'ignoreErrors' });
+    }
   });
 });
 
@@ -4712,38 +4716,42 @@ test.describe('JS logs Ask AI action without provider setup', () => {
   }) => {
     const logMarker = `ask-ai-log-row-no-provider-${Date.now()}`;
 
-    await page.goto();
-    await ensureMockJupyterLiteAIChat(page);
+    try {
+      await page.goto();
+      await ensureMockJupyterLiteAIChat(page);
 
-    const hasJSLogsCommand = await page.evaluate((id: string) => {
-      return window.jupyterapp.commands.hasCommand(id);
-    }, JS_LOGS_OPEN_COMMAND);
-    test.skip(
-      !hasJSLogsCommand,
-      'jupyterlab-js-logs is required for JS log row actions.'
-    );
+      const hasJSLogsCommand = await page.evaluate((id: string) => {
+        return window.jupyterapp.commands.hasCommand(id);
+      }, JS_LOGS_OPEN_COMMAND);
+      test.skip(
+        !hasJSLogsCommand,
+        'jupyterlab-js-logs is required for JS log row actions.'
+      );
 
-    await page.evaluate((id: string) => {
-      const commands = window.jupyterapp.commands;
-      if (!commands.isToggled(id)) {
-        return commands.execute(id);
-      }
-      return undefined;
-    }, JS_LOGS_OPEN_COMMAND);
+      await page.evaluate((id: string) => {
+        const commands = window.jupyterapp.commands;
+        if (!commands.isToggled(id)) {
+          return commands.execute(id);
+        }
+        return undefined;
+      }, JS_LOGS_OPEN_COMMAND);
 
-    await page.evaluate((message: string) => {
-      console.error(message);
-    }, logMarker);
+      await page.evaluate((message: string) => {
+        console.error(message);
+      }, logMarker);
 
-    const logRow = page.locator('.jp-OutputArea-child').filter({
-      hasText: logMarker
-    });
-    await expect(logRow).toHaveCount(1);
-    await expect(
-      logRow.first().getByRole('button', {
-        name: ASK_AI_LOG_ENTRY_ACTION_CAPTION
-      })
-    ).toHaveCount(0);
+      const logRow = page.locator('.jp-OutputArea-child').filter({
+        hasText: logMarker
+      });
+      await expect(logRow).toHaveCount(1);
+      await expect(
+        logRow.first().getByRole('button', {
+          name: ASK_AI_LOG_ENTRY_ACTION_CAPTION
+        })
+      ).toHaveCount(0);
+    } finally {
+      await page.unrouteAll({ behavior: 'ignoreErrors' });
+    }
   });
 });
 
