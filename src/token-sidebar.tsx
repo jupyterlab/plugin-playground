@@ -7,6 +7,7 @@ import {
   jsonIcon,
   MenuSvg,
   offlineBoltIcon,
+  searchIcon,
   type LabIcon
 } from '@jupyterlab/ui-components';
 
@@ -42,6 +43,14 @@ export namespace TokenSidebar {
     description: string;
   }
 
+  export type UsageKind = 'token' | 'command';
+
+  export interface IUsageMatch {
+    path: string;
+    line: number;
+    lineText: string;
+  }
+
   export interface IOptions {
     getTokens: () => ReadonlyArray<ITokenRecord>;
     getCommands: () => ReadonlyArray<ICommandRecord>;
@@ -63,6 +72,10 @@ export namespace TokenSidebar {
       commandId: string,
       mode: CommandInsertMode
     ) => Promise<void> | void;
+    onFindUsages: (
+      value: string,
+      kind: UsageKind
+    ) => Promise<ReadonlyArray<IUsageMatch>>;
     getCommandInsertMode: () => CommandInsertMode;
     isCommandInsertEnabled: () => boolean;
   }
@@ -170,6 +183,10 @@ export class TokenSidebar extends ReactWidget {
     commandId: string,
     mode: CommandInsertMode
   ) => Promise<void> | void;
+  private readonly _onFindUsages: (
+    value: string,
+    kind: TokenSidebar.UsageKind
+  ) => Promise<ReadonlyArray<TokenSidebar.IUsageMatch>>;
   private readonly _getCommandInsertMode: () => CommandInsertMode;
   private readonly _isCommandInsertEnabled: () => boolean;
   private _query = '';
@@ -186,6 +203,13 @@ export class TokenSidebar extends ReactWidget {
     ICommandArgumentDocumentation | null
   >();
   private _commandArgumentCounts = new Map<string, number | null>();
+  private _expandedUsageKeys = new Set<string>();
+  private _loadingUsageKeys = new Set<string>();
+  private _usageResults = new Map<
+    string,
+    ReadonlyArray<TokenSidebar.IUsageMatch>
+  >();
+  private _usageErrors = new Map<string, string>();
   private readonly _commandInsertMenuCommands = new CommandRegistry();
   private readonly _commandInsertMenu = new MenuSvg({
     commands: this._commandInsertMenuCommands
@@ -204,6 +228,7 @@ export class TokenSidebar extends ReactWidget {
     this._isImportEnabled = options.isImportEnabled;
     this._onSetCommandInsertMode = options.onSetCommandInsertMode;
     this._onInsertCommand = options.onInsertCommand;
+    this._onFindUsages = options.onFindUsages;
     this._getCommandInsertMode = options.getCommandInsertMode;
     this._isCommandInsertEnabled = options.isCommandInsertEnabled;
     this.addClass('jp-PluginPlayground-sidebar');
@@ -410,6 +435,7 @@ export class TokenSidebar extends ReactWidget {
                             className: 'jp-PluginPlayground-actionIcon'
                           })}
                         </button>
+                        {this._renderUsageSearchButton('token', token.name)}
                         <button
                           className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-copyButton"
                           type="button"
@@ -441,6 +467,7 @@ export class TokenSidebar extends ReactWidget {
                         {token.description}
                       </p>
                     ) : null}
+                    {this._renderUsageResults('token', token.name)}
                   </li>
                 );
               })}
@@ -465,9 +492,11 @@ export class TokenSidebar extends ReactWidget {
                 const isUnknownArgumentCount = commandArgumentCount === null;
                 const isArgumentsButtonDisabled =
                   !isExpanded && (isLoadingArguments || isUnknownArgumentCount);
-                const commandArgumentsPanelId = this._commandArgumentsPanelId(
-                  command.id
+                const normalizedCommandId = command.id.replace(
+                  /[^A-Za-z0-9_-]/g,
+                  '-'
                 );
+                const commandArgumentsPanelId = `jp-PluginPlayground-commandArguments-${normalizedCommandId}`;
                 const isCopied = this._copiedValue === command.id;
                 const copyIconState = toolbarActionIconState(
                   isCopied,
@@ -591,6 +620,7 @@ export class TokenSidebar extends ReactWidget {
                               {`{${argumentCountBadge}}`}
                             </span>
                           </button>
+                          {this._renderUsageSearchButton('command', command.id)}
                           <button
                             className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-copyButton"
                             type="button"
@@ -623,6 +653,7 @@ export class TokenSidebar extends ReactWidget {
                         {description}
                       </p>
                     ) : null}
+                    {this._renderUsageResults('command', command.id)}
                     {isExpanded ? (
                       <div
                         id={commandArgumentsPanelId}
@@ -955,9 +986,145 @@ export class TokenSidebar extends ReactWidget {
     return sections.join('\n\n') || 'No arguments';
   }
 
-  private _commandArgumentsPanelId(commandId: string): string {
-    const normalizedId = commandId.replace(/[^A-Za-z0-9_-]/g, '-');
-    return `jp-PluginPlayground-commandArguments-${normalizedId}`;
+  private _renderUsageSearchButton(
+    kind: TokenSidebar.UsageKind,
+    value: string
+  ): JSX.Element {
+    const key = `${kind}:${value}`;
+    const valueKind = kind === 'token' ? 'token string' : 'command id';
+    const isExpanded = this._expandedUsageKeys.has(key);
+    const isLoading = this._loadingUsageKeys.has(key);
+    const normalizedPanelValue = `${kind}-${value}`.replace(
+      /[^A-Za-z0-9_-]/g,
+      '-'
+    );
+    const panelId = `jp-PluginPlayground-usageResults-${normalizedPanelValue}`;
+
+    return (
+      <button
+        className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-usageButton"
+        type="button"
+        onClick={() => {
+          void this._findUsages(kind, value);
+        }}
+        disabled={isLoading}
+        aria-expanded={isExpanded}
+        aria-controls={panelId}
+        aria-label={
+          isLoading
+            ? `Finding usages of ${valueKind} ${value}`
+            : isExpanded
+            ? `Hide usages of ${valueKind} ${value}`
+            : `Find usages of ${valueKind} ${value}`
+        }
+        title={
+          isLoading
+            ? 'Finding usages'
+            : isExpanded
+            ? 'Hide usages'
+            : 'Find usages'
+        }
+      >
+        {React.createElement(searchIcon.react, {
+          tag: 'span',
+          elementSize: 'normal',
+          className: 'jp-PluginPlayground-actionIcon'
+        })}
+      </button>
+    );
+  }
+
+  private _renderUsageResults(
+    kind: TokenSidebar.UsageKind,
+    value: string
+  ): JSX.Element | null {
+    const key = `${kind}:${value}`;
+    if (!this._expandedUsageKeys.has(key)) {
+      return null;
+    }
+
+    const isLoading = this._loadingUsageKeys.has(key);
+    const error = this._usageErrors.get(key);
+    const matches = this._usageResults.get(key) ?? [];
+    const valueKind = kind === 'token' ? 'token string' : 'command id';
+    const normalizedPanelValue = `${kind}-${value}`.replace(
+      /[^A-Za-z0-9_-]/g,
+      '-'
+    );
+    const panelId = `jp-PluginPlayground-usageResults-${normalizedPanelValue}`;
+    const fileCount = new Set(matches.map(match => match.path)).size;
+
+    return (
+      <div
+        id={panelId}
+        className="jp-PluginPlayground-usageResults"
+        role="region"
+        aria-label={`Usages of ${valueKind} ${value}`}
+      >
+        {isLoading ? (
+          <p className="jp-PluginPlayground-count">Finding usages…</p>
+        ) : error ? (
+          <p className="jp-PluginPlayground-count jp-PluginPlayground-exampleError">
+            Failed to find usages: {error}
+          </p>
+        ) : matches.length === 0 ? (
+          <p className="jp-PluginPlayground-count">No usages found.</p>
+        ) : (
+          <>
+            <p className="jp-PluginPlayground-count">
+              {matches.length} {matches.length === 1 ? 'usage' : 'usages'} in{' '}
+              {fileCount} {fileCount === 1 ? 'file' : 'files'}.
+            </p>
+            <ul className="jp-PluginPlayground-usageList">
+              {matches.map((match, index) => (
+                <li
+                  key={`${match.path}:${match.line}:${index}`}
+                  className="jp-PluginPlayground-usageListItem"
+                >
+                  <span className="jp-PluginPlayground-usageLocation">
+                    {match.path}:{match.line}
+                  </span>
+                  <code className="jp-PluginPlayground-usageLine">
+                    {match.lineText}
+                  </code>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  private async _findUsages(
+    kind: TokenSidebar.UsageKind,
+    value: string
+  ): Promise<void> {
+    const key = `${kind}:${value}`;
+    if (this._expandedUsageKeys.has(key) && !this._loadingUsageKeys.has(key)) {
+      this._expandedUsageKeys.delete(key);
+      this.update();
+      return;
+    }
+
+    this._expandedUsageKeys.add(key);
+    this._loadingUsageKeys.add(key);
+    this._usageErrors.delete(key);
+    this.update();
+
+    try {
+      const results = await this._onFindUsages(value, kind);
+      this._usageResults.set(key, results);
+    } catch (error) {
+      this._usageResults.set(key, []);
+      this._usageErrors.set(
+        key,
+        error instanceof Error ? error.message : 'Unknown search error'
+      );
+    } finally {
+      this._loadingUsageKeys.delete(key);
+      this.update();
+    }
   }
 
   private async _insertImport(tokenName: string): Promise<void> {

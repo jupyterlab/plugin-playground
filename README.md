@@ -32,7 +32,7 @@ Plugin Playground is built to keep the full plugin prototyping workflow inside J
 ![Export format dropdown in editor toolbar](docs/images/readme/editor-toolbar-export-dropdown.png)
 ![Share target dropdown in editor toolbar](docs/images/readme/editor-toolbar-share-dropdown.png)
 
-The right sidebar includes a single Plugin Playground panel with two collapsible sections. In **Extension Points**, the `Tokens` tab helps you discover available token strings and insert import/dependency updates, the `Commands` tab lets you search command IDs, inspect argument docs, and insert execution snippets (either directly or through AI-assisted prompt mode), and the `Packages` tab surfaces package docs plus npm and repository links for known modules.
+The right sidebar includes a single Plugin Playground panel with two collapsible sections. In **Extension Points**, the `Tokens` tab helps you discover available token strings, insert import/dependency updates, and find existing usages, the `Commands` tab lets you search command IDs, inspect argument docs, find existing usages, and insert execution snippets (either directly or through AI-assisted prompt mode), and the `Packages` tab surfaces package docs plus npm and repository links for known modules.
 
 ![Extension Points token discovery and insertion actions](docs/images/readme/extension-points-tokens.png)
 ![Extension Points command discovery and insertion actions](docs/images/readme/extension-points-commands.png)
@@ -199,6 +199,8 @@ In the `Commands` tab, each command row includes a split `+` action and a mode d
 The same command row also includes the `f(n)` button to inspect command argument docs inline before insertion.
 
 ![Command argument documentation expanded in Commands tab](docs/images/readme/command-argument-docs.png)
+
+Token and command rows also include a `Find usages` action. It searches TypeScript files in the current file browser directory and the bundled `extension-examples/` folder when available, then shows matching file paths and line numbers inline.
 
 The sidebar remembers your last-used command insert mode in:
 

@@ -325,6 +325,44 @@
   margin-top: 8px;
 }
 
+.jp-PluginPlayground-usageResults {
+  margin-top: 8px;
+}
+
+.jp-PluginPlayground-usageList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.jp-PluginPlayground-usageListItem {
+  background: var(--jp-layout-color2);
+  border: var(--jp-border-width) solid var(--jp-border-color2);
+  border-radius: var(--jp-border-radius);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+}
+
+.jp-PluginPlayground-usageLocation {
+  color: var(--jp-ui-font-color1);
+  font-family: var(--jp-code-font-family);
+  font-size: var(--jp-ui-font-size0);
+  overflow-wrap: anywhere;
+}
+
+.jp-PluginPlayground-usageLine {
+  color: var(--jp-ui-font-color2);
+  font-family: var(--jp-code-font-family);
+  font-size: var(--jp-code-font-size);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .jp-PluginPlayground-commandArgumentsText {
   background: var(--jp-layout-color2);
   border: var(--jp-border-width) solid var(--jp-border-color2);

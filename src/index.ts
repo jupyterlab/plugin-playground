@@ -338,6 +338,9 @@ const ARCHIVE_EXCLUDED_DIRECTORIES = new Set([
   'node_modules'
 ]);
 const ARCHIVE_FILE_READ_CONCURRENCY = 8;
+const USAGE_SEARCH_FILE_READ_CONCURRENCY = 8;
+const USAGE_SEARCH_LINE_PREVIEW_MAX_LENGTH = 240;
+const USAGE_SEARCH_SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
 const HIDE_QUERY_KEY = 'hide';
 const HIDE_QUERY_VALUE_ALL = 'all';
 const HIDE_QUERY_VALUE_MENU = 'menu';
@@ -854,6 +857,7 @@ class PluginPlayground {
         isImportEnabled: this._canInsertImport.bind(this),
         onSetCommandInsertMode: this._setCommandInsertMode.bind(this),
         onInsertCommand: this._insertCommandExecution.bind(this),
+        onFindUsages: this._findUsages.bind(this),
         getCommandInsertMode: () => this._commandInsertMode,
         isCommandInsertEnabled: this._hasEditableEditor.bind(this)
       });
@@ -1872,6 +1876,108 @@ class PluginPlayground {
 
     await Promise.all(workers);
     return results;
+  }
+
+  private async _findUsages(
+    value: string,
+    kind: TokenSidebar.UsageKind
+  ): Promise<ReadonlyArray<TokenSidebar.IUsageMatch>> {
+    const terms = this._usageSearchTerms(value, kind);
+    if (terms.length === 0) {
+      return [];
+    }
+
+    const currentBrowser = this.fileBrowserFactory?.tracker.currentWidget;
+    let currentRoot = '';
+    if (currentBrowser) {
+      currentRoot = ContentUtils.normalizeContentsPath(
+        currentBrowser.model.path
+      ).replace(/^\.$/, '');
+    } else {
+      const currentEditorPath = this.editorTracker.currentWidget?.context.path;
+      if (currentEditorPath) {
+        currentRoot = ContentUtils.normalizeContentsPath(
+          PathExt.dirname(currentEditorPath)
+        ).replace(/^\.$/, '');
+      }
+    }
+
+    const roots = [...new Set([currentRoot, EXTENSION_EXAMPLES_ROOT])];
+    const filePathsByRoot = await Promise.all(
+      roots.map(async root => {
+        try {
+          return (await this._collectArchiveFilePaths(root)).filter(filePath =>
+            USAGE_SEARCH_SOURCE_EXTENSIONS.has(
+              PathExt.extname(filePath).toLowerCase()
+            )
+          );
+        } catch {
+          return [];
+        }
+      })
+    );
+    const filePaths = [...new Set(filePathsByRoot.flat())].sort((left, right) =>
+      left.localeCompare(right)
+    );
+    const matchesByFile = await this._mapWithConcurrency(
+      filePaths,
+      USAGE_SEARCH_FILE_READ_CONCURRENCY,
+      filePath => this._findUsageMatchesInFile(filePath, terms)
+    );
+    return matchesByFile.flat();
+  }
+
+  private _usageSearchTerms(
+    value: string,
+    kind: TokenSidebar.UsageKind
+  ): string[] {
+    const terms = new Set<string>();
+    const normalizedValue = value.trim();
+    if (normalizedValue) {
+      terms.add(normalizedValue);
+    }
+    if (kind === 'token') {
+      const tokenReference = parseTokenReference(normalizedValue);
+      if (tokenReference) {
+        terms.add(tokenReference.tokenSymbol);
+      }
+    }
+    return [...terms].sort((left, right) => right.length - left.length);
+  }
+
+  private async _findUsageMatchesInFile(
+    filePath: string,
+    terms: ReadonlyArray<string>
+  ): Promise<TokenSidebar.IUsageMatch[]> {
+    const source = await ContentUtils.readContentsFileAsText(
+      this.app.serviceManager,
+      filePath
+    );
+    if (source === null) {
+      return [];
+    }
+
+    const matches: TokenSidebar.IUsageMatch[] = [];
+    const lines = source.split(/\r\n|\r|\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (terms.some(term => line.includes(term))) {
+        matches.push({
+          path: filePath,
+          line: index + 1,
+          lineText: this._usageLinePreview(line)
+        });
+      }
+    }
+    return matches;
+  }
+
+  private _usageLinePreview(line: string): string {
+    const trimmed = line.trim();
+    if (trimmed.length <= USAGE_SEARCH_LINE_PREVIEW_MAX_LENGTH) {
+      return trimmed;
+    }
+    return `${trimmed.slice(0, USAGE_SEARCH_LINE_PREVIEW_MAX_LENGTH - 3)}...`;
   }
 
   private _shouldSkipArchiveDirectory(name: string): boolean {

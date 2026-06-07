@@ -4458,6 +4458,80 @@ test('commands tab lists and filters available commands', async ({ page }) => {
   ).toContainText(/(Usage:|Arguments Schema:)/);
 });
 
+test('token and command rows find usages in the current folder', async ({
+  page,
+  tmpPath
+}) => {
+  await page.goto();
+  const panel = await openSidebarPanel(page, TOKEN_SECTION_ID);
+  const tokenName = await findImportableToken(panel);
+  const separatorIndex = tokenName.indexOf(':');
+  const packageName = tokenName.slice(0, separatorIndex).trim();
+  const tokenSymbol = tokenName.slice(separatorIndex + 1).trim();
+  const projectRoot = `${tmpPath}/usage-search-test`;
+  const tokenUsagePath = `${projectRoot}/src/token-usage.ts`;
+  const commandUsagePath = `${projectRoot}/command-usage.ts`;
+  const exampleUsagePath = `${EXTENSION_EXAMPLES_ROOT}/usage-search-example/src/index.ts`;
+
+  await page.contents.uploadContent(
+    `import { ${tokenSymbol} } from '${packageName}';
+const tokenUsage: ${tokenSymbol} | null = null;
+void tokenUsage;
+`,
+    'text',
+    tokenUsagePath
+  );
+  await page.contents.uploadContent(
+    `await app.commands.execute('${LOAD_COMMAND}');
+`,
+    'text',
+    commandUsagePath
+  );
+  await page.contents.uploadContent(
+    `import { ${tokenSymbol} } from '${packageName}';
+await app.commands.execute('${LOAD_COMMAND}');
+`,
+    'text',
+    exampleUsagePath
+  );
+  await page.filebrowser.openDirectory(projectRoot);
+
+  await panel.getByPlaceholder('Filter token strings').fill(tokenName);
+  const tokenListItem = panel.locator('.jp-PluginPlayground-listItem');
+  await expect(tokenListItem).toHaveCount(1);
+  await tokenListItem
+    .getByRole('button', {
+      name: `Find usages of token string ${tokenName}`
+    })
+    .click();
+  const tokenUsageResults = tokenListItem.locator(
+    '.jp-PluginPlayground-usageResults'
+  );
+  await expect(tokenUsageResults).toBeVisible();
+  await expect(tokenUsageResults).toContainText(`${tokenUsagePath}:1`);
+  await expect(tokenUsageResults).toContainText(`${tokenUsagePath}:2`);
+  await expect(tokenUsageResults).toContainText(`${exampleUsagePath}:1`);
+
+  await panel.getByRole('tab', { name: 'Commands', exact: true }).click();
+  await panel.getByPlaceholder('Filter command ids').fill(LOAD_COMMAND);
+  const commandListItem = panel.locator('.jp-PluginPlayground-listItem');
+  await expect(commandListItem).toHaveCount(1);
+  await commandListItem
+    .getByRole('button', {
+      name: `Find usages of command id ${LOAD_COMMAND}`
+    })
+    .click();
+  const commandUsageResults = commandListItem.locator(
+    '.jp-PluginPlayground-usageResults'
+  );
+  await expect(commandUsageResults).toBeVisible();
+  await expect(commandUsageResults).toContainText(`${commandUsagePath}:1`);
+  await expect(commandUsageResults).toContainText(`${exampleUsagePath}:2`);
+  await expect(commandUsageResults).toContainText(
+    `app.commands.execute('${LOAD_COMMAND}')`
+  );
+});
+
 test('commands tab inserts command execution at cursor position', async ({
   page,
   tmpPath
