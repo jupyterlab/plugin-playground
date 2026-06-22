@@ -47,7 +47,7 @@ class FolderShareSelectionDialogBody
     const capacityClassName = [
       'jp-PluginPlayground-folderShareSelectionCapacity',
       this._capacityTone === 'warning' ? 'jp-mod-warning' : '',
-      this._capacityTone === 'error' ? 'jp-mod-error' : ''
+      this._capacityTone === 'error' ? 'jp-mod-capacityError' : ''
     ]
       .filter(Boolean)
       .join(' ');
