@@ -32,7 +32,7 @@ Plugin Playground is built to keep the full plugin prototyping workflow inside J
 ![Export format dropdown in editor toolbar](docs/images/readme/editor-toolbar-export-dropdown.png)
 ![Share target dropdown in editor toolbar](docs/images/readme/editor-toolbar-share-dropdown.png)
 
-The right sidebar includes a single Plugin Playground panel with two collapsible sections. In **Extension Points**, the `Tokens` tab helps you discover available token strings and insert import/dependency updates, the `Commands` tab lets you search command IDs, inspect argument docs, and insert execution snippets (either directly or through AI-assisted prompt mode), and the `Packages` tab surfaces package docs plus npm and repository links for known modules.
+The right sidebar includes a single Plugin Playground panel with three collapsible sections. In **Extension Points**, the `Tokens` tab helps you discover available token strings and insert import/dependency updates, the `Commands` tab lets you search command IDs, inspect argument docs, and insert execution snippets (either directly or through AI-assisted prompt mode), and the `Packages` tab surfaces package docs plus npm and repository links for known modules.
 
 ![Extension Points token discovery and insertion actions](docs/images/readme/extension-points-tokens.png)
 ![Extension Points command discovery and insertion actions](docs/images/readme/extension-points-commands.png)
@@ -41,6 +41,8 @@ The right sidebar includes a single Plugin Playground panel with two collapsible
 The **Extension Examples** section lists discovered examples from `extension-examples/` and lets you open source entrypoints and README files directly. This keeps reference implementations close while you prototype.
 
 ![Extension Examples section with code and README actions](docs/images/readme/extension-examples.png)
+
+The **Currently Loaded Plugins** section lists plugins loaded by Plugin Playground in the current session, shows each plugin's source path, and lets you deactivate a selected plugin without clearing the rest of the session.
 
 Command completion is also included for `app.commands.execute(...)` / `commands.execute(...)` in JavaScript and TypeScript editors, and Notebook v7 integrates `Start from File`, `Build with AI`, and `Take the Tour` into New-file flows so you can create starter plugin files from the tree interface.
 
@@ -61,7 +63,7 @@ jlpm docs:screenshots
 3. Paste plugin code into the active editor.
 4. Run `Load Current File As Extension` from the editor toolbar or Command Palette.
 5. Use the `Run on save` icon button for fast iteration on one file.
-6. Use the sidebar to discover tokens, commands, packages, and extension examples.
+6. Use the sidebar to discover tokens, commands, packages, extension examples, and currently loaded playground plugins.
 
 For extension examples availability:
 

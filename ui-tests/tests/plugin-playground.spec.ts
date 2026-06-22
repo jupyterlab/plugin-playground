@@ -70,6 +70,7 @@ const ASK_AI_LOG_ENTRY_ACTION_CAPTION =
 const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
 const TOKEN_SECTION_ID = 'jp-plugin-token-sidebar';
 const EXAMPLE_SECTION_ID = 'jp-plugin-example-sidebar';
+const LOADED_PLUGINS_SECTION_ID = 'jp-plugin-loaded-sidebar';
 const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Run on save';
 const FOLDER_SHARE_DISABLE_DIALOG_CHECKBOX_LABEL =
   'Do not ask me again if all files can be included';
@@ -1284,6 +1285,91 @@ test('loads current editor file as a plugin extension', async ({
       return window.jupyterapp.commands.isToggled(id);
     }, TEST_TOGGLE_COMMAND)
   ).resolves.toBe(true);
+});
+
+test('lists loaded plugins and deactivates a selected plugin', async ({
+  page,
+  tmpPath
+}) => {
+  const pluginPath = `${tmpPath}/loaded-plugin-sidebar-test.ts`;
+  const pluginId = 'loaded-plugin-sidebar-test:plugin';
+  const commandId = 'loaded-plugin-sidebar-test:command';
+  const source = `
+const plugin = {
+  id: '${pluginId}',
+  autoStart: true,
+  activate: app => {
+    app.commands.addCommand('${commandId}', {
+      label: 'Loaded Plugin Sidebar Test Command',
+      execute: () => true
+    });
+  },
+  deactivate: () => {
+    window.__loadedPluginSidebarDeactivateCount =
+      (window.__loadedPluginSidebarDeactivateCount ?? 0) + 1;
+  }
+};
+
+export default plugin;
+`;
+
+  await page.contents.uploadContent(source, 'text', pluginPath);
+  await page.goto();
+  await page.filebrowser.open(pluginPath);
+  expect(await page.activity.activateTab('loaded-plugin-sidebar-test.ts')).toBe(
+    true
+  );
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+  const loadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(loadResult.ok).toBe(true);
+  expect(loadResult.status).toBe('loaded');
+  expect(loadResult.pluginIds).toContain(pluginId);
+
+  const section = await openSidebarPanel(page, LOADED_PLUGINS_SECTION_ID);
+  await expect(section.locator('.jp-PluginPlayground-entryLabel')).toHaveText([
+    pluginId
+  ]);
+  await expect(section.locator('.jp-PluginPlayground-description')).toHaveText(
+    pluginPath
+  );
+
+  const deactivateButton = section.getByRole('button', {
+    name: `Deactivate ${pluginId}`
+  });
+  await expect(deactivateButton).toBeVisible();
+  await deactivateButton.click();
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ loadedPluginId, loadedCommandId }) => {
+        const testWindow = window as Window & {
+          __loadedPluginSidebarDeactivateCount?: number;
+        };
+        return (
+          !window.jupyterapp.hasPlugin(loadedPluginId) &&
+          !window.jupyterapp.commands.hasCommand(loadedCommandId) &&
+          testWindow.__loadedPluginSidebarDeactivateCount === 1
+        );
+      },
+      {
+        loadedPluginId: pluginId,
+        loadedCommandId: commandId
+      }
+    )
+  );
+  await expect(section.locator('.jp-PluginPlayground-listItem')).toHaveCount(0);
+  await expect(
+    section.getByText('No playground plugins are currently loaded.', {
+      exact: true
+    })
+  ).toBeVisible();
 });
 
 test('loads plugin importing runtime federated module outside known module map', async ({
@@ -4551,62 +4637,66 @@ test.describe('JS logs Ask AI action', () => {
       '.jp-chat-input-textfield[data-playground-test="ai-input"] textarea'
     );
 
-    await page.goto();
-    await ensureMockJupyterLiteAIChat(page);
+    try {
+      await page.goto();
+      await ensureMockJupyterLiteAIChat(page);
 
-    const hasJSLogsCommand = await page.evaluate((id: string) => {
-      return window.jupyterapp.commands.hasCommand(id);
-    }, JS_LOGS_OPEN_COMMAND);
-    test.skip(
-      !hasJSLogsCommand,
-      'jupyterlab-js-logs is required for JS log row actions.'
-    );
+      const hasJSLogsCommand = await page.evaluate((id: string) => {
+        return window.jupyterapp.commands.hasCommand(id);
+      }, JS_LOGS_OPEN_COMMAND);
+      test.skip(
+        !hasJSLogsCommand,
+        'jupyterlab-js-logs is required for JS log row actions.'
+      );
 
-    await page.evaluate((id: string) => {
-      const commands = window.jupyterapp.commands;
-      if (!commands.isToggled(id)) {
-        return commands.execute(id);
-      }
-      return undefined;
-    }, JS_LOGS_OPEN_COMMAND);
+      await page.evaluate((id: string) => {
+        const commands = window.jupyterapp.commands;
+        if (!commands.isToggled(id)) {
+          return commands.execute(id);
+        }
+        return undefined;
+      }, JS_LOGS_OPEN_COMMAND);
 
-    await page.evaluate((message: string) => {
-      console.warn(message);
-    }, warningMarker);
+      await page.evaluate((message: string) => {
+        console.warn(message);
+      }, warningMarker);
 
-    const warningRow = page.locator('.jp-OutputArea-child').filter({
-      hasText: warningMarker
-    });
-    await expect(warningRow).toHaveCount(1);
-    await expect(
-      warningRow.first().getByRole('button', {
+      const warningRow = page.locator('.jp-OutputArea-child').filter({
+        hasText: warningMarker
+      });
+      await expect(warningRow).toHaveCount(1);
+      await expect(
+        warningRow.first().getByRole('button', {
+          name: ASK_AI_LOG_ENTRY_ACTION_CAPTION
+        })
+      ).toHaveCount(0);
+
+      await page.evaluate((message: string) => {
+        console.error(message);
+      }, logMarker);
+
+      const logRow = page.locator('.jp-OutputArea-child').filter({
+        hasText: logMarker
+      });
+      await expect(logRow).toHaveCount(1);
+      const askAIButton = logRow.first().getByRole('button', {
         name: ASK_AI_LOG_ENTRY_ACTION_CAPTION
-      })
-    ).toHaveCount(0);
+      });
+      await expect(askAIButton).toBeVisible();
 
-    await page.evaluate((message: string) => {
-      console.error(message);
-    }, logMarker);
+      await askAIButton.click();
+      await expect(chatInput).toHaveValue(new RegExp(escapeRegExp(logMarker)));
 
-    const logRow = page.locator('.jp-OutputArea-child').filter({
-      hasText: logMarker
-    });
-    await expect(logRow).toHaveCount(1);
-    const askAIButton = logRow.first().getByRole('button', {
-      name: ASK_AI_LOG_ENTRY_ACTION_CAPTION
-    });
-    await expect(askAIButton).toBeVisible();
-
-    await askAIButton.click();
-    await expect(chatInput).toHaveValue(new RegExp(escapeRegExp(logMarker)));
-
-    await page.evaluate(() => {
-      document
-        .querySelector(
-          '.jp-chat-input-textfield[data-playground-test="ai-input"]'
-        )
-        ?.remove();
-    });
+      await page.evaluate(() => {
+        document
+          .querySelector(
+            '.jp-chat-input-textfield[data-playground-test="ai-input"]'
+          )
+          ?.remove();
+      });
+    } finally {
+      await page.unrouteAll({ behavior: 'ignoreErrors' });
+    }
   });
 });
 
@@ -4626,38 +4716,42 @@ test.describe('JS logs Ask AI action without provider setup', () => {
   }) => {
     const logMarker = `ask-ai-log-row-no-provider-${Date.now()}`;
 
-    await page.goto();
-    await ensureMockJupyterLiteAIChat(page);
+    try {
+      await page.goto();
+      await ensureMockJupyterLiteAIChat(page);
 
-    const hasJSLogsCommand = await page.evaluate((id: string) => {
-      return window.jupyterapp.commands.hasCommand(id);
-    }, JS_LOGS_OPEN_COMMAND);
-    test.skip(
-      !hasJSLogsCommand,
-      'jupyterlab-js-logs is required for JS log row actions.'
-    );
+      const hasJSLogsCommand = await page.evaluate((id: string) => {
+        return window.jupyterapp.commands.hasCommand(id);
+      }, JS_LOGS_OPEN_COMMAND);
+      test.skip(
+        !hasJSLogsCommand,
+        'jupyterlab-js-logs is required for JS log row actions.'
+      );
 
-    await page.evaluate((id: string) => {
-      const commands = window.jupyterapp.commands;
-      if (!commands.isToggled(id)) {
-        return commands.execute(id);
-      }
-      return undefined;
-    }, JS_LOGS_OPEN_COMMAND);
+      await page.evaluate((id: string) => {
+        const commands = window.jupyterapp.commands;
+        if (!commands.isToggled(id)) {
+          return commands.execute(id);
+        }
+        return undefined;
+      }, JS_LOGS_OPEN_COMMAND);
 
-    await page.evaluate((message: string) => {
-      console.error(message);
-    }, logMarker);
+      await page.evaluate((message: string) => {
+        console.error(message);
+      }, logMarker);
 
-    const logRow = page.locator('.jp-OutputArea-child').filter({
-      hasText: logMarker
-    });
-    await expect(logRow).toHaveCount(1);
-    await expect(
-      logRow.first().getByRole('button', {
-        name: ASK_AI_LOG_ENTRY_ACTION_CAPTION
-      })
-    ).toHaveCount(0);
+      const logRow = page.locator('.jp-OutputArea-child').filter({
+        hasText: logMarker
+      });
+      await expect(logRow).toHaveCount(1);
+      await expect(
+        logRow.first().getByRole('button', {
+          name: ASK_AI_LOG_ENTRY_ACTION_CAPTION
+        })
+      ).toHaveCount(0);
+    } finally {
+      await page.unrouteAll({ behavior: 'ignoreErrors' });
+    }
   });
 });
 

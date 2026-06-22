@@ -76,6 +76,7 @@ import {
 } from './token-sidebar';
 
 import { ExampleSidebar, filterExampleRecords } from './example-sidebar';
+import { LoadedPluginsSidebar } from './loaded-plugins-sidebar';
 import { createFloatingUrlLoadHint } from './components/url-load-hint';
 
 import { loadOnSaveToggleIcon, runTileIcon, tokenSidebarIcon } from './icons';
@@ -873,12 +874,23 @@ class PluginPlayground {
       exampleSidebar.title.caption =
         'Browse plugin examples from jupyterlab/extension-examples';
 
+      const loadedPluginsSidebar = new LoadedPluginsSidebar({
+        getLoadedPlugins: this._getLoadedPluginRecords.bind(this),
+        onDeactivate: this._deactivateLoadedPlugin.bind(this)
+      });
+      this._loadedPluginsSidebar = loadedPluginsSidebar;
+      loadedPluginsSidebar.id = 'jp-plugin-loaded-sidebar';
+      loadedPluginsSidebar.title.label = 'Currently Loaded Plugins';
+      loadedPluginsSidebar.title.caption =
+        'Playground-loaded plugins active in this session';
+
       const playgroundSidebar = new SidePanel();
       playgroundSidebar.id = 'jp-plugin-playground-sidebar';
       playgroundSidebar.title.caption = 'Plugin Playground helper panels';
       playgroundSidebar.title.icon = tokenSidebarIcon;
       playgroundSidebar.addWidget(tokenSidebar);
       playgroundSidebar.addWidget(exampleSidebar);
+      playgroundSidebar.addWidget(loadedPluginsSidebar);
       this.app.shell.add(playgroundSidebar, 'right', { rank: 650 });
       this._playgroundSidebar = playgroundSidebar;
       this._expandPlaygroundSidebarSections();
@@ -2107,6 +2119,7 @@ class PluginPlayground {
 
       for (const plugin of plugins) {
         await this._deactivateAndDeregisterPlugin(plugin.id);
+        this._loadedPluginRecords.delete(plugin.id);
         this.app.registerPlugin(plugin);
         newlyRegisteredPluginIds.push(plugin.id);
       }
@@ -2151,6 +2164,7 @@ class PluginPlayground {
       }
       const message = error instanceof Error ? error.message : String(error);
       showErrorMessage('Plugin loading failed', message);
+      this._refreshLoadedPlugins();
       return {
         status: 'loading-failed',
         ok: false,
@@ -2212,6 +2226,7 @@ class PluginPlayground {
       skippedAutoStartPluginIds.length > 0
         ? skippedAutoStartPluginIds
         : undefined;
+    this._recordLoadedPlugins(pluginIds, path);
     return {
       status: 'loaded',
       ok: true,
@@ -2664,6 +2679,42 @@ class PluginPlayground {
     this._tokenSidebar?.update();
   }
 
+  private _getLoadedPluginRecords(): ReadonlyArray<LoadedPluginsSidebar.ILoadedPluginRecord> {
+    return Array.from(this._loadedPluginRecords.values())
+      .filter(plugin => this.app.hasPlugin(plugin.id))
+      .sort((left, right) => left.id.localeCompare(right.id));
+  }
+
+  private _recordLoadedPlugins(
+    pluginIds: ReadonlyArray<string>,
+    path: string | null
+  ): void {
+    const sourcePath = path ? ContentUtils.normalizeContentsPath(path) : null;
+    for (const pluginId of pluginIds) {
+      this._loadedPluginRecords.set(pluginId, {
+        id: pluginId,
+        sourcePath
+      });
+    }
+    this._refreshLoadedPlugins();
+  }
+
+  private _refreshLoadedPlugins(): void {
+    this._loadedPluginsSidebar?.update();
+  }
+
+  private async _deactivateLoadedPlugin(pluginId: string): Promise<void> {
+    await this._deactivateAndDeregisterPlugin(pluginId);
+    this._removePluginLocalStyles(pluginId);
+    this._removeDynamicSettingPlugin(pluginId);
+    this._loadedPluginRecords.delete(pluginId);
+    this._refreshExtensionPoints();
+    this._refreshLoadedPlugins();
+    Notification.success(`Deactivated "${pluginId}".`, {
+      autoClose: 3500
+    });
+  }
+
   private _syncPluginLocalStyles(
     pluginId: string,
     nextPaths: ReadonlySet<string>
@@ -2703,6 +2754,33 @@ class PluginPlayground {
     return false;
   }
 
+  private _removePluginLocalStyles(pluginId: string): void {
+    const previousPaths = this._pluginLocalStylePaths.get(pluginId);
+    if (!previousPaths) {
+      return;
+    }
+    for (const previousPath of previousPaths) {
+      if (this._isStylePathUsedByOtherPlugins(previousPath, pluginId)) {
+        continue;
+      }
+      ImportResolver.removeLocalStyles([previousPath]);
+    }
+    this._pluginLocalStylePaths.delete(pluginId);
+  }
+
+  private _removeDynamicSettingPlugin(pluginId: string): void {
+    if (!this._dynamicSettingPlugins.delete(pluginId)) {
+      return;
+    }
+    delete this.settingRegistry.plugins[pluginId];
+    this._removeDynamicSettingStorageValue(
+      `${DYNAMIC_SETTINGS_STORAGE_KEY_PREFIX}${pluginId}`
+    );
+    (
+      this.settingRegistry.pluginChanged as Signal<ISettingRegistry, string>
+    ).emit(pluginId);
+  }
+
   public async registerKnownModule(known: IKnownModule): Promise<void> {
     registerKnownModule(known);
     this._tokenSidebar?.update();
@@ -2728,6 +2806,7 @@ class PluginPlayground {
     if (content instanceof AccordionPanel) {
       content.expand(0);
       content.expand(1);
+      content.expand(2);
     }
   }
 
@@ -4053,6 +4132,10 @@ class PluginPlayground {
     MainAreaWidget<IFrame>
   >();
   private readonly _pluginLocalStylePaths = new Map<string, Set<string>>();
+  private readonly _loadedPluginRecords = new Map<
+    string,
+    LoadedPluginsSidebar.ILoadedPluginRecord
+  >();
   private readonly _dynamicSettingPlugins = new Map<
     string,
     ISettingRegistry.ISchema
@@ -4065,6 +4148,7 @@ class PluginPlayground {
   private _commandInsertMode: CommandInsertMode = DEFAULT_COMMAND_INSERT_MODE;
   private _playgroundSidebar: SidePanel | null = null;
   private _tokenSidebar: TokenSidebar | null = null;
+  private _loadedPluginsSidebar: LoadedPluginsSidebar | null = null;
   private _documentationWidgetId = 0;
 }
 
