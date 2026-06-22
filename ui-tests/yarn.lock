@@ -891,16 +891,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@jupyterlab/nbformat@npm:^3.0.0 || ^4.0.0-alpha.21 || ^4.0.0":
-  version: 4.5.5
-  resolution: "@jupyterlab/nbformat@npm:4.5.5"
-  dependencies:
-    "@lumino/coreutils": ^2.2.2
-  checksum: 3db7d9fa500161bd1d0a5abcd7c05f7a45abc6180ccab0023bc3f80cfdc6a354de61970f67c6835de87d2ad40c520d59e6cc3bf27834dc8f18d0dc867f130b3e
-  languageName: node
-  linkType: hard
-
-"@jupyterlab/nbformat@npm:^4.6.0":
+"@jupyterlab/nbformat@npm:^3.0.0 || ^4.0.0-alpha.21 || ^4.0.0, @jupyterlab/nbformat@npm:^4.6.0":
   version: 4.6.0
   resolution: "@jupyterlab/nbformat@npm:4.6.0"
   dependencies:
