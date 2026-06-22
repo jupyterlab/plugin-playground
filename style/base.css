@@ -416,7 +416,7 @@
   background: var(--jp-warn-color1);
 }
 
-.jp-PluginPlayground-folderShareSelectionCapacity.jp-mod-error
+.jp-PluginPlayground-folderShareSelectionCapacity.jp-mod-capacityError
   .jp-PluginPlayground-folderShareSelectionCapacityFill {
   background: var(--jp-error-color1);
 }
