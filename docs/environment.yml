@@ -6,19 +6,22 @@ channels:
 dependencies:
   - python=3.10
   - pip
+  - hatchling
+  - hatch-jupyter-builder
+  - hatch-nodejs-version
   - pydata-sphinx-theme
   - myst-parser
   - ipywidgets>=8.0,<9
-  - jupyterlab>=4.0.0,<5
+  - jupyterlab-lsp>=5.2.0,<6
   - jupyterlab-js-logs>=1.3.1,<2
   - jupyterlab-tour>=4,<5
   - jupyterlab-language-pack-fr-FR
   - jupyterlab-language-pack-zh-CN
   - jupyterlite-ai>=0.15,<1
-  - jupyterlite-core>=0.7.0,<0.8
-  - jupyterlite-sphinx>=0.22.0,<0.23
-  - jupyterlite-pyodide-kernel>=0.7.0,<0.8
-  - nodejs=18
+  - jupyterlite-core>=0.8.0,<0.10
+  - jupyterlite-sphinx>=0.23.0,<0.24
+  - jupyterlite-pyodide-kernel>=0.8.0,<0.10
+  - nodejs>=24,<25
   - pip:
       - build
       - jupyterlab-open-url-parameter>=0.4,<1

@@ -52,6 +52,8 @@ import { PluginLoader, PluginLoadingError } from './loader';
 
 import { PluginTranspiler } from './transpiler';
 
+import { javaScriptKernelLspPlugins } from './javascript-kernel-lsp/integration';
+
 import { loadKnownModule } from './modules';
 
 import {
@@ -4468,7 +4470,11 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
   }
 };
 
-const plugins: JupyterFrontEndPlugin<any>[] = [notebookTreePlugin, mainPlugin];
+const plugins: JupyterFrontEndPlugin<any>[] = [
+  notebookTreePlugin,
+  ...javaScriptKernelLspPlugins,
+  mainPlugin
+];
 
 export default plugins;
 export type { IKnownModule };

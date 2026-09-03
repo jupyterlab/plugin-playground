@@ -2,9 +2,18 @@
   "jupyter-lite-schema-version": 0,
   "jupyter-config-data": {
     "appName": "JupyterLab Plugin Playground",
+    "disableRTC": true,
     "disabledExtensions": [
       "jupyterlab-jupytext:plugin",
-      "jupyterlab-tour:default-tours"
+      "jupyterlab-tour:default-tours",
+      "jupyterlab-notebook-awareness:plugin",
+      "@jupyter/collaboration-extension",
+      "@jupyter/docprovider-extension",
+      "@jupyter-ai-contrib/server-documents",
+      "@jupyter-ai-contrib/server-documents:rtc-global-awareness",
+      "jupyterlab-chat-extension",
+      "@jupyterlite/application-extension:service-worker-manager",
+      "@jupyterlite/javascript-kernel-extension:kernel-iframe"
     ]
   }
 }
