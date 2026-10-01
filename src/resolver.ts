@@ -549,6 +549,9 @@ export class ImportResolver {
       if (normalizedResolvedPath.endsWith('.css')) {
         return this._loadLocalStyle(resolvedPath, content);
       }
+      if (normalizedResolvedPath.endsWith('.json')) {
+        return this._loadLocalJson(resolvedPath, content);
+      }
 
       return await this._options.dynamicLoader(content);
     }
@@ -571,13 +574,34 @@ export class ImportResolver {
       candidates.add(`${baseCandidate}.tsx`);
       candidates.add(`${baseCandidate}.js`);
       candidates.add(`${baseCandidate}.css`);
+      candidates.add(`${baseCandidate}.json`);
       candidates.add(PathExt.join(baseCandidate, 'index.ts'));
       candidates.add(PathExt.join(baseCandidate, 'index.tsx'));
       candidates.add(PathExt.join(baseCandidate, 'index.js'));
       candidates.add(PathExt.join(baseCandidate, 'index.css'));
+      candidates.add(PathExt.join(baseCandidate, 'index.json'));
     }
 
     return Array.from(candidates);
+  }
+
+  private _loadLocalJson(path: string, content: string): IModule {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Invalid JSON file "${path}": ${message}`);
+    }
+
+    const jsonModule: Record<string, unknown> = {
+      __esModule: true,
+      default: parsed
+    };
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      Object.assign(jsonModule, parsed);
+    }
+    return jsonModule as unknown as IModule;
   }
 
   private _loadLocalStyle(path: string, css: string): IModule {

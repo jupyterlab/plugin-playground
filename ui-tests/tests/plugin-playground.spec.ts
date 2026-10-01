@@ -57,6 +57,8 @@ const CSS_IMPORT_TEST_MARKER_ID = 'playground-css-import-test-marker';
 const CSS_IMPORT_TEST_COLOR = 'rgb(17, 34, 51)';
 const CSS_IMPORT_TEST_UPDATED_COLOR = 'rgb(34, 68, 102)';
 const CSS_IMPORT_TEST_BROKEN_MODULE_ERROR = 'css import rollback test failure';
+const JSON_IMPORT_TEST_PLUGIN_ID = 'playground-json-import-test:plugin';
+const JSON_IMPORT_TEST_MARKER_ID = 'playground-json-import-test-marker';
 const COMMAND_COMPLETION_FILE = 'command-completion.ts';
 const INVOKE_FILE_COMPLETER_COMMAND = 'completer:invoke-file';
 const JUPYTERLITE_AI_OPEN_OR_REVEAL_CHAT_COMMAND =
@@ -247,6 +249,39 @@ const CSS_IMPORT_TEST_PACKAGE_JSON_WITH_STYLE = JSON.stringify(
   null,
   2
 );
+
+const JSON_IMPORT_TEST_DATA = JSON.stringify(
+  {
+    greeting: 'Hello from local JSON',
+    version: '1.2.3'
+  },
+  null,
+  2
+);
+const JSON_IMPORT_TEST_SOURCE = `import { JupyterFrontEnd, JupyterFrontEndPlugin } from '@jupyterlab/application';
+import config, { version } from './config.json';
+
+const plugin: JupyterFrontEndPlugin<void> = {
+  id: '${JSON_IMPORT_TEST_PLUGIN_ID}',
+  autoStart: true,
+  activate: (app: JupyterFrontEnd) => {
+    const existing = document.getElementById('${JSON_IMPORT_TEST_MARKER_ID}');
+    if (existing) {
+      existing.remove();
+    }
+    const marker = document.createElement('div');
+    marker.id = '${JSON_IMPORT_TEST_MARKER_ID}';
+    marker.dataset.greeting = String(config.greeting || '');
+    marker.dataset.version = String(version || '');
+    document.body.appendChild(marker);
+  },
+  deactivate: () => {
+    document.getElementById('${JSON_IMPORT_TEST_MARKER_ID}')?.remove();
+  }
+};
+
+export default plugin;
+`;
 
 const DYNAMIC_SETTINGS_PERSIST_TEST_PLUGIN_ID =
   'dynamic-settings-persist-test:plugin';
@@ -1927,6 +1962,55 @@ test('rolls back CSS changes when plugin schema parsing fails', async ({
       return window.getComputedStyle(marker).backgroundColor;
     }, CSS_IMPORT_TEST_MARKER_ID)
   ).resolves.toBe(CSS_IMPORT_TEST_COLOR);
+});
+
+test('loads plugin importing local .json file', async ({ page, tmpPath }) => {
+  const projectRoot = `${tmpPath}/json-import-test`;
+  const sourcePath = `${projectRoot}/index.ts`;
+  const jsonPath = `${projectRoot}/config.json`;
+
+  await page.contents.uploadContent(JSON_IMPORT_TEST_DATA, 'text', jsonPath);
+  await page.contents.uploadContent(
+    JSON_IMPORT_TEST_SOURCE,
+    'text',
+    sourcePath
+  );
+  await page.goto();
+
+  await page.filebrowser.open(sourcePath);
+  expect(await page.activity.activateTab('index.ts')).toBe(true);
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+  const loadResult = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, LOAD_COMMAND);
+  expect(loadResult.ok).toBe(true);
+  expect(loadResult.status).toBe('loaded');
+  expect(loadResult.pluginIds).toContain(JSON_IMPORT_TEST_PLUGIN_ID);
+
+  await page.waitForCondition(() =>
+    page.evaluate(
+      ({ markerId, greeting, version }) => {
+        const marker = document.getElementById(markerId);
+        if (!marker) {
+          return false;
+        }
+        return (
+          marker.dataset.greeting === greeting &&
+          marker.dataset.version === version
+        );
+      },
+      {
+        markerId: JSON_IMPORT_TEST_MARKER_ID,
+        greeting: 'Hello from local JSON',
+        version: '1.2.3'
+      }
+    )
+  );
 });
 
 test('persists dynamic plugin settings in browser storage', async ({
