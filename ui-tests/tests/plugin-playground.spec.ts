@@ -1230,6 +1230,46 @@ test('open packages reference command switches to packages view', async ({
   ).toBeVisible();
 });
 
+test('packages view reports failed extension discovery and recovers on refresh', async ({
+  page
+}) => {
+  let blockExtensionMetadata = true;
+  await page.route(/\/extensions\/.*package\.json/, route =>
+    blockExtensionMetadata ? route.abort() : route.continue()
+  );
+  await page.goto();
+
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, OPEN_PACKAGES_REFERENCE_COMMAND)
+  );
+  await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, OPEN_PACKAGES_REFERENCE_COMMAND);
+
+  const section = await openSidebarPanel(page, TOKEN_SECTION_ID);
+  const failures = section.locator('.jp-PluginPlayground-packagesFailures');
+  await expect(failures).toContainText('could not be loaded');
+  await expect(failures).toContainText('@jupyterlab/plugin-playground');
+
+  blockExtensionMetadata = false;
+  await section.getByRole('button', { name: 'Refresh packages' }).click();
+  await expect(failures).toHaveCount(0);
+
+  await section
+    .locator('.jp-PluginPlayground-filter')
+    .fill('plugin-playground');
+  const playgroundPackage = section
+    .locator('.jp-PluginPlayground-listItem')
+    .filter({ hasText: '@jupyterlab/plugin-playground' })
+    .first();
+  await expect(playgroundPackage).toBeVisible();
+  await expect(playgroundPackage).not.toContainText(
+    'Discovered federated extension package'
+  );
+});
+
 test('loads current editor file as a plugin extension', async ({
   page,
   tmpPath

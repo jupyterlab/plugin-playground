@@ -94,6 +94,25 @@
   transform: translateY(-50%);
 }
 
+.jp-PluginPlayground-packagesStatus {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+  margin: 5px 0px;
+}
+
+.jp-PluginPlayground-packagesFailures {
+  flex: 1 1 auto;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.jp-PluginPlayground-refreshPackagesButton {
+  margin-left: auto;
+}
+
 .jp-PluginPlayground-visuallyHidden {
   border: 0;
   clip: rect(0, 0, 0, 0);

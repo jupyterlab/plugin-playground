@@ -37,8 +37,12 @@ type IKnownModuleUrls = NonNullable<IKnownModule['urls']>;
 const KNOWN_MODULES = new Map<string, IKnownModule>();
 
 let _coreRegistered = false;
+const FEDERATED_DISCOVERY_CONCURRENCY = 6;
+
 let _federatedDiscoveryComplete = false;
-let _federatedDiscoveryPending: Promise<void> | null = null;
+let _federatedDiscoveryPending: Promise<ReadonlyArray<string>> | null = null;
+// Extensions whose metadata could not be loaded during the last discovery.
+const _federatedDiscoveryFailures = new Set<string>();
 
 export function registerKnownModule(known: IKnownModule): void {
   const name = _stringValue(known.name);
@@ -128,14 +132,22 @@ export function registerCoreKnownModules(): void {
   _coreRegistered = true;
 }
 
+/**
+ * Discover metadata of federated extensions and register them as known modules.
+ *
+ * Resolves with the names of extensions whose metadata could not be loaded
+ * (empty when everything succeeded). Failed extensions are retried on the
+ * next call, even without `force`; `force` additionally refreshes the ones
+ * which were already discovered successfully.
+ */
 export async function discoverFederatedKnownModules(
   options: {
     force?: boolean;
   } = {}
-): Promise<void> {
+): Promise<ReadonlyArray<string>> {
   const { force = false } = options;
   if (_federatedDiscoveryComplete && !force) {
-    return;
+    return [];
   }
   if (_federatedDiscoveryPending) {
     return _federatedDiscoveryPending;
@@ -150,27 +162,84 @@ export async function discoverFederatedKnownModules(
   return _federatedDiscoveryPending;
 }
 
-async function _discoverFederatedKnownModules(force: boolean): Promise<void> {
-  for (const extension of _federatedExtensionsFromPageConfig()) {
-    try {
-      await _registerFederatedExtensionModule(extension, force);
-    } catch (error) {
-      console.warn(
-        `Failed to discover metadata for federated extension ${extension.name}`,
-        error
-      );
-    }
-  }
+async function _discoverFederatedKnownModules(
+  force: boolean
+): Promise<ReadonlyArray<string>> {
+  const extensions = _federatedExtensionsFromPageConfig();
+  const failures = new Set<string>();
 
-  _federatedDiscoveryComplete = true;
+  await _mapWithConcurrency(
+    extensions,
+    FEDERATED_DISCOVERY_CONCURRENCY,
+    async extension => {
+      try {
+        const loaded = await _registerFederatedExtensionModule(
+          extension,
+          force
+        );
+        if (!loaded) {
+          failures.add(extension.name);
+        }
+      } catch (error) {
+        failures.add(extension.name);
+        console.warn(
+          `Failed to discover metadata for federated extension ${extension.name}`,
+          error
+        );
+      }
+    }
+  );
+
+  _federatedDiscoveryFailures.clear();
+  for (const name of failures) {
+    _federatedDiscoveryFailures.add(name);
+  }
+  _federatedDiscoveryComplete = failures.size === 0;
+  return Array.from(failures);
 }
 
+async function _mapWithConcurrency<T>(
+  items: ReadonlyArray<T>,
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+): Promise<void> {
+  let nextIndex = 0;
+  const runners = Array.from(
+    { length: Math.max(1, Math.min(concurrency, items.length)) },
+    async () => {
+      while (nextIndex < items.length) {
+        const item = items[nextIndex++];
+        await worker(item);
+      }
+    }
+  );
+  await Promise.all(runners);
+}
+
+/**
+ * Names of federated extensions whose metadata could not be loaded during the
+ * last discovery run.
+ */
+export function listFederatedDiscoveryFailures(): ReadonlyArray<string> {
+  return Array.from(_federatedDiscoveryFailures);
+}
+
+/**
+ * Register a federated extension (and the packages it shares).
+ *
+ * Resolves with `false` if the extension's `package.json` could not be loaded;
+ * the extension is still registered with the limited information available.
+ */
 async function _registerFederatedExtensionModule(
   extension: IFederatedExtensionMetadata,
   force: boolean
-): Promise<void> {
-  if (KNOWN_MODULES.has(extension.name) && !force) {
-    return;
+): Promise<boolean> {
+  if (
+    KNOWN_MODULES.has(extension.name) &&
+    !force &&
+    !_federatedDiscoveryFailures.has(extension.name)
+  ) {
+    return true;
   }
 
   const packageResult = await _loadExtensionPackageData(extension);
@@ -200,6 +269,8 @@ async function _registerFederatedExtensionModule(
       origin: `shared-by:${packageName}`
     });
   }
+
+  return packageResult !== null;
 }
 
 async function _loadExtensionPackageData(
