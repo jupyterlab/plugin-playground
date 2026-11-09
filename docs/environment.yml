@@ -4,7 +4,7 @@ channels:
   - conda-forge
 
 dependencies:
-  - python=3.10
+  - python=3.12
   - pip
   - pydata-sphinx-theme
   - myst-parser
@@ -14,10 +14,10 @@ dependencies:
   - jupyterlab-tour>=4,<5
   - jupyterlab-language-pack-fr-FR
   - jupyterlab-language-pack-zh-CN
-  - jupyterlite-ai>=0.15,<1
-  - jupyterlite-core>=0.7.0,<0.8
-  - jupyterlite-sphinx>=0.22.0,<0.23
-  - jupyterlite-pyodide-kernel>=0.7.0,<0.8
+  - jupyter-ai-lite>=0.21,<1
+  - jupyterlite-core>=0.8.0,<0.9
+  - jupyterlite-sphinx>=0.23.0,<0.24
+  - jupyterlite-pyodide-kernel>=0.8.0,<0.9
   - nodejs=18
   - pip:
       - build
