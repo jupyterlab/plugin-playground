@@ -162,25 +162,27 @@ To migrate to the ES6-compatible syntax:
 
 Plugin Playground supports AI-assisted extension prototyping in both JupyterLite and Binder deployments.
 
-- In JupyterLite, you can use browser-based AI chat and completions.
-- In Binder (JupyterLab), you can use the same JupyterLite AI tooling.
+- In JupyterLite, you can use browser-based AI chat and completions with [Jupyter AI Lite](https://github.com/jupyterlite/ai).
+- In Binder (JupyterLab), you can use the same Jupyter AI Lite tooling.
+
+The AI chat uses [jupyterlab-chat](https://github.com/jupyterlab/jupyter-chat) with the Jupyternaut persona. Plugin Playground opens its prompts in one chat in the chat side panel. It creates a new chat file the first time after each page load, and uses the same chat until the page reloads.
 
 ### Quick Start
 
 1. Launch Plugin Playground in Lite or Binder (or start with the `Take the Tour` tile).
-2. Open the AI settings panel.
+2. Open `Settings > Jupyternaut Settings`.
 3. Add a provider and choose a model.
 4. Enter your provider API key and save.
 5. Ask the assistant to draft or refine plugin code, then run `Load Current File As Extension`.
 
 ### Provider Setup Help
 
-- [JupyterLite AI documentation](https://jupyterlite-ai.readthedocs.io/en/latest/)
+- [Jupyter AI Lite documentation](https://jupyterlite-ai.readthedocs.io/en/latest/)
 - [Plugin authoring skill for agents](_agents/skills/plugin-authoring/SKILL.md)
 
 ### JS Logs Ask AI
 
-Plugin Playground adds an `Ask AI` button to JS Logs entries so you can send error text to JupyterLite AI chat for debugging context. The button appears only on `error`/`critical` entries that include text content, and only when JupyterLite AI is available and a provider is configured.
+Plugin Playground adds an `Ask AI` button to JS Logs entries so you can send error text to the AI chat for debugging context. The button appears only on `error`/`critical` entries that include text content, and only when Jupyter AI Lite is available and a provider is configured.
 
 ### Command Insert Modes (Default + AI Prompt)
 
@@ -194,7 +196,7 @@ In the `Commands` tab, each command row includes a split `+` action and a mode d
 
   at the active cursor position in the current editor.
 
-- `Prompt AI to insert` does not insert directly. It opens JupyterLite AI chat and prefills a contextual prompt so AI can choose a better insertion location before you submit.
+- `Prompt AI to insert` does not insert directly. It opens the AI chat and prefills a contextual prompt so AI can choose a better insertion location before you submit.
 
 ![Command insert mode dropdown with AI option](docs/images/readme/command-insert-mode-dropdown.png)
 

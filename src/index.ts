@@ -307,27 +307,29 @@ const LOAD_ON_SAVE_ENABLED_DESCRIPTION =
   'Toggle auto-loading this file as an extension on save';
 const LOAD_ON_SAVE_DISABLED_DESCRIPTION =
   'Auto load on save is available for JavaScript and TypeScript files';
-const JUPYTERLITE_AI_OPEN_OR_REVEAL_CHAT_COMMAND =
-  '@jupyterlite/ai:open-or-reveal-chat';
-const JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND = '@jupyterlite/ai:open-settings';
-const JUPYTERLITE_AI_SETTINGS_MODEL_PLUGIN_ID =
-  '@jupyterlite/ai:settings-model';
-const JUPYTERLITE_AI_INSTALL_HINT =
-  'JupyterLite AI is unavailable. Install the jupyterlite-ai extension and reload the application.';
-const JUPYTERLITE_AI_PROVIDER_SETUP_HINT = 'No AI provider configured.';
+const JUPYTERLAB_CHAT_CREATE_COMMAND = 'jupyterlab-chat:create';
+const JUPYTERLAB_CHAT_OPEN_WITH_MESSAGE_COMMAND =
+  'jupyterlab-chat:openWithMessage';
+const JUPYTERNAUT_LITE_OPEN_SETTINGS_COMMAND =
+  '@jupyter-ai/jupyternaut-lite:open-settings';
+const JUPYTERNAUT_LITE_SETTINGS_PLUGIN_ID =
+  '@jupyter-ai/jupyternaut-lite:settings-model';
+const AI_CHAT_INSTALL_HINT =
+  'Jupyter AI Lite is unavailable. Install the jupyter-ai-lite extension and reload the application.';
+const AI_PROVIDER_SETUP_HINT = 'No AI provider configured.';
 const ASK_AI_LOG_ENTRY_ACTION_ID = 'plugin-playground:ask-ai-log-entry';
 const LOG_ENTRY_PROMPT_MAX_OUTPUT_LENGTH = 8000;
-type JupyterLiteAIErrorCode = 'install-unavailable' | 'provider-setup-required';
-type JupyterLiteAIChatOpenStatus =
+type AIChatErrorCode = 'install-unavailable' | 'provider-setup-required';
+type AIChatOpenStatus =
   | 'opened'
   | 'provider-setup-required'
   | 'install-unavailable'
   | 'failed';
 
-class JupyterLiteAIError extends Error {
-  constructor(readonly code: JupyterLiteAIErrorCode, message: string) {
+class AIChatError extends Error {
+  constructor(readonly code: AIChatErrorCode, message: string) {
     super(message);
-    this.name = 'JupyterLiteAIError';
+    this.name = 'AIChatError';
   }
 }
 
@@ -719,7 +721,7 @@ class PluginPlayground {
       describedBy: { args: CREATE_PLUGIN_ARGS_SCHEMA },
       icon: args => (args['isPalette'] ? undefined : offlineBoltIcon),
       execute: async args => {
-        const chatStatus = await this._openJupyterLiteAIChatWithSetupFallback();
+        const chatStatus = await this._openAIChatWithSetupFallback();
         if (chatStatus === 'provider-setup-required') {
           return null;
         }
@@ -728,7 +730,13 @@ class PluginPlayground {
           args
         )) as IDocumentWidget<FileEditor> | null;
         if (chatStatus === 'opened') {
-          await this._openJupyterLiteAIChatWithSetupFallback();
+          await this._openAIChatWithSetupFallback(
+            activeWidget
+              ? {
+                  input: this._buildNewPluginAIPrompt(activeWidget.context.path)
+                }
+              : undefined
+          );
         }
         return activeWidget;
       }
@@ -907,7 +915,7 @@ class PluginPlayground {
         );
         if (shouldOpenAIChatFromTree === '1') {
           window.sessionStorage.removeItem(NOTEBOOK_TREE_OPEN_AI_CHAT_KEY);
-          void this._openJupyterLiteAIChatWithSetupFallback();
+          void this._openAIChatWithSetupFallback();
         }
       }
 
@@ -917,13 +925,23 @@ class PluginPlayground {
       editorTracker.currentChanged.connect(() => {
         tokenSidebar.update();
       });
+      app.serviceManager.contents.fileChanged.connect((_, change) => {
+        if (
+          this._aiChatPath &&
+          change.oldValue?.path === this._aiChatPath &&
+          (change.type === 'rename' || change.type === 'delete')
+        ) {
+          this._aiChatPath = change.newValue?.path ?? null;
+        }
+      });
       app.commands.commandChanged.connect((_, args) => {
         if (args.type === 'added' || args.type === 'removed') {
           tokenSidebar.update();
         }
         if (
           (args.type === 'added' || args.type === 'removed') &&
-          args.id === JUPYTERLITE_AI_OPEN_OR_REVEAL_CHAT_COMMAND
+          (args.id === JUPYTERLAB_CHAT_OPEN_WITH_MESSAGE_COMMAND ||
+            args.id === JUPYTERNAUT_LITE_OPEN_SETTINGS_COMMAND)
         ) {
           void this._updateAskAILogEntryActionRegistration();
         }
@@ -3341,12 +3359,8 @@ class PluginPlayground {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.warn(
-        'Failed to prefill JupyterLite AI prompt for insertion.',
-        error
-      );
-      const aiErrorCode =
-        error instanceof JupyterLiteAIError ? error.code : null;
+      console.warn('Failed to prefill AI chat prompt for insertion.', error);
+      const aiErrorCode = error instanceof AIChatError ? error.code : null;
       const warningMessage =
         aiErrorCode === 'provider-setup-required' ||
         aiErrorCode === 'install-unavailable'
@@ -3475,57 +3489,67 @@ class PluginPlayground {
       commandArguments
     });
 
-    await this._openOrRevealJupyterLiteAIChat({ input: prompt });
+    await this._openOrRevealAIChat({ input: prompt });
   }
 
-  private async _openOrRevealJupyterLiteAIChat(options?: {
+  /**
+   * Whether the AI chat is available: jupyterlab-chat and the Jupyternaut persona.
+   */
+  private _isAIChatAvailable(): boolean {
+    return (
+      this.app.commands.hasCommand(JUPYTERLAB_CHAT_OPEN_WITH_MESSAGE_COMMAND) &&
+      this.app.commands.hasCommand(JUPYTERNAUT_LITE_OPEN_SETTINGS_COMMAND)
+    );
+  }
+
+  /**
+   * Open the playground AI chat in the side panel, with an optional prompt.
+   *
+   * One chat is reused until the page reloads, like the former JupyterLite AI chat.
+   */
+  private async _openOrRevealAIChat(options?: {
     input?: string;
   }): Promise<void> {
-    if (
-      !this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_OR_REVEAL_CHAT_COMMAND)
-    ) {
-      throw new JupyterLiteAIError(
-        'install-unavailable',
-        JUPYTERLITE_AI_INSTALL_HINT
-      );
+    if (!this._isAIChatAvailable()) {
+      throw new AIChatError('install-unavailable', AI_CHAT_INSTALL_HINT);
+    }
+    if (!(await this._hasConfiguredAIProvider())) {
+      throw new AIChatError('provider-setup-required', AI_PROVIDER_SETUP_HINT);
     }
 
-    const args: {
-      area: 'side';
-      focus: true;
-      input?: string;
-    } = {
-      area: 'side',
-      focus: true
-    };
-    if (typeof options?.input === 'string') {
-      args.input = options.input;
+    if (!this._aiChatPath) {
+      const path = await this.app.commands.execute(
+        JUPYTERLAB_CHAT_CREATE_COMMAND,
+        { inSidePanel: true }
+      );
+      if (typeof path !== 'string' || !path) {
+        throw new Error('Could not create a chat file.');
+      }
+      this._aiChatPath = path;
     }
 
-    const openResult = await this.app.commands.execute(
-      JUPYTERLITE_AI_OPEN_OR_REVEAL_CHAT_COMMAND,
-      args
-    );
-    if (openResult === false) {
-      throw new JupyterLiteAIError(
-        'provider-setup-required',
-        JUPYTERLITE_AI_PROVIDER_SETUP_HINT
-      );
-    }
+    await this.app.commands.execute(JUPYTERLAB_CHAT_OPEN_WITH_MESSAGE_COMMAND, {
+      name: this._aiChatPath,
+      // An empty directory resolves `name` from the root of the contents.
+      path: '',
+      inSidePanel: true,
+      input: options?.input ?? ''
+    });
   }
 
-  private async _openJupyterLiteAIChatWithSetupFallback(): Promise<JupyterLiteAIChatOpenStatus> {
+  private async _openAIChatWithSetupFallback(options?: {
+    input?: string;
+  }): Promise<AIChatOpenStatus> {
     try {
-      await this._openOrRevealJupyterLiteAIChat();
+      await this._openOrRevealAIChat(options);
       return 'opened';
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const aiErrorCode =
-        error instanceof JupyterLiteAIError ? error.code : null;
+      const aiErrorCode = error instanceof AIChatError ? error.code : null;
 
       if (aiErrorCode === 'provider-setup-required') {
         Notification.warning(
-          'No AI provider configured. Configure a provider in AI Settings to continue.',
+          'No AI provider configured. Configure a provider in Jupyternaut Settings to continue.',
           {
             autoClose: false,
             actions: [
@@ -3537,7 +3561,7 @@ class PluginPlayground {
                     didOpenSettings => {
                       if (!didOpenSettings) {
                         Notification.warning(
-                          'Could not open AI Settings. Open AI Settings to continue.',
+                          'Could not open Jupyternaut Settings. Open Jupyternaut Settings from the Settings menu to continue.',
                           {
                             autoClose: 5000
                           }
@@ -3554,7 +3578,7 @@ class PluginPlayground {
       }
 
       if (aiErrorCode === 'install-unavailable') {
-        Notification.warning(JUPYTERLITE_AI_INSTALL_HINT, {
+        Notification.warning(AI_CHAT_INSTALL_HINT, {
           autoClose: 4500
         });
         return 'install-unavailable';
@@ -3568,29 +3592,29 @@ class PluginPlayground {
   }
 
   private async _openAISettingsInMainArea(): Promise<boolean> {
-    if (!this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND)) {
+    if (!this.app.commands.hasCommand(JUPYTERNAUT_LITE_OPEN_SETTINGS_COMMAND)) {
       return false;
     }
     try {
-      await this.app.commands.execute(JUPYTERLITE_AI_OPEN_SETTINGS_COMMAND);
+      await this.app.commands.execute(JUPYTERNAUT_LITE_OPEN_SETTINGS_COMMAND);
       return true;
     } catch {
       return false;
     }
   }
 
-  private async _loadJupyterLiteAISettings(): Promise<ISettingRegistry.ISettings | null> {
-    if (this._jupyterLiteAISettings) {
-      return this._jupyterLiteAISettings;
+  private async _loadJupyternautSettings(): Promise<ISettingRegistry.ISettings | null> {
+    if (this._jupyternautSettings) {
+      return this._jupyternautSettings;
     }
-    if (this._jupyterLiteAISettingsLoadPromise) {
-      return this._jupyterLiteAISettingsLoadPromise;
+    if (this._jupyternautSettingsLoadPromise) {
+      return this._jupyternautSettingsLoadPromise;
     }
 
-    this._jupyterLiteAISettingsLoadPromise = this.settingRegistry
-      .load(JUPYTERLITE_AI_SETTINGS_MODEL_PLUGIN_ID)
+    this._jupyternautSettingsLoadPromise = this.settingRegistry
+      .load(JUPYTERNAUT_LITE_SETTINGS_PLUGIN_ID)
       .then(settings => {
-        this._jupyterLiteAISettings = settings;
+        this._jupyternautSettings = settings;
         settings.changed.connect(() => {
           void this._updateAskAILogEntryActionRegistration();
         });
@@ -3598,14 +3622,14 @@ class PluginPlayground {
       })
       .catch(() => null)
       .finally(() => {
-        this._jupyterLiteAISettingsLoadPromise = null;
+        this._jupyternautSettingsLoadPromise = null;
       });
 
-    return this._jupyterLiteAISettingsLoadPromise;
+    return this._jupyternautSettingsLoadPromise;
   }
 
-  private async _hasConfiguredJupyterLiteAIProvider(): Promise<boolean> {
-    const aiSettings = await this._loadJupyterLiteAISettings();
+  private async _hasConfiguredAIProvider(): Promise<boolean> {
+    const aiSettings = await this._loadJupyternautSettings();
     if (!aiSettings) {
       return false;
     }
@@ -3655,12 +3679,10 @@ class PluginPlayground {
     this._askAILogEntryActionDisposable?.dispose();
     this._askAILogEntryActionDisposable = null;
 
-    if (
-      !this.app.commands.hasCommand(JUPYTERLITE_AI_OPEN_OR_REVEAL_CHAT_COMMAND)
-    ) {
+    if (!this._isAIChatAvailable()) {
       return;
     }
-    if (!(await this._hasConfiguredJupyterLiteAIProvider())) {
+    if (!(await this._hasConfiguredAIProvider())) {
       return;
     }
     try {
@@ -3717,15 +3739,14 @@ class PluginPlayground {
       if (!prompt) {
         return;
       }
-      await this._openOrRevealJupyterLiteAIChat({ input: prompt });
+      await this._openOrRevealAIChat({ input: prompt });
     } catch (error) {
-      const aiErrorCode =
-        error instanceof JupyterLiteAIError ? error.code : null;
+      const aiErrorCode = error instanceof AIChatError ? error.code : null;
       if (
         aiErrorCode === 'provider-setup-required' ||
         aiErrorCode === 'install-unavailable'
       ) {
-        await this._openJupyterLiteAIChatWithSetupFallback();
+        await this._openAIChatWithSetupFallback();
         return;
       }
 
@@ -3770,6 +3791,16 @@ class PluginPlayground {
       return text.join('').trim();
     }
     return '';
+  }
+
+  /**
+   * Starter prompt for a new plugin file, ready to send as is.
+   *
+   * A non-empty prompt also makes jupyterlab-chat focus the chat input.
+   */
+  private _buildNewPluginAIPrompt(path: string): string {
+    const normalizedPath = ContentUtils.normalizeContentsPath(path);
+    return `Help me build a JupyterLab plugin in ${normalizedPath}. First, ask me what the plugin should do.`;
   }
 
   private _buildCommandInsertAIPrompt(options: {
@@ -4140,8 +4171,9 @@ class PluginPlayground {
     string,
     ISettingRegistry.ISchema
   >();
-  private _jupyterLiteAISettings: ISettingRegistry.ISettings | null = null;
-  private _jupyterLiteAISettingsLoadPromise: Promise<ISettingRegistry.ISettings | null> | null =
+  private _aiChatPath: string | null = null;
+  private _jupyternautSettings: ISettingRegistry.ISettings | null = null;
+  private _jupyternautSettingsLoadPromise: Promise<ISettingRegistry.ISettings | null> | null =
     null;
   private _askAILogEntryActionRegistrationEpoch = 0;
   private _askAILogEntryActionDisposable: { dispose: () => void } | null = null;

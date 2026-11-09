@@ -19,6 +19,7 @@ module.exports = [
       'tests/**',
       'src/modules.ts',
       'docs/content/**',
+      'docs/_contents/**',
       'docs/_build/**',
       'extension-examples/**',
       'ui-tests/test-results/**'

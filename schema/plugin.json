@@ -39,7 +39,7 @@
     },
     "commandInsertDefaultMode": {
       "title": "Default command insertion mode",
-      "description": "The default action used by the + button in the Commands tab. Use \"insert\" to insert command execution directly at cursor, or \"ai\" to open JupyterLite AI chat with a prefilled prompt so AI can place the insertion in context.",
+      "description": "The default action used by the + button in the Commands tab. Use \"insert\" to insert command execution directly at cursor, or \"ai\" to open the Jupyter AI Lite chat with a prefilled prompt so AI can place the insertion in context.",
       "default": "insert",
       "type": "string",
       "enum": ["insert", "ai"]

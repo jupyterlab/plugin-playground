@@ -59,12 +59,15 @@ const CSS_IMPORT_TEST_UPDATED_COLOR = 'rgb(34, 68, 102)';
 const CSS_IMPORT_TEST_BROKEN_MODULE_ERROR = 'css import rollback test failure';
 const COMMAND_COMPLETION_FILE = 'command-completion.ts';
 const INVOKE_FILE_COMPLETER_COMMAND = 'completer:invoke-file';
-const JUPYTERLITE_AI_OPEN_OR_REVEAL_CHAT_COMMAND =
-  '@jupyterlite/ai:open-or-reveal-chat';
-const JUPYTERLITE_AI_SETTINGS_MODEL_PLUGIN_ID =
-  '@jupyterlite/ai:settings-model';
+const JUPYTERLAB_CHAT_CREATE_COMMAND = 'jupyterlab-chat:create';
+const JUPYTERLAB_CHAT_OPEN_WITH_MESSAGE_COMMAND =
+  'jupyterlab-chat:openWithMessage';
+const JUPYTERNAUT_LITE_OPEN_SETTINGS_COMMAND =
+  '@jupyter-ai/jupyternaut-lite:open-settings';
+const JUPYTERNAUT_LITE_SETTINGS_PLUGIN_ID =
+  '@jupyter-ai/jupyternaut-lite:settings-model';
 const JS_LOGS_OPEN_COMMAND = 'js-logs:open';
-const TEST_JUPYTERLITE_AI_PROVIDER_ID = 'playground-test-provider';
+const TEST_AI_PROVIDER_ID = 'playground-test-provider';
 const ASK_AI_LOG_ENTRY_ACTION_CAPTION =
   'Open AI chat and include this log entry for debugging';
 const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
@@ -395,11 +398,67 @@ async function setActiveEditorSource(
   }, source);
 }
 
-async function ensureMockJupyterLiteAIChat(
-  page: IJupyterLabPageFixture
+/**
+ * Mock the Jupyter AI Lite chat command and settings, which CI does not install.
+ */
+async function ensureMockAIChat(
+  page: IJupyterLabPageFixture,
+  options: { providerConfigured?: boolean } = {}
 ): Promise<void> {
+  const settings =
+    options.providerConfigured === false
+      ? { providers: [], defaultProvider: '' }
+      : {
+          providers: [
+            {
+              id: TEST_AI_PROVIDER_ID,
+              name: 'Playground Test Provider',
+              provider: 'openai',
+              model: 'gpt-4o-mini'
+            }
+          ],
+          defaultProvider: TEST_AI_PROVIDER_ID
+        };
+  await page.route(
+    url =>
+      decodeURIComponent(url.pathname).endsWith(
+        `/api/settings/${JUPYTERNAUT_LITE_SETTINGS_PLUGIN_ID}`
+      ),
+    async (route, request) => {
+      if (request.method() !== 'GET') {
+        return route.fallback();
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: JUPYTERNAUT_LITE_SETTINGS_PLUGIN_ID,
+          schema: {
+            type: 'object',
+            properties: {
+              providers: { type: 'array', default: [] },
+              defaultProvider: { type: 'string', default: '' }
+            }
+          },
+          raw: JSON.stringify(settings),
+          settings,
+          version: '0.0.0'
+        })
+      });
+    }
+  );
+
   await page.evaluate(
-    ({ commandId }: { commandId: string }) => {
+    ({
+      commandId,
+      createCommandId,
+      settingsCommandId
+    }: {
+      commandId: string;
+      createCommandId: string;
+      settingsCommandId: string;
+    }) => {
+      const chatPath = 'playground-test.chat';
       const inputSelector =
         '.jp-chat-input-textfield[data-playground-test="ai-input"] textarea';
       const ensureInput = (): HTMLTextAreaElement => {
@@ -440,12 +499,15 @@ async function ensureMockJupyterLiteAIChat(
             applyOpenArgs(args);
             return true;
           }
+          if (id === createCommandId) {
+            return chatPath;
+          }
           return commandRegistry.__playgroundOriginalExecute(id, args);
         };
       }
       if (!commands.hasCommand(commandId)) {
         commands.addCommand(commandId, {
-          label: 'JupyterLite AI test command',
+          label: 'Jupyter AI Lite test command',
           describedBy: { args: null },
           execute: (args?: any) => {
             applyOpenArgs(args);
@@ -453,11 +515,27 @@ async function ensureMockJupyterLiteAIChat(
           }
         });
       }
+      if (!commands.hasCommand(createCommandId)) {
+        commands.addCommand(createCommandId, {
+          label: 'Jupyter AI Lite test create command',
+          describedBy: { args: null },
+          execute: () => chatPath
+        });
+      }
+      if (!commands.hasCommand(settingsCommandId)) {
+        commands.addCommand(settingsCommandId, {
+          label: 'Jupyter AI Lite test settings command',
+          describedBy: { args: null },
+          execute: () => undefined
+        });
+      }
 
       ensureInput();
     },
     {
-      commandId: JUPYTERLITE_AI_OPEN_OR_REVEAL_CHAT_COMMAND
+      commandId: JUPYTERLAB_CHAT_OPEN_WITH_MESSAGE_COMMAND,
+      createCommandId: JUPYTERLAB_CHAT_CREATE_COMMAND,
+      settingsCommandId: JUPYTERNAUT_LITE_OPEN_SETTINGS_COMMAND
     }
   );
 }
@@ -4611,23 +4689,6 @@ const run = (application: JupyterFrontEnd) => {
 });
 
 test.describe('JS logs Ask AI action', () => {
-  test.use({
-    mockSettings: {
-      ...galata.DEFAULT_SETTINGS,
-      [JUPYTERLITE_AI_SETTINGS_MODEL_PLUGIN_ID]: {
-        providers: [
-          {
-            id: TEST_JUPYTERLITE_AI_PROVIDER_ID,
-            name: 'Playground Test Provider',
-            provider: 'openai',
-            model: 'gpt-4o-mini'
-          }
-        ],
-        defaultProvider: TEST_JUPYTERLITE_AI_PROVIDER_ID
-      }
-    }
-  });
-
   test('adds Ask AI button in log rows and prefills AI chat input', async ({
     page
   }) => {
@@ -4639,7 +4700,7 @@ test.describe('JS logs Ask AI action', () => {
 
     try {
       await page.goto();
-      await ensureMockJupyterLiteAIChat(page);
+      await ensureMockAIChat(page);
 
       const hasJSLogsCommand = await page.evaluate((id: string) => {
         return window.jupyterapp.commands.hasCommand(id);
@@ -4701,16 +4762,6 @@ test.describe('JS logs Ask AI action', () => {
 });
 
 test.describe('JS logs Ask AI action without provider setup', () => {
-  test.use({
-    mockSettings: {
-      ...galata.DEFAULT_SETTINGS,
-      [JUPYTERLITE_AI_SETTINGS_MODEL_PLUGIN_ID]: {
-        providers: [],
-        defaultProvider: ''
-      }
-    }
-  });
-
   test('does not add Ask AI button when no AI provider is configured', async ({
     page
   }) => {
@@ -4718,7 +4769,7 @@ test.describe('JS logs Ask AI action without provider setup', () => {
 
     try {
       await page.goto();
-      await ensureMockJupyterLiteAIChat(page);
+      await ensureMockAIChat(page, { providerConfigured: false });
 
       const hasJSLogsCommand = await page.evaluate((id: string) => {
         return window.jupyterapp.commands.hasCommand(id);
@@ -4755,7 +4806,7 @@ test.describe('JS logs Ask AI action without provider setup', () => {
   });
 });
 
-test('commands tab can prompt JupyterLite AI and remember last insertion mode', async ({
+test('commands tab can prompt AI and remember last insertion mode', async ({
   page,
   tmpPath
 }) => {
@@ -4786,7 +4837,7 @@ export default extension;
     true
   );
 
-  await ensureMockJupyterLiteAIChat(page);
+  await ensureMockAIChat(page);
 
   await page.evaluate(() => {
     const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
@@ -4914,7 +4965,7 @@ export default extension;
     await page.activity.activateTab('command-sidebar-ai-prompt-args.ts')
   ).toBe(true);
 
-  await ensureMockJupyterLiteAIChat(page);
+  await ensureMockAIChat(page);
 
   await page.evaluate((commandId: string) => {
     const commands = window.jupyterapp.commands;
@@ -5031,7 +5082,7 @@ export default [advanced, simple];
     await page.activity.activateTab('command-sidebar-ai-prompt-array.ts')
   ).toBe(true);
 
-  await ensureMockJupyterLiteAIChat(page);
+  await ensureMockAIChat(page);
 
   await page.evaluate(() => {
     const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
@@ -5140,7 +5191,7 @@ export default plugins;
     await page.activity.activateTab('command-sidebar-ai-prompt-plugins-var.ts')
   ).toBe(true);
 
-  await ensureMockJupyterLiteAIChat(page);
+  await ensureMockAIChat(page);
 
   await page.evaluate(() => {
     const current = window.jupyterapp.shell.currentWidget as FileEditorWidget;
