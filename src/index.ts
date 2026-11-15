@@ -3518,14 +3518,7 @@ class PluginPlayground {
     }
 
     if (!this._aiChatPath) {
-      const path = await this.app.commands.execute(
-        JUPYTERLAB_CHAT_CREATE_COMMAND,
-        { inSidePanel: true }
-      );
-      if (typeof path !== 'string' || !path) {
-        throw new Error('Could not create a chat file.');
-      }
-      this._aiChatPath = path;
+      this._aiChatPath = await this._createAIChatFile();
     }
 
     await this.app.commands.execute(JUPYTERLAB_CHAT_OPEN_WITH_MESSAGE_COMMAND, {
@@ -3535,6 +3528,26 @@ class PluginPlayground {
       inSidePanel: true,
       input: options?.input ?? ''
     });
+  }
+
+  /**
+   * Create the playground chat file; prompts sent while it is created wait for the same file.
+   */
+  private _createAIChatFile(): Promise<string> {
+    if (!this._aiChatFilePromise) {
+      this._aiChatFilePromise = this.app.commands
+        .execute(JUPYTERLAB_CHAT_CREATE_COMMAND, { inSidePanel: true })
+        .then(path => {
+          if (typeof path !== 'string' || !path) {
+            throw new Error('Could not create a chat file.');
+          }
+          return path;
+        })
+        .finally(() => {
+          this._aiChatFilePromise = null;
+        });
+    }
+    return this._aiChatFilePromise;
   }
 
   private async _openAIChatWithSetupFallback(options?: {
@@ -4172,6 +4185,7 @@ class PluginPlayground {
     ISettingRegistry.ISchema
   >();
   private _aiChatPath: string | null = null;
+  private _aiChatFilePromise: Promise<string> | null = null;
   private _jupyternautSettings: ISettingRegistry.ISettings | null = null;
   private _jupyternautSettingsLoadPromise: Promise<ISettingRegistry.ISettings | null> | null =
     null;

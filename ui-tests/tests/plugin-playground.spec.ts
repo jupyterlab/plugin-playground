@@ -500,6 +500,8 @@ async function ensureMockAIChat(
             return true;
           }
           if (id === createCommandId) {
+            commandRegistry.__playgroundChatCreateCount =
+              (commandRegistry.__playgroundChatCreateCount ?? 0) + 1;
             return chatPath;
           }
           return commandRegistry.__playgroundOriginalExecute(id, args);
@@ -4804,6 +4806,21 @@ test.describe('JS logs Ask AI action without provider setup', () => {
       await page.unrouteAll({ behavior: 'ignoreErrors' });
     }
   });
+});
+
+test('creates one AI chat file for prompts sent at the same time', async ({
+  page
+}) => {
+  await page.goto();
+  await ensureMockAIChat(page);
+
+  const createCount = await page.evaluate(async (id: string) => {
+    const commands = window.jupyterapp.commands;
+    await Promise.all([commands.execute(id), commands.execute(id)]);
+    return (commands as any).__playgroundChatCreateCount;
+  }, CREATE_FILE_WITH_AI_COMMAND);
+
+  expect(createCount).toBe(1);
 });
 
 test('commands tab can prompt AI and remember last insertion mode', async ({
