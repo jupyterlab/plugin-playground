@@ -162,7 +162,7 @@ To migrate to the ES6-compatible syntax:
 
 Plugin Playground supports AI-assisted extension prototyping in both JupyterLite and Binder deployments.
 
-- In JupyterLite, you can use browser-based AI chat and completions with [Jupyter AI Lite](https://github.com/jupyterlite/ai).
+- In JupyterLite, you can use browser-based AI chat and completions with [Jupyter AI Lite](https://github.com/jupyterlab/jupyter-ai-lite).
 - In Binder (JupyterLab), you can use the same Jupyter AI Lite tooling.
 
 The AI chat uses [jupyterlab-chat](https://github.com/jupyterlab/jupyter-chat) with the Jupyternaut persona. Plugin Playground opens its prompts in one chat in the chat side panel. It creates a new chat file the first time after each page load, and uses the same chat until the page reloads.
@@ -177,7 +177,7 @@ The AI chat uses [jupyterlab-chat](https://github.com/jupyterlab/jupyter-chat) w
 
 ### Provider Setup Help
 
-- [Jupyter AI Lite documentation](https://jupyterlite-ai.readthedocs.io/en/latest/)
+- [Jupyter AI Lite documentation](https://jupyter-ai-lite.readthedocs.io/en/latest/)
 - [Plugin authoring skill for agents](_agents/skills/plugin-authoring/SKILL.md)
 
 ### JS Logs Ask AI

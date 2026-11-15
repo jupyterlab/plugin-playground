@@ -3505,7 +3505,7 @@ class PluginPlayground {
   /**
    * Open the playground AI chat in the side panel, with an optional prompt.
    *
-   * One chat is reused until the page reloads, like the former JupyterLite AI chat.
+   * One chat is reused until the page reloads.
    */
   private async _openOrRevealAIChat(options?: {
     input?: string;
