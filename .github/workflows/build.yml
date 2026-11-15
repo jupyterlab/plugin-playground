@@ -117,7 +117,8 @@ jobs:
     - name: Install the extension
       run: |
         set -eux
-        python -m pip install "jupyterlab>=4,<5" jupyterlab_plugin_playground*.whl
+        # jupyterlab-js-logs provides the log panel that the Ask AI tests click in.
+        python -m pip install "jupyterlab>=4,<5" "jupyterlab-js-logs>=1.3.1,<2" jupyterlab_plugin_playground*.whl
 
     - name: Install ui-tests dependencies
       working-directory: ui-tests
