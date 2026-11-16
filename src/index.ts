@@ -2,7 +2,8 @@ import ts from 'typescript';
 
 import {
   JupyterFrontEnd,
-  JupyterFrontEndPlugin
+  JupyterFrontEndPlugin,
+  JupyterLab
 } from '@jupyterlab/application';
 
 import { ISettingRegistry } from '@jupyterlab/settingregistry';
@@ -43,12 +44,14 @@ import {
 } from '@jupyterlab/ui-components';
 
 import { IDocumentManager } from '@jupyterlab/docmanager';
-import { PathExt } from '@jupyterlab/coreutils';
+import { PageConfig, PathExt } from '@jupyterlab/coreutils';
 
 import { Contents } from '@jupyterlab/services';
 import { ICompletionProviderManager } from '@jupyterlab/completer';
 
 import { PluginLoader, PluginLoadingError } from './loader';
+
+import { markStartComplete } from './preboot';
 
 import { PluginTranspiler } from './transpiler';
 
@@ -77,6 +80,7 @@ import {
 
 import { ExampleSidebar, filterExampleRecords } from './example-sidebar';
 import { LoadedPluginsSidebar } from './loaded-plugins-sidebar';
+import { ProfileSidebar } from './profile-sidebar';
 import { createFloatingUrlLoadHint } from './components/url-load-hint';
 
 import { loadOnSaveToggleIcon, runTileIcon, tokenSidebarIcon } from './icons';
@@ -90,6 +94,16 @@ import {
 } from './command-completion';
 
 import { ContentUtils } from './contents';
+import {
+  ProfileManager,
+  filterPluginRecords,
+  filterSettingRecords,
+  LIST_PLUGINS_ARGS_SCHEMA,
+  LIST_SETTINGS_ARGS_SCHEMA,
+  OVERRIDE_SETTING_ARGS_SCHEMA,
+  reloadApplication,
+  SET_PLUGIN_ENABLED_ARGS_SCHEMA
+} from './profile';
 import {
   ensurePluginActivateAppContext,
   findPluginActivateAppParameterName,
@@ -127,6 +141,12 @@ import { IPlugin } from '@lumino/application';
 
 export type { IPluginShareResult } from './share-via-link-controller';
 
+/*
+ * The lint rule for the plugin arguments reads identifiers only.
+ */
+const IInfo = JupyterLab.IInfo;
+type IInfo = JupyterLab.IInfo;
+
 namespace CommandIDs {
   export const createNewFile = 'plugin-playground:create-new-plugin';
   export const createNewFileWithAI =
@@ -146,6 +166,12 @@ namespace CommandIDs {
   export const listCommands = 'plugin-playground:list-commands';
   export const listExtensionExamples =
     'plugin-playground:list-extension-examples';
+  export const listPlugins = 'plugin-playground:list-plugins';
+  export const listSettings = 'plugin-playground:list-settings';
+  export const getProfile = 'plugin-playground:get-profile';
+  export const disablePlugin = 'plugin-playground:disable-plugin';
+  export const enablePlugin = 'plugin-playground:enable-plugin';
+  export const overrideSetting = 'plugin-playground:override-setting';
 }
 
 type PluginLoadStatus =
@@ -248,6 +274,18 @@ const LIST_QUERY_ARGS_SCHEMA = {
       type: 'string',
       description:
         'Optional filter text. Matches records case-insensitively by visible text fields (such as id, label, caption, name, or description, depending on record type).'
+    }
+  }
+};
+
+const LOAD_AS_EXTENSION_ARGS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    path: {
+      type: 'string',
+      description:
+        'Optional contents path of the file to load. When omitted, the active editor file is used.'
     }
   }
 };
@@ -389,7 +427,8 @@ class PluginPlayground {
     protected settings: ISettingRegistry.ISettings,
     protected requirejs: IRequireJS,
     toolbarWidgetRegistry: IToolbarWidgetRegistry,
-    protected logConsoleTracker: ILogConsoleTracker | null
+    protected logConsoleTracker: ILogConsoleTracker | null,
+    info: IInfo | null
   ) {
     registerCoreKnownModules();
     this._layoutHideFromInitialUrl =
@@ -412,6 +451,11 @@ class PluginPlayground {
     });
     this._installDynamicSettingsConnectorShim();
     this._restoreDynamicSettingPluginsFromStorage();
+    this._profile = new ProfileManager({
+      app,
+      info,
+      settingRegistry
+    });
 
     loadKnownModule('@jupyter-widgets/base').then((module: any) => {
       // Define the widgets base module for RequireJS (left for compatibility only)
@@ -422,9 +466,12 @@ class PluginPlayground {
       label: 'Load Current File As Extension',
       caption:
         'Load the active editor file as an extension for plugin development',
-      describedBy: { args: null },
+      describedBy: { args: LOAD_AS_EXTENSION_ARGS_SCHEMA },
       icon: args => (args['isPalette'] ? undefined : runTileIcon),
-      isEnabled: () => {
+      isEnabled: args => {
+        if (typeof args.path === 'string') {
+          return true;
+        }
         const currentWidget = editorTracker.currentWidget;
         if (!currentWidget || currentWidget !== app.shell.currentWidget) {
           return false;
@@ -433,7 +480,10 @@ class PluginPlayground {
           ContentUtils.normalizeContentsPath(currentWidget.context.path)
         );
       },
-      isVisible: () => {
+      isVisible: args => {
+        if (typeof args.path === 'string') {
+          return true;
+        }
         const currentWidget = editorTracker.currentWidget;
         if (!currentWidget || currentWidget !== app.shell.currentWidget) {
           return false;
@@ -442,7 +492,10 @@ class PluginPlayground {
           ContentUtils.normalizeContentsPath(currentWidget.context.path)
         );
       },
-      execute: async () => {
+      execute: async args => {
+        if (typeof args.path === 'string') {
+          return this._loadPluginFromPath(args.path);
+        }
         const currentWidget = editorTracker.currentWidget;
         if (currentWidget && currentWidget === app.shell.currentWidget) {
           if (this._sharedFileCueWidgetId === currentWidget.id) {
@@ -845,6 +898,87 @@ class PluginPlayground {
         };
       }
     });
+
+    app.commands.addCommand(CommandIDs.listPlugins, {
+      label: 'List Application Plugins (Playground)',
+      caption: 'List the plugins of the application and their state',
+      describedBy: { args: LIST_PLUGINS_ARGS_SCHEMA },
+      execute: args => {
+        const query = typeof args.query === 'string' ? args.query.trim() : '';
+        const plugins = this._profile.listPlugins();
+        const items = filterPluginRecords(plugins, query);
+        return {
+          query,
+          total: plugins.length,
+          count: items.length,
+          items: [...items]
+        };
+      }
+    });
+
+    app.commands.addCommand(CommandIDs.listSettings, {
+      label: 'List Application Settings (Playground)',
+      caption: 'List the settings of the application and their default values',
+      describedBy: { args: LIST_SETTINGS_ARGS_SCHEMA },
+      execute: async args => {
+        const query = typeof args.query === 'string' ? args.query.trim() : '';
+        const settings = await this._profile.listSettings();
+        const items = filterSettingRecords(settings, query);
+        return {
+          query,
+          total: settings.length,
+          count: items.length,
+          items: [...items]
+        };
+      }
+    });
+
+    app.commands.addCommand(CommandIDs.getProfile, {
+      label: 'Get Profile (Playground)',
+      caption:
+        'Read the profile stored in the browser: disabled plugins, settings overrides, startup plugins, and whether a reload is required',
+      describedBy: { args: null },
+      execute: () => this._profile.refresh()
+    });
+
+    app.commands.addCommand(CommandIDs.disablePlugin, {
+      label: 'Disable Plugin (Playground)',
+      caption:
+        'Disable a plugin or an extension from the next page load, and store the choice in the browser',
+      describedBy: { args: SET_PLUGIN_ENABLED_ARGS_SCHEMA },
+      execute: args =>
+        this._profile.setPluginEnabled(String(args.id ?? ''), false)
+    });
+
+    app.commands.addCommand(CommandIDs.enablePlugin, {
+      label: 'Enable Plugin (Playground)',
+      caption:
+        'Enable again, from the next page load, a plugin or an extension that the profile disabled',
+      describedBy: { args: SET_PLUGIN_ENABLED_ARGS_SCHEMA },
+      execute: args =>
+        this._profile.setPluginEnabled(String(args.id ?? ''), true)
+    });
+
+    app.commands.addCommand(CommandIDs.overrideSetting, {
+      label: 'Override Setting Default (Playground)',
+      caption:
+        'Change the default value of a setting from the next page load, and store it in the browser',
+      describedBy: { args: OVERRIDE_SETTING_ARGS_SCHEMA },
+      execute: args =>
+        this._profile.overrideSetting(
+          String(args.plugin ?? ''),
+          String(args.key ?? ''),
+          args.value
+        )
+    });
+
+    // Some applications, as the notebook one, do not always resolve `restored`.
+    void app.started
+      .then(() => this._startProfile())
+      .catch(error => {
+        console.warn('Failed to start the profile.', error);
+      });
+
     app.restored.then(async () => {
       const settings = this.settings;
       this._updateSettings(requirejs, settings);
@@ -899,6 +1033,22 @@ class PluginPlayground {
       playgroundSidebar.addWidget(tokenSidebar);
       playgroundSidebar.addWidget(exampleSidebar);
       playgroundSidebar.addWidget(loadedPluginsSidebar);
+      if (this._profile.isSupported) {
+        const profileSidebar = new ProfileSidebar({
+          manager: this._profile,
+          onOpenFile: path => {
+            void app.commands.execute('docmanager:open', {
+              path,
+              factory: 'Editor'
+            });
+          }
+        });
+        profileSidebar.id = 'jp-plugin-profile-sidebar';
+        profileSidebar.title.label = 'Profile';
+        profileSidebar.title.caption =
+          'Profile of this JupyterLite site, stored in the browser';
+        playgroundSidebar.addWidget(profileSidebar);
+      }
       this.app.shell.add(playgroundSidebar, 'right', { rank: 650 });
       this._playgroundSidebar = playgroundSidebar;
       this._expandPlaygroundSidebarSections();
@@ -1457,6 +1607,82 @@ class PluginPlayground {
 
     this._inFlightLoads.set(normalizedPath, guardedNext);
     return guardedNext;
+  }
+
+  private async _loadPluginFromPath(
+    path: string,
+    options: IPluginLoadQueueOptions = {}
+  ): Promise<IPluginLoadResult> {
+    const normalizedPath = ContentUtils.normalizeContentsPath(path.trim());
+    const source = await ContentUtils.readContentsFileAsText(
+      this.app.serviceManager,
+      normalizedPath
+    );
+    if (source === null) {
+      return {
+        status: 'loading-failed',
+        ok: false,
+        path: normalizedPath,
+        pluginIds: [],
+        transpiled: null,
+        message: `Could not read "${normalizedPath}".`
+      };
+    }
+    return this._queuePluginLoad(source, normalizedPath, options);
+  }
+
+  /**
+   * Load the startup plugins, then watch the profile for changes.
+   */
+  private async _startProfile(): Promise<void> {
+    const profile = this._profile;
+    if (!profile.isSupported) {
+      return;
+    }
+    if (profile.isSafeMode) {
+      const { pending, startupPlugins } = await profile.refresh();
+      const hasProfile =
+        Object.keys(pending).length > 0 || startupPlugins.length > 0;
+      if (profile.isFailedStart && !hasProfile) {
+        return;
+      }
+      Notification.warning(
+        `${
+          profile.isFailedStart ? 'The last start did not complete. ' : ''
+        }Safe mode: the profile is not applied and the startup plugins are not loaded.`,
+        {
+          autoClose: false,
+          actions: [{ label: 'Leave safe mode', callback: reloadApplication }]
+        }
+      );
+      return;
+    }
+    profile.changed.connect((sender, status) => {
+      this._notifyProfileStatus(status);
+    });
+    const status = await profile.refresh();
+    this._notifyProfileStatus(status);
+    for (const path of status.startupPlugins) {
+      await this._loadPluginFromPath(path, { notifyResult: false });
+    }
+    profile.completeStart();
+  }
+
+  private _notifyProfileStatus(status: ProfileManager.IStatus): void {
+    const id = this._reloadNotification;
+    if (!status.reloadRequired) {
+      if (id !== null) {
+        Notification.dismiss(id);
+      }
+    } else if (id === null || !Notification.manager.has(id)) {
+      this._reloadNotification = Notification.info(
+        'The profile changed. Reload the page to apply it.',
+        {
+          autoClose: false,
+          actions: [{ label: 'Reload', callback: reloadApplication }]
+        }
+      );
+    }
   }
 
   private _notifyPluginLoadResult(
@@ -2822,9 +3048,9 @@ class PluginPlayground {
     }
     const content = this._playgroundSidebar.content;
     if (content instanceof AccordionPanel) {
-      content.expand(0);
-      content.expand(1);
-      content.expand(2);
+      for (let index = 0; index < content.widgets.length; index++) {
+        content.expand(index);
+      }
     }
   }
 
@@ -4180,6 +4406,8 @@ class PluginPlayground {
     string,
     LoadedPluginsSidebar.ILoadedPluginRecord
   >();
+  private readonly _profile: ProfileManager;
+  private _reloadNotification: string | null = null;
   private readonly _dynamicSettingPlugins = new Map<
     string,
     ISettingRegistry.ISchema
@@ -4218,7 +4446,8 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
     IFileBrowserFactory,
     ILauncher,
     IDocumentManager,
-    ILogConsoleTracker
+    ILogConsoleTracker,
+    IInfo
   ],
   activate: (
     app: JupyterFrontEnd,
@@ -4230,7 +4459,8 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
     fileBrowserFactory: IFileBrowserFactory | null,
     launcher: ILauncher | null,
     documentManager: IDocumentManager | null,
-    logConsoleTracker: ILogConsoleTracker | null
+    logConsoleTracker: ILogConsoleTracker | null,
+    info: IInfo | null
   ): IPluginPlayground => {
     if (completionManager) {
       completionManager.registerProvider(new CommandCompletionProvider(app));
@@ -4257,7 +4487,8 @@ const mainPlugin: JupyterFrontEndPlugin<IPluginPlayground> = {
         settings,
         requirejs,
         toolbarWidgetRegistry,
-        logConsoleTracker
+        logConsoleTracker,
+        info
       );
       return playground;
     });
@@ -4514,7 +4745,31 @@ const notebookTreePlugin: JupyterFrontEndPlugin<void> = {
   }
 };
 
-const plugins: JupyterFrontEndPlugin<any>[] = [notebookTreePlugin, mainPlugin];
+/**
+ * Record a complete start where the main plugin cannot do it.
+ *
+ * The REPL application, for example, has no file editor, thus the main plugin
+ * does not start there.
+ */
+const startPlugin: JupyterFrontEndPlugin<void> = {
+  id: '@jupyterlab/plugin-playground:start',
+  description:
+    'Records that the application started, for the safe mode of the profile.',
+  autoStart: true,
+  activate: (app: JupyterFrontEnd): void => {
+    void app.started.then(() => {
+      if (!app.isPluginActivated(mainPlugin.id)) {
+        markStartComplete(PageConfig.getOption('baseUrl'));
+      }
+    });
+  }
+};
+
+const plugins: JupyterFrontEndPlugin<any>[] = [
+  notebookTreePlugin,
+  mainPlugin,
+  startPlugin
+];
 
 export default plugins;
 export type { IKnownModule };

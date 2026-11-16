@@ -1,0 +1,14 @@
+{
+  "LiteBuildConfig": {
+    "contents": ["content"],
+    "output_dir": "_output",
+    "extra_file_types": {
+      "typescript": {
+        "name": "typescript",
+        "extensions": [".ts", ".tsx"],
+        "mimeTypes": ["text/plain"],
+        "fileFormat": "text"
+      }
+    }
+  }
+}

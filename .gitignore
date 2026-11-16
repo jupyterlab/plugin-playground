@@ -10,6 +10,9 @@ ui-tests/node_modules/
 jupyterlab_plugin_playground/labextension
 ui-tests/playwright-report/
 ui-tests/test-results/
+ui-tests/lite/_output/
+ui-tests/lite/content/
+.jupyterlite.doit.db
 
 # Created by https://www.gitignore.io/api/python
 # Edit at https://www.gitignore.io/?templates=python

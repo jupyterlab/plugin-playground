@@ -22,7 +22,8 @@ module.exports = [
       'docs/_contents/**',
       'docs/_build/**',
       'extension-examples/**',
-      'ui-tests/test-results/**'
+      'ui-tests/test-results/**',
+      'ui-tests/lite/_output/**'
     ]
   },
   {

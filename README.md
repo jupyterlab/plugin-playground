@@ -214,11 +214,13 @@ Plugin Playground exposes command APIs for scripting, agents, and automation:
 
 - `plugin-playground:create-new-plugin` (supports optional `{ cwd?: string, path?: string }`)
 - `plugin-playground:take-tour` (supports optional `{ cwd?: string, path?: string }`)
-- `plugin-playground:load-as-extension`
+- `plugin-playground:load-as-extension` (supports optional `{ path?: string }`)
 - `plugin-playground:open-js-explorer`
 - `plugin-playground:list-tokens` (supports optional `{ query?: string }`)
 - `plugin-playground:list-commands` (supports optional `{ query?: string }`)
 - `plugin-playground:list-extension-examples` (supports optional `{ query?: string }`)
+- `plugin-playground:list-plugins` (supports optional `{ query?: string }`)
+- `plugin-playground:list-settings` (supports optional `{ query?: string }`)
 - `plugin-playground:export-as-extension` (supports optional `{ path?: string, format?: 'zip' | 'wheel' }`)
 - `plugin-playground:share-via-link` (supports optional `{ path?: string, useBrowserSelection?: boolean, useContextTarget?: boolean }`)
 
@@ -271,8 +273,11 @@ When opening a shared URL, Plugin Playground restores the shared file(s) and
 opens one restored file, but does not execute it automatically. Run `Load
 Current File As Extension` when you are ready.
 
-List commands (`list-tokens`, `list-commands`, `list-extension-examples`)
-return a JSON object with:
+`plugin-playground:load-as-extension` loads the active editor file. With a
+`path`, it loads that file from the contents, and no editor is necessary.
+
+List commands (`list-tokens`, `list-commands`, `list-extension-examples`,
+`list-plugins`, `list-settings`) return a JSON object with:
 
 - `query`: the filter text that was applied
 - `total`: total number of available records
@@ -282,6 +287,53 @@ return a JSON object with:
 `export-as-extension` defaults to ZIP and also supports Python wheel (`format: 'wheel'`).
 `export-as-extension` and `share-via-link` return operation-specific metadata
 (for example, success status, paths, counts, URL length, and optional message).
+
+## Customize JupyterLite from the Browser
+
+In JupyterLite, Plugin Playground keeps a profile in the browser, and applies it at each page load. With the profile, you can disable plugins, change the default value of settings, and add plugins that load at each start. You can make the changes by hand, with commands, or with a prompt to the AI agent of the chat (see the [skill for agents](_agents/skills/customize-jupyterlite/SKILL.md)).
+
+The profile is the `_profile` folder of the file browser:
+
+| File                         | Content                                                                             | Applied                |
+| ---------------------------- | ----------------------------------------------------------------------------------- | ---------------------- |
+| `_profile/jupyter-lite.json` | Page config, in `jupyter-config-data`. For example `disabledExtensions`.            | On the next page load. |
+| `_profile/overrides.json`    | Default values of settings, by plugin id.                                           | On the next page load. |
+| `_profile/plugins/`          | Plugin files (`.ts`, `.tsx`, `.js`, `.jsx`) and plugin folders with `src/index.ts`. | At each start.         |
+
+The two JSON files have the formats of the `jupyter-lite.json` and `overrides.json` files of a JupyterLite build, and they merge on top of the configuration of the site with the same rules. To give the same profile to all the users of a site, copy the two files to the JupyterLite build.
+
+These commands change the two JSON files. They validate the change and return the state of the profile:
+
+- `plugin-playground:get-profile`
+- `plugin-playground:disable-plugin` and `plugin-playground:enable-plugin` (`{ id: string }`, a plugin id, or the part of the plugin ids before `:` for all the plugins of an extension)
+- `plugin-playground:override-setting` (`{ plugin: string, key: string, value?: any }`, without `value` to remove the override)
+
+```typescript
+await app.commands.execute('plugin-playground:disable-plugin', {
+  id: '@jupyterlab/statusbar-extension:plugin'
+});
+
+await app.commands.execute('plugin-playground:override-setting', {
+  plugin: '@jupyterlab/apputils-extension:themes',
+  key: 'theme',
+  value: 'JupyterLab Dark'
+});
+```
+
+The state has these fields: `pending` (the page config for the next page load), `applied` (the page config of this page load), `reloadRequired`, `startupPlugins`, and `problems` (the entries that were ignored, with the reason). A notification with a `Reload` button shows when a reload is necessary, and the `Profile` section of the Plugin Playground sidebar shows the state.
+
+Safe mode starts the site without the profile and without the startup plugins, so that you can correct the files:
+
+- The site uses safe mode automatically when the last start in the same browser tab did not complete.
+- To use safe mode at other times, add `?safe-mode` to the URL of the application (for example `/lab/index.html?safe-mode`). The root URL of the site redirects and removes the parameter.
+
+Notes:
+
+- This feature is for JupyterLite only. In JupyterLab, the page config and the settings overrides belong to the server, and the plugins of a folder do not load automatically.
+- The profile cannot enable a plugin that the site disabled, cannot disable Plugin Playground or the plugins that it needs, and cannot add prebuilt extensions.
+- These page config options are ignored, because the application reads them before the profile: `appUrl`, `baseUrl`, `federated_extensions`, `fullLabextensionsUrl`, `fullStaticUrl`.
+- The values are used as they are. JupyterLite resolves relative URLs (`./`) only in the files of the site.
+- The browser keeps the files in the storage of JupyterLite, and a copy of the page config in local storage. The extension reads this copy before the application starts.
 
 ## Advanced Settings
 
@@ -413,8 +465,13 @@ Run from repository root:
 ```bash
 jlpm run build:prod
 jlpm run test:integration
+jlpm run test:integration:lite
 jlpm run docs:screenshots
 ```
+
+`test:integration:lite` builds a JupyterLite site and tests the profile
+in it. It needs `jupyterlite-core` and `jupyter-ai-lite` (see
+`docs/environment.yml`).
 
 setup:
 

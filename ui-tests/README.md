@@ -31,6 +31,9 @@ cd ui-tests && jlpm playwright test tests/plugin-playground.spec.ts --workers=1
 
 # Generate README screenshots (writes to docs/images/readme)
 cd ui-tests && jlpm test:docs-screenshots
+
+# Run the JupyterLite profile tests (builds the site in ui-tests/lite)
+cd ui-tests && jlpm test:lite
 ```
 
 ## Outputs

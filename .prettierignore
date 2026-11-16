@@ -7,3 +7,5 @@ src/modules.ts
 docs/content
 docs/_contents
 extension-examples
+ui-tests/lite/_output
+ui-tests/lite/content
