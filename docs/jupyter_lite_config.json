@@ -5,7 +5,7 @@
       "typescript": {
         "name": "typescript",
         "extensions": [".ts", ".tsx"],
-        "mimeTypes": ["text/plain"],
+        "mimeTypes": ["text/typescript"],
         "fileFormat": "text"
       },
       "extensionless-text": {
