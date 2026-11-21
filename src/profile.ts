@@ -53,7 +53,7 @@ export const LIST_PLUGINS_ARGS_SCHEMA = {
     query: {
       type: 'string',
       description:
-        'Optional filter text. Matches plugins case-insensitively by id, extension name, or description.'
+        'Optional filter text. Matches plugins case-insensitively by id, extension name, or description. All the words must match.'
     }
   }
 } as const;
@@ -65,7 +65,7 @@ export const LIST_SETTINGS_ARGS_SCHEMA = {
     query: {
       type: 'string',
       description:
-        'Optional filter text. Matches settings case-insensitively by plugin id, key, title, or description.'
+        'Optional filter text. Matches settings case-insensitively by plugin id, key, title, description, or option of an object setting. All the words must match.'
     }
   }
 } as const;
@@ -78,7 +78,7 @@ export const SET_PLUGIN_ENABLED_ARGS_SCHEMA = {
     id: {
       type: 'string',
       description:
-        'A plugin id (for example "@jupyterlab/statusbar-extension:plugin"), or an extension name to target all its plugins (for example "@jupyterlab/debugger-extension").'
+        'A plugin id (for example "@jupyterlab/statusbar-extension:plugin"), or an extension name to target all its plugins (for example "@jupyterlab/toc-extension").'
     }
   }
 } as const;
@@ -118,21 +118,26 @@ export function reloadApplication(): void {
 }
 
 /**
+ * Whether all the words of a query are in the texts, case-insensitively.
+ *
+ * Thus `line numbers` matches `lineNumbers`.
+ */
+function matchesQuery(query: string, texts: string[]): boolean {
+  const text = texts.join('\n').toLowerCase();
+  return ContentUtils.normalizeQuery(query)
+    .split(/\s+/)
+    .every(word => text.includes(word));
+}
+
+/**
  * Filter plugin records by a case-insensitive query.
  */
 export function filterPluginRecords(
   plugins: ReadonlyArray<ProfileManager.IPluginRecord>,
   query: string
 ): ReadonlyArray<ProfileManager.IPluginRecord> {
-  const normalizedQuery = ContentUtils.normalizeQuery(query);
-  if (!normalizedQuery) {
-    return plugins;
-  }
-  return plugins.filter(
-    plugin =>
-      plugin.id.toLowerCase().includes(normalizedQuery) ||
-      plugin.extension.toLowerCase().includes(normalizedQuery) ||
-      plugin.description.toLowerCase().includes(normalizedQuery)
+  return plugins.filter(plugin =>
+    matchesQuery(query, [plugin.id, plugin.description])
   );
 }
 
@@ -143,14 +148,15 @@ export function filterSettingRecords(
   settings: ReadonlyArray<ProfileManager.ISettingRecord>,
   query: string
 ): ReadonlyArray<ProfileManager.ISettingRecord> {
-  const normalizedQuery = ContentUtils.normalizeQuery(query);
-  if (!normalizedQuery) {
-    return settings;
-  }
   return settings.filter(setting =>
-    [setting.plugin, setting.key, setting.title, setting.description].some(
-      text => text.toLowerCase().includes(normalizedQuery)
-    )
+    matchesQuery(query, [
+      setting.plugin,
+      setting.key,
+      setting.title,
+      setting.description,
+      // The options of an object setting are only in its default value.
+      ...Object.keys(isObject(setting.default) ? setting.default : {})
+    ])
   );
 }
 
@@ -308,6 +314,9 @@ export class ProfileManager {
     enabled: boolean
   ): Promise<ProfileManager.IStatus> {
     this._assertSupported();
+    if (!id) {
+      throw new Error('The "id" of a plugin or an extension is necessary.');
+    }
     return this._enqueue(async () => {
       const file = (await this._readFile(PAGE_CONFIG_FILE, true)) ?? {
         'jupyter-lite-schema-version': 0
@@ -356,8 +365,11 @@ export class ProfileManager {
     plugin: string,
     key: string,
     value: unknown
-  ): Promise<ProfileManager.IStatus> {
+  ): Promise<ProfileManager.IOverrideResult> {
     this._assertSupported();
+    if (!plugin || !key) {
+      throw new Error('The "plugin" and the "key" of a setting are necessary.');
+    }
     return this._enqueue(async () => {
       if (value !== undefined) {
         const problem = await this._checkOverride(plugin, key, value);
@@ -383,7 +395,9 @@ export class ProfileManager {
           await this._writeFile(PAGE_CONFIG_FILE, file);
         }
       }
-      return this._refresh();
+      const status = await this._refresh();
+      const message = await this._describeUserValue(plugin, key, value);
+      return message ? { ...status, message } : status;
     });
   }
 
@@ -606,6 +620,31 @@ export class ProfileManager {
     return null;
   }
 
+  /**
+   * Tell why a new default value has no effect, if the user set another value.
+   */
+  private async _describeUserValue(
+    plugin: string,
+    key: string,
+    value: unknown
+  ): Promise<string | null> {
+    if (value === undefined) {
+      return null;
+    }
+    const settings = await this._settingRegistry.load(plugin).catch(() => null);
+    const userValue = settings?.user[key];
+    settings?.dispose();
+    if (
+      userValue === undefined ||
+      JSONExt.deepEqual(userValue, value as ReadonlyJSONValue)
+    ) {
+      return null;
+    }
+    return `The user set the "${key}" setting of "${plugin}" to ${JSON.stringify(
+      userValue
+    )}. A value that the user set replaces the default value, thus the override has no effect until the user restores the default value of the setting in the Settings Editor.`;
+  }
+
   private async _fetchSchema(
     plugin: string
   ): Promise<ISettingRegistry.ISchema | null> {
@@ -798,6 +837,16 @@ export namespace ProfileManager {
      */
     startupPlugins: string[];
     problems: string[];
+  }
+
+  /**
+   * The state of the profile after a change of the default value of a setting.
+   */
+  export interface IOverrideResult extends IStatus {
+    /**
+     * Why the new default value has no effect, if the user set another value.
+     */
+    message?: string;
   }
 }
 

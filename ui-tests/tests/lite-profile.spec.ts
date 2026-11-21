@@ -20,6 +20,8 @@ const TOC_EXTENSION = '@jupyterlab/toc-extension';
 const START_KEY = '@jupyterlab/plugin-playground:starting:/';
 const THEMES_PLUGIN_ID = '@jupyterlab/apputils-extension:themes';
 const AI_SETTINGS_PLUGIN_ID = '@jupyter-ai/jupyternaut-lite:settings-model';
+const NOTEBOOK_PLUGIN_ID = '@jupyterlab/notebook-extension:tracker';
+const CHANGE_THEME_COMMAND = 'apputils:change-theme';
 const DARK_THEME = 'JupyterLab Dark';
 const LIGHT_THEME = 'JupyterLab Light';
 const PAGE_CONFIG_FILE = '_profile/jupyter-lite.json';
@@ -54,6 +56,7 @@ interface IProfileStatus {
   reloadRequired: boolean;
   startupPlugins: string[];
   problems: string[];
+  message?: string;
 }
 
 interface IToolCall {
@@ -227,6 +230,17 @@ test('lists the plugins and the settings of the application', async ({
       default: LIGHT_THEME
     })
   );
+
+  // The options of an object setting are only in its default value.
+  const options = await executeCommand<{
+    items: { plugin: string; key: string }[];
+  }>(page, LIST_SETTINGS_COMMAND, { query: 'line numbers' });
+  expect(options.items).toContainEqual(
+    expect.objectContaining({
+      plugin: NOTEBOOK_PLUGIN_ID,
+      key: 'codeCellConfig'
+    })
+  );
 });
 
 test('disables a plugin from the next page load', async ({ page }) => {
@@ -341,6 +355,27 @@ test('overrides the default value of a setting from the next page load', async (
   });
   await clickReload(page);
   await expect(body).toHaveAttribute('data-jp-theme-name', LIGHT_THEME);
+});
+
+test('reports a value of the user that replaces a new default value', async ({
+  page
+}) => {
+  await openLab(page);
+  await executeCommand(page, CHANGE_THEME_COMMAND, { theme: DARK_THEME });
+
+  let status = await executeCommand(page, OVERRIDE_SETTING_COMMAND, {
+    plugin: THEMES_PLUGIN_ID,
+    key: 'theme',
+    value: LIGHT_THEME
+  });
+  expect(status.message).toContain(`to "${DARK_THEME}"`);
+
+  status = await executeCommand(page, OVERRIDE_SETTING_COMMAND, {
+    plugin: THEMES_PLUGIN_ID,
+    key: 'theme',
+    value: DARK_THEME
+  });
+  expect(status.message).toBeUndefined();
 });
 
 test('loads the plugins of the profile folder at each start', async ({
@@ -464,6 +499,13 @@ test('rejects the changes that cannot be applied', async ({ page }) => {
       value: 1
     })
   ).rejects.toThrow(/is not valid: \/theme must be string/);
+  // An agent can call a command without its arguments.
+  await expect(executeCommand(page, OVERRIDE_SETTING_COMMAND)).rejects.toThrow(
+    /are necessary/
+  );
+  await expect(executeCommand(page, ENABLE_PLUGIN_COMMAND)).rejects.toThrow(
+    /is necessary/
+  );
 
   const status = await executeCommand(page, GET_PROFILE_COMMAND);
   expect(status.pending).toEqual({});

@@ -1,8 +1,9 @@
 ---
 name: customize-jupyterlite
-description: Customize the JupyterLite site that the user runs, from the browser, with Plugin Playground. Disable plugins, change the default value of settings, and add plugins that load at each start. The changes stay after a page reload.
+description: Customize the JupyterLab interface of the JupyterLite site that the user runs, and keep the changes after a page reload. Use this skill when the user wants to change the theme, the fonts, the layout or the default value of a setting, to hide or remove a part of the interface (status bar, side panel, menu), to disable or enable a plugin, to add a feature that loads at each start, or to undo one of these changes.
 metadata:
   keywords:
+    - jupyterlab
     - jupyterlite
     - plugin-playground
     - profile
@@ -10,7 +11,9 @@ metadata:
     - customize
     - look and feel
     - theme
+    - font
     - layout
+    - hide
     - settings
     - overrides
     - page config
@@ -21,7 +24,7 @@ metadata:
 
 # Customize JupyterLite Skill (Playground)
 
-Use this skill when the user wants to change the look, the layout, or the behavior of the JupyterLite site that they use, and wants the change to stay after a page reload.
+Use this skill when the user wants to change the look, the layout, or the behavior of the JupyterLite site that they use, and wants the change to stay after a page reload. The user can call the site JupyterLab, because JupyterLite shows the JupyterLab interface.
 
 ## How it works
 
@@ -39,6 +42,8 @@ Use the commands below to change the two JSON files. The commands validate the c
 
 ## Workflow
 
+All the commands of this skill start with `plugin-playground:`. One `discover_commands` call with the query `plugin-playground` returns all of them with their arguments.
+
 1. Read the current state
 
 - Run `plugin-playground:get-profile`.
@@ -54,12 +59,15 @@ Use the commands below to change the two JSON files. The commands validate the c
 
 - Find the setting: `plugin-playground:list-settings` with a `query` (for example `theme`, `line numbers`, `font size`). Each item has `plugin`, `key`, `type` and `default`.
 - Set it: `plugin-playground:override-setting` with `plugin`, `key` and `value`.
+- When the `type` of the setting is `object`, the `value` replaces the complete `default` object. Copy the `default` object, and change only the necessary options.
 - Remove it: the same command without `value`.
-- A default value does not replace a value that the user already set in the Settings Editor.
+- A value that the user set replaces the default value. The user sets a value in the Settings Editor or in a menu. A command that changes a setting immediately (for example `apputils:change-theme`) also sets a value for the user, thus do not use such a command for a change that must stay.
+- When the result has a `message`, the override has no effect because the user set a value. Give the content of the message to the user.
 
 4. Disable or enable a plugin
 
-- Find the plugin id: `plugin-playground:list-plugins` with a `query` (for example `statusbar`, `debugger`, `launcher`). Each item has `id`, `extension`, `description` and `enabled`.
+- Find the plugin id: `plugin-playground:list-plugins` with a `query` (for example `statusbar`, `toc`, `launcher`). Each item has `id`, `extension`, `description` and `enabled`.
+- When no plugin matches the query, the site does not have the feature. Tell the user.
 - Disable it: `plugin-playground:disable-plugin` with `id`. Use the `extension` value as `id` to disable all the plugins of an extension.
 - Enable it again: `plugin-playground:enable-plugin` with `id`.
 - Other plugins can depend on the plugin that you disable. Disable one plugin at a time when you are not sure.
@@ -87,6 +95,13 @@ Dark theme by default:
 ```
 plugin-playground:override-setting
 { "plugin": "@jupyterlab/apputils-extension:themes", "key": "theme", "value": "JupyterLab Dark" }
+```
+
+A larger font in all the editors, which include the notebook cells (the font options are in `customStyles`):
+
+```
+plugin-playground:override-setting
+{ "plugin": "@jupyterlab/codemirror-extension:plugin", "key": "defaultConfig", "value": { "customStyles": { "fontSize": 16 } } }
 ```
 
 No status bar:

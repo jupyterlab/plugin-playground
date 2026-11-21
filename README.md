@@ -279,7 +279,7 @@ Current File As Extension` when you are ready.
 List commands (`list-tokens`, `list-commands`, `list-extension-examples`,
 `list-plugins`, `list-settings`) return a JSON object with:
 
-- `query`: the filter text that was applied
+- `query`: the filter text that was applied (`list-plugins` and `list-settings` match all the words of the text, thus `line numbers` finds `lineNumbers`)
 - `total`: total number of available records
 - `count`: number of records returned after filtering
 - `items`: matching records
@@ -320,7 +320,7 @@ await app.commands.execute('plugin-playground:override-setting', {
 });
 ```
 
-The state has these fields: `pending` (the page config for the next page load), `applied` (the page config of this page load), `reloadRequired`, `startupPlugins`, and `problems` (the entries that were ignored, with the reason). A notification with a `Reload` button shows when a reload is necessary, and the `Profile` section of the Plugin Playground sidebar shows the state.
+The state has these fields: `pending` (the page config for the next page load), `applied` (the page config of this page load), `reloadRequired`, `startupPlugins`, and `problems` (the entries that were ignored, with the reason). The result of `plugin-playground:override-setting` also has a `message` when the user set a value for the setting, because this value replaces the default value. A notification with a `Reload` button shows when a reload is necessary, and the `Profile` section of the Plugin Playground sidebar shows the state.
 
 Safe mode starts the site without the profile and without the startup plugins, so that you can correct the files:
 
