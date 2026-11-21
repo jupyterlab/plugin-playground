@@ -1,0 +1,15 @@
+{
+  "@jupyter-ai/jupyternaut-lite:settings-model": {
+    "defaultProvider": "mock",
+    "providers": [
+      {
+        "id": "mock",
+        "name": "Mock",
+        "provider": "generic",
+        "model": "mock-model",
+        "baseURL": "https://mock-llm.invalid/v1"
+      }
+    ],
+    "useSecretsManager": false
+  }
+}
