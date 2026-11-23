@@ -7,6 +7,7 @@ import {
   jsonIcon,
   MenuSvg,
   offlineBoltIcon,
+  refreshIcon,
   type LabIcon
 } from '@jupyterlab/ui-components';
 
@@ -50,7 +51,11 @@ export namespace TokenSidebar {
       commandId: string
     ) => Promise<ICommandArgumentDocumentation | null>;
     getCommandArgumentCount: (commandId: string) => Promise<number | null>;
-    discoverKnownModules: (force: boolean) => Promise<void>;
+    /**
+     * Discover packages provided by federated extensions; resolves with the
+     * names of extensions which could not be loaded.
+     */
+    discoverKnownModules: (force: boolean) => Promise<ReadonlyArray<string>>;
     openDocumentationLink: (
       url: string,
       moduleName: string,
@@ -155,7 +160,9 @@ export class TokenSidebar extends ReactWidget {
   private readonly _getCommandArgumentCount: (
     commandId: string
   ) => Promise<number | null>;
-  private readonly _discoverKnownModulesFn: (force: boolean) => Promise<void>;
+  private readonly _discoverKnownModulesFn: (
+    force: boolean
+  ) => Promise<ReadonlyArray<string>>;
   private readonly _openDocumentationLink: (
     url: string,
     moduleName: string,
@@ -176,6 +183,7 @@ export class TokenSidebar extends ReactWidget {
   private _activeView: ExtensionPointView = 'tokens';
   private _isDiscoveringKnownModules = false;
   private _knownModulesError = '';
+  private _knownModulesFailures: ReadonlyArray<string> = [];
   private _hasDiscoveredKnownModules = false;
   private _copiedValue: string | null = null;
   private _copiedTimer: number | null = null;
@@ -361,6 +369,7 @@ export class TokenSidebar extends ReactWidget {
               Failed to discover federated packages: {this._knownModulesError}
             </p>
           ) : null}
+          {isPackagesView ? this._renderPackagesStatus() : null}
           {itemCount === 0 ? (
             <p className="jp-PluginPlayground-count">
               {isTokenView
@@ -743,6 +752,43 @@ export class TokenSidebar extends ReactWidget {
     );
   }
 
+  private _renderPackagesStatus(): JSX.Element {
+    const failures = this._knownModulesFailures;
+    const isDiscovering = this._isDiscoveringKnownModules;
+    return (
+      <div className="jp-PluginPlayground-packagesStatus">
+        {failures.length > 0 && !isDiscovering ? (
+          <p
+            className="jp-PluginPlayground-count jp-PluginPlayground-exampleError jp-PluginPlayground-packagesFailures"
+            role="status"
+          >
+            {failures.length === 1
+              ? '1 extension could not be loaded: '
+              : `${failures.length} extensions could not be loaded: `}
+            {failures.join(', ')}. Refresh to retry.
+          </p>
+        ) : null}
+        <button
+          className="jp-Button jp-mod-styled jp-mod-minimal jp-PluginPlayground-actionButton jp-PluginPlayground-refreshPackagesButton"
+          type="button"
+          onClick={() => {
+            void this._discoverKnownModules(true);
+          }}
+          disabled={isDiscovering}
+          aria-label="Refresh packages"
+          title="Refresh packages from installed extensions"
+        >
+          {React.createElement(refreshIcon.react, {
+            tag: 'span',
+            elementSize: 'normal',
+            className: 'jp-PluginPlayground-actionIcon'
+          })}
+          <span className="jp-PluginPlayground-actionLabel">Refresh</span>
+        </button>
+      </div>
+    );
+  }
+
   private _onQueryChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     this._query = event.currentTarget.value;
     this.update();
@@ -800,8 +846,10 @@ export class TokenSidebar extends ReactWidget {
     this.update();
 
     try {
-      await this._discoverKnownModulesFn(force);
-      this._hasDiscoveredKnownModules = true;
+      this._knownModulesFailures = await this._discoverKnownModulesFn(force);
+      // Only remember a fully successful discovery, so that opening the tab
+      // again retries the extensions which could not be loaded.
+      this._hasDiscoveredKnownModules = this._knownModulesFailures.length === 0;
     } catch (error) {
       this._knownModulesError =
         error instanceof Error ? error.message : 'Unknown discovery error';
