@@ -236,6 +236,63 @@ jobs:
           ui-tests/test-results
           ui-tests/playwright-report
 
+  integration_tests_lite:
+    name: Integration tests (JupyterLite)
+    needs: build
+    runs-on: ubuntu-latest
+
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/pw-browsers
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Base Setup
+      uses: jupyterlab/maintainer-tools/.github/actions/base-setup@v1
+
+    - name: Download extension package
+      uses: actions/download-artifact@v4
+      with:
+        name: extension-artifacts
+
+    - name: Install JupyterLite, Jupyter AI Lite and extension
+      run: |
+        set -eux
+        python -m pip install "jupyterlab>=4,<5" "jupyterlab-js-logs>=1.3.1,<2" "jupyterlite-core>=0.8.0,<0.9" "jupyterlite-pyodide-kernel>=0.8.0,<0.9" "jupyter-ai-lite>=0.22,<1" jupyterlab_plugin_playground*.whl
+
+    - name: Install ui-tests dependencies
+      working-directory: ui-tests
+      run: jlpm install
+
+    - name: Set up browser cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ github.workspace }}/pw-browsers
+        key: ${{ runner.os }}-${{ hashFiles('ui-tests/yarn.lock') }}-lite
+
+    - name: Install browser
+      working-directory: ui-tests
+      run: |
+        set -eux
+        jlpm playwright install chromium
+
+    - name: Execute JupyterLite integration tests
+      working-directory: ui-tests
+      run: |
+        set -eux
+        jlpm test:lite
+
+    - name: Upload JupyterLite Playwright Test report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-tests-lite
+        path: |
+          ui-tests/test-results
+          ui-tests/playwright-report
+
   check_links:
     name: Check Links
     runs-on: ubuntu-latest

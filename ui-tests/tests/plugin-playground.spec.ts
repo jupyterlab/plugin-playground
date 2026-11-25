@@ -21,6 +21,8 @@ const PLAYGROUND_PLUGIN_ID = '@jupyterlab/plugin-playground:plugin';
 const LIST_TOKENS_COMMAND = 'plugin-playground:list-tokens';
 const LIST_COMMANDS_COMMAND = 'plugin-playground:list-commands';
 const LIST_EXAMPLES_COMMAND = 'plugin-playground:list-extension-examples';
+const GET_PROFILE_COMMAND = 'plugin-playground:get-profile';
+const DISABLE_PLUGIN_COMMAND = 'plugin-playground:disable-plugin';
 const MIN_BUNDLED_EXTENSION_EXAMPLE_COUNT = 29;
 const SMOKE_EXAMPLE_PATHS = [
   'extension-examples/hello-world/src/index.ts',
@@ -74,6 +76,7 @@ const PLAYGROUND_SIDEBAR_ID = 'jp-plugin-playground-sidebar';
 const TOKEN_SECTION_ID = 'jp-plugin-token-sidebar';
 const EXAMPLE_SECTION_ID = 'jp-plugin-example-sidebar';
 const LOADED_PLUGINS_SECTION_ID = 'jp-plugin-loaded-sidebar';
+const PROFILE_SECTION_ID = 'jp-plugin-profile-sidebar';
 const LOAD_ON_SAVE_CHECKBOX_LABEL = 'Run on save';
 const FOLDER_SHARE_DISABLE_DIALOG_CHECKBOX_LABEL =
   'Do not ask me again if all files can be included';
@@ -1365,6 +1368,65 @@ test('loads current editor file as a plugin extension', async ({
       return window.jupyterapp.commands.isToggled(id);
     }, TEST_TOGGLE_COMMAND)
   ).resolves.toBe(true);
+});
+
+test('loads a plugin file by path without an active editor', async ({
+  page,
+  tmpPath
+}) => {
+  const pluginPath = `${tmpPath}/${TEST_FILE}`;
+
+  await page.contents.uploadContent(TEST_PLUGIN_SOURCE, 'text', pluginPath);
+  await page.goto();
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, LOAD_COMMAND)
+  );
+
+  const loadResult = await page.evaluate(
+    ([id, path]) => window.jupyterapp.commands.execute(id, { path }),
+    [LOAD_COMMAND, pluginPath]
+  );
+  expect(loadResult.ok).toBe(true);
+  expect(loadResult.path).toBe(pluginPath);
+  expect(loadResult.pluginIds).toContain(TEST_PLUGIN_ID);
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, TEST_TOGGLE_COMMAND)
+  );
+
+  const missingResult = await page.evaluate(
+    ([id, path]) => window.jupyterapp.commands.execute(id, { path }),
+    [LOAD_COMMAND, `${tmpPath}/missing.ts`]
+  );
+  expect(missingResult.ok).toBe(false);
+  expect(missingResult.status).toBe('loading-failed');
+});
+
+test('keeps the profile for JupyterLite only', async ({ page }) => {
+  await page.goto();
+  await page.waitForCondition(() =>
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.hasCommand(id);
+    }, GET_PROFILE_COMMAND)
+  );
+
+  const status = await page.evaluate((id: string) => {
+    return window.jupyterapp.commands.execute(id);
+  }, GET_PROFILE_COMMAND);
+  expect(status.supported).toBe(false);
+  await expect(
+    page.evaluate((id: string) => {
+      return window.jupyterapp.commands.execute(id, {
+        id: '@jupyterlab/statusbar-extension:plugin'
+      });
+    }, DISABLE_PLUGIN_COMMAND)
+  ).rejects.toThrow(/only available in JupyterLite/);
+
+  await openSidebarPanel(page, LOADED_PLUGINS_SECTION_ID);
+  await expect(page.locator(`#${PROFILE_SECTION_ID}`)).toHaveCount(0);
 });
 
 test('lists loaded plugins and deactivates a selected plugin', async ({
@@ -4560,11 +4622,13 @@ test('commands tab lists and filters available commands', async ({ page }) => {
   ]);
   await expect(panel.getByText('Load Current File As Extension')).toBeVisible();
 
-  const loadCommandArgumentsButton = panel.locator(
+  await filterInput.fill(OPEN_PACKAGES_REFERENCE_COMMAND);
+  await expect(panel.locator('.jp-PluginPlayground-listItem')).toHaveCount(1);
+  const argumentsButton = panel.locator(
     '.jp-PluginPlayground-argumentBadgeButton'
   );
-  await expect(loadCommandArgumentsButton).toBeDisabled();
-  await expect(loadCommandArgumentsButton).toHaveAttribute(
+  await expect(argumentsButton).toBeDisabled();
+  await expect(argumentsButton).toHaveAttribute(
     'title',
     'Argument documentation unavailable'
   );

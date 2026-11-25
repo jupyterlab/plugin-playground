@@ -469,7 +469,11 @@
   position: fixed;
   right: 12px;
   user-select: none;
-  z-index: 10000;
+
+  /*
+   * Stay under the notifications, which show their buttons in the same corner.
+   */
+  z-index: 9998;
 }
 
 .jp-PluginPlayground-logBadgeBar-label {
@@ -760,4 +764,17 @@
 
 .jp-PluginPlayground-lineHighlight {
   animation: jp-PluginPlayground-lineChangePulse 1200ms ease-out;
+}
+
+.jp-PluginPlayground-profileHeading {
+  font-size: var(--jp-ui-font-size1);
+  font-weight: 600;
+  margin: 0;
+}
+
+.jp-PluginPlayground-profileProblems {
+  color: var(--jp-error-color1);
+  font-size: var(--jp-ui-font-size0);
+  margin: 0;
+  padding-left: 16px;
 }
